@@ -1,5 +1,6 @@
 ## VisualEQ specific
 *.oes
+*_oes.zip
 appsettings.Development.json
 appsettings.Production.json
 **/database.config.json

@@ -1,0 +1,31 @@
+OPENIQ - HOW TO USE
+====================
+
+LOADING A ZONE:
+1. Run load_zone.bat
+2. If no zones are detected: Convert a new zone
+   - Enter your EverQuest directory path
+   - Enter zone name (e.g., gfaydark)
+   - The script will convert both zone and character models
+
+3. Select a zone from the menu
+4. The zone will load with default character models
+
+LISTING MODELS:
+1. Run list_models.bat
+2. Select a character file from the menu or specify a custom path
+3. View all available models in the character file
+
+COMMAND LINE OPTIONS:
+- Load a specific zone: load_zone.bat [eq_path] [zone_name]
+
+KEYBOARD CONTROLS:
+- WASD: Move camera
+- Arrow Keys: Rotate camera
+- Tab: Toggle different views (Model Editor, Teleport, etc.)
+- Space: Activate current view's functionality
+
+Model Editor controls:
+- Arrow keys: Move selected model
+- Shift+Arrow: Move model faster
+- Ctrl+Arrow: Rotate model

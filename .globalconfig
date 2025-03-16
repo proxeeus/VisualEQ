@@ -1,0 +1,32 @@
+is_global = true
+
+# Core EditorConfig settings
+[*.{cs,vb}]
+dotnet_analyzer_diagnostic.severity = warning
+
+# Enable analyzer rules from Microsoft.CodeAnalysis.NetAnalyzers
+dotnet_diagnostic.CA1801.severity = warning # Review unused parameters
+dotnet_diagnostic.CA1802.severity = warning # Use Literals Where Appropriate
+dotnet_diagnostic.CA1805.severity = warning # Do not initialize unnecessarily
+dotnet_diagnostic.CA1812.severity = warning # Avoid uninstantiated internal classes
+dotnet_diagnostic.CA1822.severity = warning # Mark members as static
+dotnet_diagnostic.CA1823.severity = warning # Avoid unused private fields
+dotnet_diagnostic.CA1825.severity = warning # Avoid zero-length array allocations
+dotnet_diagnostic.CA1826.severity = warning # Use property instead of Linq Enumerable method
+dotnet_diagnostic.CA1827.severity = warning # Do not use Count/LongCount when Any can be used
+dotnet_diagnostic.CA1828.severity = warning # Do not use CountAsync/LongCountAsync when AnyAsync can be used
+dotnet_diagnostic.CA1829.severity = warning # Use Length/Count property instead of Enumerable.Count method
+
+# Disable specific StyleCop rules
+dotnet_diagnostic.SA1600.severity = none  # Elements should be documented
+dotnet_diagnostic.SA1601.severity = none  # Partial elements should be documented
+dotnet_diagnostic.SA1602.severity = none  # Enumeration items should be documented
+dotnet_diagnostic.SA1633.severity = none  # File should have header
+dotnet_diagnostic.SA1634.severity = none  # File header should show copyright
+dotnet_diagnostic.SA1635.severity = none  # File header should have copyright text
+dotnet_diagnostic.SA1636.severity = none  # File header copyright text should match
+dotnet_diagnostic.SA1637.severity = none  # File header should contain file name
+dotnet_diagnostic.SA1638.severity = none  # File header file name documentation should match
+dotnet_diagnostic.SA1640.severity = none  # File header should have valid company text
+dotnet_diagnostic.SA1641.severity = none  # File header company name text should match
+dotnet_diagnostic.SA1413.severity = none  # Use trailing comma in multi-line initializers 

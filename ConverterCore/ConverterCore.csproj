@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netcoreapp2.1</TargetFramework>
+    <AssemblyName>VisualEQ.ConverterCore</AssemblyName>
+    <RootNamespace>VisualEQ.ConverterCore</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Common\Common.csproj" />
+    <ProjectReference Include="..\ImageLib\ImageLib.csproj" />
+    <ProjectReference Include="..\LegacyFileReader\LegacyFileReader.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="morelinq" Version="3.0.0" />
+  </ItemGroup>
+</Project>
