@@ -1,0 +1,9 @@
+{
+    "DatabaseSettings": {
+        "Server": "localhost",
+        "Database": "eqemu",
+        "Username": "your_username",
+        "Password": "your_password",
+        "Port": 3306
+    }
+} 
