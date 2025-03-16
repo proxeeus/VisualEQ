@@ -1,6 +1,6 @@
 # VisualEQ - EQEmu Visual Zone Editor
 
-A visual editor for managing EQEmu zone spawn data. This tool allows server administrators to visually manipulate NPC spawn points, paths, and properties in a 3D environment. This is a continuation (in a different form) of the OpenEQ client by Daeken.
+A visual editor for managing EQEmu zone spawn data. This tool allows server administrators to visually manipulate NPC spawn points, paths, and properties in a 3D environment. This is a continuation (in a different form) of the VIsualEQ client by Daeken.
 
 ## Features
 
