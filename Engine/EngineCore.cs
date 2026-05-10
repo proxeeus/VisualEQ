@@ -141,6 +141,33 @@ namespace VisualEQ.Engine
                 Gui.Scale = new Vector2(1.5f);
                 ProjectionMat = Matrix4x4.CreatePerspectiveFieldOfView(45 * (MathF.PI / 180), (float)Width / Height, 1, 5000);
             };
+
+            // ImGui key map: GuiKey index → OpenTK Key int value (obtained via reflection).
+            // GuiKey enum: Tab=0, LeftArrow=1, RightArrow=2, UpArrow=3, DownArrow=4,
+            //              PageUp=5, PageDown=6, Home=7, End=8, Delete=9, Backspace=10,
+            //              Enter=11, Escape=12, A=13, C=14, V=15, X=16, Y=17, Z=18
+            Gui.SetKeyMap(0,  (int)Key.Tab);
+            Gui.SetKeyMap(1,  (int)Key.Left);
+            Gui.SetKeyMap(2,  (int)Key.Right);
+            Gui.SetKeyMap(3,  (int)Key.Up);
+            Gui.SetKeyMap(4,  (int)Key.Down);
+            Gui.SetKeyMap(5,  (int)Key.PageUp);
+            Gui.SetKeyMap(6,  (int)Key.PageDown);
+            Gui.SetKeyMap(7,  (int)Key.Home);
+            Gui.SetKeyMap(8,  (int)Key.End);
+            Gui.SetKeyMap(9,  (int)Key.Delete);
+            Gui.SetKeyMap(10, (int)Key.BackSpace);
+            Gui.SetKeyMap(11, (int)Key.Enter);
+            Gui.SetKeyMap(12, (int)Key.Escape);
+            Gui.SetKeyMap(13, (int)Key.A);
+            Gui.SetKeyMap(14, (int)Key.C);
+            Gui.SetKeyMap(15, (int)Key.V);
+            Gui.SetKeyMap(16, (int)Key.X);
+            Gui.SetKeyMap(17, (int)Key.Y);
+            Gui.SetKeyMap(18, (int)Key.Z);
+
+            // Forward typed characters to ImGui so InputText fields receive input.
+            KeyPress += (_, e) => Gui.HandleChar(e.KeyChar);
         }
 
         public void AddLight(Vector3 pos, float radius, float attenuation, Vector3 color) =>
@@ -206,6 +233,13 @@ namespace VisualEQ.Engine
 
         protected override void OnKeyDown(KeyboardKeyEventArgs e)
         {
+            // Always update ImGui key state so text editing works.
+            Gui.SetModifiers(e.Control, e.Shift, e.Alt);
+            Gui.SetKeyDown((int)e.Key, true);
+
+            // Don't drive camera or trigger game actions while a text field has focus.
+            if (Gui.KeyboardWanted) return;
+
             switch (e.Key)
             {
                 case Key.L:
@@ -224,7 +258,12 @@ namespace VisualEQ.Engine
             }
         }
 
-        protected override void OnKeyUp(KeyboardKeyEventArgs e) => KeyState.Remove(e.Key);
+        protected override void OnKeyUp(KeyboardKeyEventArgs e)
+        {
+            Gui.SetKeyDown((int)e.Key, false);
+            Gui.SetModifiers(e.Control, e.Shift, e.Alt);
+            KeyState.Remove(e.Key);
+        }
 
         // Method to expose pressed keys (simpler implementation)
         public IEnumerable<Key> GetPressedKeys()
@@ -239,6 +278,8 @@ namespace VisualEQ.Engine
             var movescale = KeyState.Keys.Contains(Key.ShiftLeft) ? 250 : 75;
             var pitchscale = 1.25f;
             var yawscale = 1.25f;
+            // Skip camera movement while ImGui has keyboard focus (user is typing in a field).
+            if (!Gui.KeyboardWanted)
             foreach (var key in KeyState.Keys)
                 switch (key)
                 {

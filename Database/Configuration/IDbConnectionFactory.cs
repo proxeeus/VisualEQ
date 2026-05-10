@@ -6,6 +6,7 @@ namespace VisualEQ.Database.Configuration
     public interface IDbConnectionFactory
     {
         IDbConnection CreateConnection();
-        Task<bool> TestConnectionAsync();
+        // Returns (true, null) on success; (false, errorMessage) on failure.
+        Task<(bool Success, string Error)> TestConnectionAsync();
     }
 } 

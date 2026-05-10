@@ -1,7 +1,7 @@
 using System;
 using System.Data;
 using System.Threading.Tasks;
-using MySql.Data.MySqlClient;
+using MySqlConnector;
 
 namespace VisualEQ.Database.Configuration
 {
@@ -21,19 +21,19 @@ namespace VisualEQ.Database.Configuration
             return new MySqlConnection(_connectionString);
         }
 
-        public async Task<bool> TestConnectionAsync()
+        public async Task<(bool Success, string Error)> TestConnectionAsync()
         {
             try
             {
                 using (var connection = new MySqlConnection(_connectionString))
                 {
                     await connection.OpenAsync();
-                    return true;
+                    return (true, null);
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                return false;
+                return (false, ex.Message);
             }
         }
 

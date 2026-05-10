@@ -25,17 +25,7 @@ namespace VisualEQ.Database.Repositories
             using (var connection = CreateConnection())
             {
                 var spawns = await connection.QueryAsync<Spawn2>(SqlQueries.GetZoneSpawns, new { ZoneName = zoneName });
-                
-                return spawns.Select(s => new SpawnViewModel
-                {
-                    Id = s.Id,
-                    ZoneName = s.Zone,
-                    Position = new Vector3(s.X, s.Y, s.Z),
-                    Heading = s.Heading,
-                    SpawnGroupId = s.SpawnGroupId,
-                    IsEnabled = s.Enabled,
-                    RespawnTime = s.RespawnTime
-                });
+                return spawns.Select(ToViewModel);
             }
         }
 
@@ -44,25 +34,28 @@ namespace VisualEQ.Database.Repositories
             using (var connection = CreateConnection())
             {
                 var spawn = await connection.QueryFirstOrDefaultAsync<Spawn2>(
-                    SqlQueries.GetSpawnById, 
+                    SqlQueries.GetSpawnById,
                     new { SpawnId = spawnId }
                 );
 
                 if (spawn == null)
                     throw new SpawnNotFoundException(spawnId);
 
-                return new SpawnViewModel
-                {
-                    Id = spawn.Id,
-                    ZoneName = spawn.Zone,
-                    Position = new Vector3(spawn.X, spawn.Y, spawn.Z),
-                    Heading = spawn.Heading,
-                    SpawnGroupId = spawn.SpawnGroupId,
-                    IsEnabled = spawn.Enabled,
-                    RespawnTime = spawn.RespawnTime
-                };
+                return ToViewModel(spawn);
             }
         }
+
+        private static SpawnViewModel ToViewModel(Spawn2 s) => new SpawnViewModel
+        {
+            Id = s.Id,
+            ZoneName = s.Zone,
+            Position = new Vector3(s.X, s.Y, s.Z),
+            Heading = s.Heading,
+            SpawnGroupId = s.SpawnGroupId,
+            SpawnGroupName = s.SpawnGroupName,
+            IsEnabled = true,   // no 'enabled' column in this schema version
+            RespawnTime = s.RespawnTime
+        };
 
         public async Task<bool> UpdateSpawnLocationAsync(int spawnId, Vector3 position, float heading)
         {

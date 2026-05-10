@@ -1,5 +1,7 @@
 using System.Collections.Generic;
+using VisualEQ.Database.Configuration;
 using VisualEQ.Engine;
+using VisualEQ.Settings;
 using VisualEQ.Views;
 using static VisualEQ.Engine.Globals;
 
@@ -14,17 +16,27 @@ namespace VisualEQ
 
         public AniModel LastModelLoaded;
 
-        // ModelSelector field
         private ModelSelector modelSelector;
-
-        // Implement the IController.ModelSelector property
         object IController.ModelSelector => modelSelector;
-
-        // Public property for ease of use
         public ModelSelector ModelSelector => modelSelector;
 
-        public Controller()
+        // Settings loaded at startup and persisted on change.
+        public AppSettings Settings { get; }
+
+        // Non-null once the user has saved a valid DB connection.
+        public MySqlConnectionFactory DbFactory { get; private set; }
+
+        public Controller(AppSettings settings)
         {
+            Settings = settings;
+
+            // Restore a saved connection if credentials are present.
+            if (!string.IsNullOrEmpty(settings.Database?.Server) &&
+                !string.IsNullOrEmpty(settings.Database?.Database))
+            {
+                DbFactory = new MySqlConnectionFactory(settings.Database);
+            }
+
             Engine.UpdateFrame += (s, e) => Views.ForEach(view => view.Update(Engine.Gui));
             modelSelector = new ModelSelector(Engine, CharacterModels);
             Engine.Controller = this;
@@ -56,15 +68,19 @@ namespace VisualEQ
             CharacterModels.Add(instance);
         }
 
+        // Called by DatabaseConnectionView after the user saves valid credentials.
+        public void SetDbConnection(DatabaseSettings db)
+        {
+            Settings.Database = db;
+            DbFactory = new MySqlConnectionFactory(db);
+            System.Console.WriteLine($"[DB] Connection configured: {db.Server}:{db.Port}/{db.Database}");
+        }
+
         public void Start()
         {
             Engine.Start();
         }
 
-        // Get all loaded character models
-        public IReadOnlyList<AniModelInstance> GetCharacterModels()
-        {
-            return CharacterModels;
-        }
+        public IReadOnlyList<AniModelInstance> GetCharacterModels() => CharacterModels;
     }
 }

@@ -9,6 +9,7 @@ using MoreLinq;
 using VisualEQ.Common;
 using VisualEQ.Engine;
 using VisualEQ.Materials;
+using VisualEQ.Settings;
 using VisualEQ.Views;
 using static System.Console;
 
@@ -38,7 +39,10 @@ namespace VisualEQ
                 // Add a debug flag for listing available models without loading any
                 bool listModelsOnly = args.Length >= 2 && args[1].ToLower() == "--list-models";
 
-			var controller = new Controller();
+                var settings = SettingsManager.Load();
+                Console.WriteLine($"Settings loaded from {SettingsManager.SettingsPath}");
+
+			var controller = new Controller(settings);
                 // Set up circular reference so they can access each other
                 controller.Engine.Controller = controller;
 
@@ -62,6 +66,7 @@ namespace VisualEQ
                 // Add views
 			controller.AddView(new StatusView(controller));
                 controller.AddView(new ModelEditorView(controller));
+                controller.AddView(new DatabaseConnectionView(controller));
 
                 // Add TeleportView with exception handling
                 try

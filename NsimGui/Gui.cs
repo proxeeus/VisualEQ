@@ -32,7 +32,26 @@ namespace NsimGui
             set => IO.DisplayFramebufferScale = value;
         }
 
-        public bool MouseWanted => IO.WantCaptureMouse;
+        public bool MouseWanted    => IO.WantCaptureMouse;
+        public bool KeyboardWanted => IO.WantCaptureKeyboard;
+
+        // Forward a typed character to ImGui (call from KeyPress event).
+        public void HandleChar(char c) => ImGui.AddInputCharacter(c);
+
+        // Update a physical key's pressed state (call from OnKeyDown/OnKeyUp).
+        // keyCode is (int)OpenTK.Input.Key cast value.
+        public void SetKeyDown(int keyCode, bool down) => IO.KeysDown[keyCode] = down;
+
+        public void SetModifiers(bool ctrl, bool shift, bool alt)
+        {
+            IO.CtrlPressed  = ctrl;
+            IO.ShiftPressed = shift;
+            IO.AltPressed   = alt;
+        }
+
+        // Map a GuiKey (by its int value) to a physical key code (OpenTK Key cast to int).
+        public void SetKeyMap(int guiKeyIndex, int physicalKeyIndex) =>
+            IO.KeyMap[(GuiKey)guiKeyIndex] = physicalKeyIndex;
 
         public (int X, int Y) MousePosition
         {
