@@ -3,8 +3,11 @@ setlocal enabledelayedexpansion
 
 REM VisualEQ Character Model Lister Helper Script
 
+REM On Windows ARM64 (Parallels/M-series Mac) use x64 dotnet to load cimgui.dll correctly.
+set "DOTNET_X64=C:\Program Files\dotnet\x64\dotnet.exe"
+
 REM Check if we need to build the ModelLister tool first
-if not exist "ModelLister\bin\Debug\netcoreapp2.1\ModelLister.dll" (
+if not exist "ModelLister\bin\Debug\net8.0\ModelLister.dll" (
     echo Building ModelLister tool...
     dotnet build ModelLister\ModelLister.csproj > nul
 )
@@ -92,15 +95,13 @@ if NOT "%~1"=="" (
     
     echo.
     echo ===================================
-    echo To use a model, run VisualEQ with:
-    echo dotnet run -c Debug --no-build %ZONE_NAME% MODEL_NAME
-    echo 
-    echo Example: dotnet run -c Debug --no-build %ZONE_NAME% ORC
+    echo To use a model, run:
+    echo list_models.bat   then choose the zone and model interactively
     echo.
     echo To view animations for a specific model:
     echo list_models.bat %ZONE_NAME% MODEL_NAME
     echo ===================================
-    
+
     pause
     exit /b 0
 )
@@ -294,10 +295,8 @@ if exist "VisualEQ\%CHAR_NAME%_oes.zip" (
 
 echo.
 echo ===================================
-echo To use a model, run VisualEQ with:
-echo dotnet run -c Debug --no-build %ZONE_NAME% MODEL_NAME
-echo 
-echo Example: dotnet run -c Debug --no-build %ZONE_NAME% ORC
+echo To use a model, run:
+echo list_models.bat   then choose the zone and model interactively
 echo.
 echo To view detailed animations for a specific model:
 echo list_models.bat %ZONE_NAME% MODEL_NAME
@@ -483,7 +482,11 @@ goto menu
 :launch_zone
 echo === Launching VisualEQ with Zone: %ZONE_NAME% and Model: %MODEL_NAME% ===
 pushd VisualEQ
-dotnet run -c Debug --no-build %ZONE_NAME% %MODEL_NAME%
+if exist "%DOTNET_X64%" (
+    "%DOTNET_X64%" exec "bin\Debug\net8.0\VisualEQ.dll" %ZONE_NAME% %MODEL_NAME%
+) else (
+    dotnet run -c Debug --no-build %ZONE_NAME% %MODEL_NAME%
+)
 popd
 
 echo Done.
