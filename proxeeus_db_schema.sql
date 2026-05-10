@@ -1,29 +1,26 @@
-/*M!999999\- enable the sandbox mode */ 
--- MariaDB dump 10.19-11.7.2-MariaDB, for debian-linux-gnu (x86_64)
---
--- Host: localhost    Database: proxeeus_db
--- ------------------------------------------------------
--- Server version	11.7.2-MariaDB-ubu2404
+-- --------------------------------------------------------
+-- Host:                         127.0.0.1
+-- Server version:               10.11.4-MariaDB - mariadb.org binary distribution
+-- Server OS:                    Win64
+-- HeidiSQL Version:             12.3.0.6589
+-- --------------------------------------------------------
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
-/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
-/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
-/*!40101 SET NAMES utf8mb4 */;
+/*!40101 SET NAMES utf8 */;
+/*!50503 SET NAMES utf8mb4 */;
 /*!40103 SET @OLD_TIME_ZONE=@@TIME_ZONE */;
 /*!40103 SET TIME_ZONE='+00:00' */;
-/*!40014 SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0 */;
 /*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
 /*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
-/*M!100616 SET @OLD_NOTE_VERBOSITY=@@NOTE_VERBOSITY, NOTE_VERBOSITY=0 */;
+/*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
 
---
--- Table structure for table `aa_ability`
---
 
-DROP TABLE IF EXISTS `aa_ability`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `aa_ability` (
+-- Dumping database structure for proxeeus_db
+CREATE DATABASE IF NOT EXISTS `proxeeus_db` /*!40100 DEFAULT CHARACTER SET latin1 COLLATE latin1_swedish_ci */;
+USE `proxeeus_db`;
+
+-- Dumping structure for table proxeeus_db.aa_ability
+CREATE TABLE IF NOT EXISTS `aa_ability` (
   `id` int(10) unsigned NOT NULL,
   `name` text NOT NULL,
   `category` int(10) NOT NULL DEFAULT -1,
@@ -41,16 +38,11 @@ CREATE TABLE `aa_ability` (
   `auto_grant_enabled` tinyint(4) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `aa_actions`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `aa_actions`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `aa_actions` (
+-- Dumping structure for table proxeeus_db.aa_actions
+CREATE TABLE IF NOT EXISTS `aa_actions` (
   `aaid` mediumint(8) unsigned NOT NULL DEFAULT 0,
   `rank` tinyint(3) unsigned NOT NULL DEFAULT 0,
   `reuse_time` mediumint(8) unsigned NOT NULL DEFAULT 0,
@@ -64,17 +56,12 @@ CREATE TABLE `aa_actions` (
   `redux_aa2` mediumint(8) unsigned NOT NULL DEFAULT 0,
   `redux_rate2` tinyint(4) NOT NULL DEFAULT 0,
   PRIMARY KEY (`aaid`,`rank`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `aa_effects`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `aa_effects`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `aa_effects` (
+-- Dumping structure for table proxeeus_db.aa_effects
+CREATE TABLE IF NOT EXISTS `aa_effects` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `aaid` mediumint(8) unsigned NOT NULL DEFAULT 0,
   `slot` tinyint(3) unsigned NOT NULL DEFAULT 0,
@@ -83,49 +70,12 @@ CREATE TABLE `aa_effects` (
   `base2` mediumint(8) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   UNIQUE KEY `NewIndex` (`aaid`,`slot`)
-) ENGINE=InnoDB AUTO_INCREMENT=2377 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=2377 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `aa_rank_effects`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `aa_rank_effects`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `aa_rank_effects` (
-  `rank_id` int(10) unsigned NOT NULL,
-  `slot` int(10) unsigned NOT NULL DEFAULT 1,
-  `effect_id` int(10) NOT NULL DEFAULT 0,
-  `base1` int(10) NOT NULL DEFAULT 0,
-  `base2` int(10) NOT NULL DEFAULT 0,
-  PRIMARY KEY (`rank_id`,`slot`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `aa_rank_prereqs`
---
-
-DROP TABLE IF EXISTS `aa_rank_prereqs`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `aa_rank_prereqs` (
-  `rank_id` int(10) unsigned NOT NULL,
-  `aa_id` int(10) NOT NULL,
-  `points` int(10) NOT NULL,
-  PRIMARY KEY (`rank_id`,`aa_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `aa_ranks`
---
-
-DROP TABLE IF EXISTS `aa_ranks`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `aa_ranks` (
+-- Dumping structure for table proxeeus_db.aa_ranks
+CREATE TABLE IF NOT EXISTS `aa_ranks` (
   `id` int(10) unsigned NOT NULL,
   `upper_hotkey_sid` int(10) NOT NULL DEFAULT -1,
   `lower_hotkey_sid` int(10) NOT NULL DEFAULT -1,
@@ -141,64 +91,66 @@ CREATE TABLE `aa_ranks` (
   `next_id` int(10) NOT NULL DEFAULT -1,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `aa_required_level_cost`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `aa_required_level_cost`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `aa_required_level_cost` (
+-- Dumping structure for table proxeeus_db.aa_rank_effects
+CREATE TABLE IF NOT EXISTS `aa_rank_effects` (
+  `rank_id` int(10) unsigned NOT NULL,
+  `slot` int(10) unsigned NOT NULL DEFAULT 1,
+  `effect_id` int(10) NOT NULL DEFAULT 0,
+  `base1` int(10) NOT NULL DEFAULT 0,
+  `base2` int(10) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`rank_id`,`slot`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.aa_rank_prereqs
+CREATE TABLE IF NOT EXISTS `aa_rank_prereqs` (
+  `rank_id` int(10) unsigned NOT NULL,
+  `aa_id` int(10) NOT NULL,
+  `points` int(10) NOT NULL,
+  PRIMARY KEY (`rank_id`,`aa_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.aa_required_level_cost
+CREATE TABLE IF NOT EXISTS `aa_required_level_cost` (
   `skill_id` int(10) unsigned NOT NULL,
   `level` int(10) unsigned NOT NULL,
   `cost` int(10) unsigned NOT NULL DEFAULT 0,
   `description` varchar(64) DEFAULT NULL COMMENT 'For reference only',
   PRIMARY KEY (`skill_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `aa_swarmpets`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `aa_swarmpets`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `aa_swarmpets` (
+-- Dumping structure for table proxeeus_db.aa_swarmpets
+CREATE TABLE IF NOT EXISTS `aa_swarmpets` (
   `spell_id` mediumint(8) unsigned NOT NULL DEFAULT 0,
   `count` tinyint(3) unsigned NOT NULL DEFAULT 0,
   `npc_id` int(11) NOT NULL DEFAULT 0,
   `duration` mediumint(8) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`spell_id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `aa_timers`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `aa_timers`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `aa_timers` (
+-- Dumping structure for table proxeeus_db.aa_timers
+CREATE TABLE IF NOT EXISTS `aa_timers` (
   `charid` int(12) unsigned NOT NULL DEFAULT 0,
   `ability` smallint(5) unsigned NOT NULL DEFAULT 0,
   `begin` int(10) unsigned NOT NULL DEFAULT 0,
   `end` int(10) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`charid`,`ability`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `account`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `account`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `account` (
+-- Dumping structure for table proxeeus_db.account
+CREATE TABLE IF NOT EXISTS `account` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(30) NOT NULL DEFAULT '',
   `charname` varchar(64) NOT NULL DEFAULT '',
@@ -228,64 +180,44 @@ CREATE TABLE `account` (
   UNIQUE KEY `name_ls_id` (`name`,`ls_id`),
   UNIQUE KEY `ls_id_lsaccount_id` (`ls_id`,`lsaccount_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=28 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `account_flags`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `account_flags`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `account_flags` (
+-- Dumping structure for table proxeeus_db.account_flags
+CREATE TABLE IF NOT EXISTS `account_flags` (
   `p_accid` int(10) unsigned NOT NULL,
   `p_flag` varchar(50) NOT NULL,
   `p_value` varchar(80) NOT NULL,
   PRIMARY KEY (`p_accid`,`p_flag`),
   KEY `p_accid` (`p_accid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `account_ip`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `account_ip`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `account_ip` (
+-- Dumping structure for table proxeeus_db.account_ip
+CREATE TABLE IF NOT EXISTS `account_ip` (
   `accid` int(11) NOT NULL DEFAULT 0,
   `ip` varchar(32) NOT NULL DEFAULT '',
   `count` int(11) NOT NULL DEFAULT 1,
   `lastused` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   UNIQUE KEY `ip` (`accid`,`ip`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `account_rewards`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `account_rewards`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `account_rewards` (
+-- Dumping structure for table proxeeus_db.account_rewards
+CREATE TABLE IF NOT EXISTS `account_rewards` (
   `account_id` int(10) unsigned NOT NULL DEFAULT 0,
   `reward_id` int(10) unsigned NOT NULL DEFAULT 0,
   `amount` int(10) unsigned NOT NULL DEFAULT 0,
   UNIQUE KEY `account_reward` (`account_id`,`reward_id`),
   KEY `account_id` (`account_id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `adventure_details`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `adventure_details`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `adventure_details` (
+-- Dumping structure for table proxeeus_db.adventure_details
+CREATE TABLE IF NOT EXISTS `adventure_details` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `adventure_id` smallint(5) unsigned NOT NULL DEFAULT 0,
   `instance_id` int(11) NOT NULL DEFAULT -1,
@@ -296,32 +228,22 @@ CREATE TABLE `adventure_details` (
   `time_zoned` int(10) unsigned NOT NULL DEFAULT 0,
   `time_completed` int(10) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `adventure_members`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `adventure_members`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `adventure_members` (
+-- Dumping structure for table proxeeus_db.adventure_members
+CREATE TABLE IF NOT EXISTS `adventure_members` (
   `id` int(10) unsigned NOT NULL DEFAULT 0,
   `charid` int(10) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`charid`),
   KEY `id` (`id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `adventure_stats`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `adventure_stats`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `adventure_stats` (
+-- Dumping structure for table proxeeus_db.adventure_stats
+CREATE TABLE IF NOT EXISTS `adventure_stats` (
   `player_id` int(10) unsigned NOT NULL DEFAULT 0,
   `guk_wins` mediumint(8) unsigned NOT NULL DEFAULT 0,
   `mir_wins` mediumint(8) unsigned NOT NULL DEFAULT 0,
@@ -336,17 +258,12 @@ CREATE TABLE `adventure_stats` (
   PRIMARY KEY (`player_id`),
   UNIQUE KEY `player_id` (`player_id`),
   KEY `player_id_2` (`player_id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `adventure_template`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `adventure_template`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `adventure_template` (
+-- Dumping structure for table proxeeus_db.adventure_template
+CREATE TABLE IF NOT EXISTS `adventure_template` (
   `id` int(10) unsigned NOT NULL,
   `zone` varchar(64) NOT NULL,
   `zone_version` tinyint(3) unsigned NOT NULL DEFAULT 0,
@@ -383,48 +300,33 @@ CREATE TABLE `adventure_template` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `id` (`id`),
   KEY `id_2` (`id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `adventure_template_entry`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `adventure_template_entry`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `adventure_template_entry` (
+-- Dumping structure for table proxeeus_db.adventure_template_entry
+CREATE TABLE IF NOT EXISTS `adventure_template_entry` (
   `id` int(10) unsigned NOT NULL DEFAULT 0,
   `template_id` int(10) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`,`template_id`),
   KEY `id` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `adventure_template_entry_flavor`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `adventure_template_entry_flavor`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `adventure_template_entry_flavor` (
+-- Dumping structure for table proxeeus_db.adventure_template_entry_flavor
+CREATE TABLE IF NOT EXISTS `adventure_template_entry_flavor` (
   `id` int(10) unsigned NOT NULL DEFAULT 0,
   `text` text NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `id` (`id`),
   KEY `id_2` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `altadv_vars`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `altadv_vars`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `altadv_vars` (
+-- Dumping structure for table proxeeus_db.altadv_vars
+CREATE TABLE IF NOT EXISTS `altadv_vars` (
   `skill_id` int(11) NOT NULL DEFAULT 0,
   `name` varchar(128) DEFAULT NULL,
   `cost` int(11) DEFAULT NULL,
@@ -455,31 +357,21 @@ CREATE TABLE `altadv_vars` (
   `sof_next_id` int(10) unsigned NOT NULL DEFAULT 0,
   `level_inc` tinyint(3) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`skill_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `alternate_currency`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `alternate_currency`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `alternate_currency` (
+-- Dumping structure for table proxeeus_db.alternate_currency
+CREATE TABLE IF NOT EXISTS `alternate_currency` (
   `id` int(10) NOT NULL,
   `item_id` int(10) NOT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `auras`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `auras`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `auras` (
+-- Dumping structure for table proxeeus_db.auras
+CREATE TABLE IF NOT EXISTS `auras` (
   `type` int(10) NOT NULL,
   `npc_type` int(10) NOT NULL,
   `name` varchar(64) NOT NULL,
@@ -493,30 +385,20 @@ CREATE TABLE `auras` (
   `cast_time` int(10) NOT NULL DEFAULT 0,
   PRIMARY KEY (`type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `banned_ips`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `banned_ips`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `banned_ips` (
+-- Dumping structure for table proxeeus_db.banned_ips
+CREATE TABLE IF NOT EXISTS `banned_ips` (
   `ip_address` varchar(32) CHARACTER SET utf8mb3 COLLATE utf8mb3_unicode_ci NOT NULL DEFAULT '',
   `notes` varchar(32) CHARACTER SET utf8mb3 COLLATE utf8mb3_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`ip_address`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `base_data`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `base_data`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `base_data` (
+-- Dumping structure for table proxeeus_db.base_data
+CREATE TABLE IF NOT EXISTS `base_data` (
   `level` tinyint(3) unsigned NOT NULL,
   `class` tinyint(2) unsigned NOT NULL,
   `hp` double NOT NULL,
@@ -529,16 +411,11 @@ CREATE TABLE `base_data` (
   `end_fac` double NOT NULL,
   PRIMARY KEY (`level`,`class`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `blocked_spells`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `blocked_spells`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `blocked_spells` (
+-- Dumping structure for table proxeeus_db.blocked_spells
+CREATE TABLE IF NOT EXISTS `blocked_spells` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `spellid` mediumint(8) unsigned NOT NULL DEFAULT 0,
   `type` tinyint(4) NOT NULL DEFAULT 0,
@@ -556,34 +433,251 @@ CREATE TABLE `blocked_spells` (
   `content_flags` varchar(100) CHARACTER SET latin1 COLLATE latin1_swedish_ci DEFAULT NULL,
   `content_flags_disabled` varchar(100) CHARACTER SET latin1 COLLATE latin1_swedish_ci DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `books`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `books`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `books` (
+-- Dumping structure for table proxeeus_db.books
+CREATE TABLE IF NOT EXISTS `books` (
   `id` int(20) NOT NULL AUTO_INCREMENT,
   `name` varchar(30) NOT NULL DEFAULT '',
   `txtfile` text NOT NULL,
   `language` int(11) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   UNIQUE KEY `filename` (`name`)
-) ENGINE=MyISAM AUTO_INCREMENT=851 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM AUTO_INCREMENT=851 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `bot_buffs`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `bot_buffs`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bot_buffs` (
+-- Dumping structure for table proxeeus_db.botbuffs_old
+CREATE TABLE IF NOT EXISTS `botbuffs_old` (
+  `BotBuffId` int(10) unsigned NOT NULL,
+  `BotId` int(10) unsigned NOT NULL DEFAULT 0,
+  `SpellId` int(10) unsigned NOT NULL DEFAULT 0,
+  `CasterLevel` int(10) unsigned NOT NULL DEFAULT 0,
+  `DurationFormula` int(10) unsigned NOT NULL DEFAULT 0,
+  `TicsRemaining` int(11) unsigned NOT NULL DEFAULT 0,
+  `PoisonCounters` int(11) unsigned NOT NULL DEFAULT 0,
+  `DiseaseCounters` int(11) unsigned NOT NULL DEFAULT 0,
+  `CurseCounters` int(11) unsigned NOT NULL DEFAULT 0,
+  `CorruptionCounters` int(11) unsigned NOT NULL DEFAULT 0,
+  `HitCount` int(10) unsigned NOT NULL DEFAULT 0,
+  `MeleeRune` int(10) unsigned NOT NULL DEFAULT 0,
+  `MagicRune` int(10) unsigned NOT NULL DEFAULT 0,
+  `dot_rune` int(10) unsigned NOT NULL DEFAULT 0,
+  `caston_x` int(10) unsigned NOT NULL DEFAULT 0,
+  `DeathSaveSuccessChance` int(10) unsigned NOT NULL DEFAULT 0,
+  `CasterAARank` int(10) unsigned NOT NULL DEFAULT 0,
+  `Persistent` tinyint(1) NOT NULL DEFAULT 0,
+  `caston_y` int(10) unsigned NOT NULL DEFAULT 0,
+  `caston_z` int(10) unsigned NOT NULL DEFAULT 0,
+  `ExtraDIChance` int(10) unsigned NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.botbuffs___
+CREATE TABLE IF NOT EXISTS `botbuffs___` (
+  `BotBuffId` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `BotId` int(10) unsigned NOT NULL DEFAULT 0,
+  `SpellId` int(10) unsigned NOT NULL DEFAULT 0,
+  `CasterLevel` int(10) unsigned NOT NULL DEFAULT 0,
+  `DurationFormula` int(10) unsigned NOT NULL DEFAULT 0,
+  `TicsRemaining` int(11) unsigned NOT NULL DEFAULT 0,
+  `PoisonCounters` int(11) unsigned NOT NULL DEFAULT 0,
+  `DiseaseCounters` int(11) unsigned NOT NULL DEFAULT 0,
+  `CurseCounters` int(11) unsigned NOT NULL DEFAULT 0,
+  `CorruptionCounters` int(11) unsigned NOT NULL DEFAULT 0,
+  `HitCount` int(10) unsigned NOT NULL DEFAULT 0,
+  `MeleeRune` int(10) unsigned NOT NULL DEFAULT 0,
+  `MagicRune` int(10) unsigned NOT NULL DEFAULT 0,
+  `DeathSaveSuccessChance` int(10) unsigned NOT NULL DEFAULT 0,
+  `CasterAARank` int(10) unsigned NOT NULL DEFAULT 0,
+  `Persistent` tinyint(1) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`BotBuffId`),
+  KEY `FK_botbuff_1` (`BotId`),
+  CONSTRAINT `FK_botbuff_1` FOREIGN KEY (`BotId`) REFERENCES `bots_old` (`BotID`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.botgroupmembers_old
+CREATE TABLE IF NOT EXISTS `botgroupmembers_old` (
+  `BotGroupMemberId` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `BotGroupId` int(10) unsigned NOT NULL DEFAULT 0,
+  `BotId` int(10) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`BotGroupMemberId`),
+  KEY `FK_botgroupmembers_1` (`BotGroupId`),
+  KEY `FK_botgroupmembers_2` (`BotId`),
+  CONSTRAINT `FK_botgroupmembers_1` FOREIGN KEY (`BotGroupId`) REFERENCES `botgroup_old` (`BotGroupId`),
+  CONSTRAINT `FK_botgroupmembers_2` FOREIGN KEY (`BotId`) REFERENCES `bots_old` (`BotID`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.botgroup_old
+CREATE TABLE IF NOT EXISTS `botgroup_old` (
+  `BotGroupId` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `BotGroupLeaderBotId` int(10) unsigned NOT NULL DEFAULT 0,
+  `BotGroupName` varchar(64) NOT NULL,
+  PRIMARY KEY (`BotGroupId`),
+  KEY `FK_botgroup_1` (`BotGroupLeaderBotId`),
+  CONSTRAINT `FK_botgroup_1` FOREIGN KEY (`BotGroupLeaderBotId`) REFERENCES `bots_old` (`BotID`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.botguildmembers_old
+CREATE TABLE IF NOT EXISTS `botguildmembers_old` (
+  `char_id` int(11) NOT NULL DEFAULT 0,
+  `guild_id` mediumint(8) unsigned NOT NULL DEFAULT 0,
+  `rank` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `tribute_enable` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `total_tribute` int(10) unsigned NOT NULL DEFAULT 0,
+  `last_tribute` int(10) unsigned NOT NULL DEFAULT 0,
+  `banker` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `public_note` text DEFAULT NULL,
+  `alt` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`char_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.botinventory_old
+CREATE TABLE IF NOT EXISTS `botinventory_old` (
+  `BotInventoryID` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `BotID` int(10) unsigned NOT NULL DEFAULT 0,
+  `SlotID` int(11) NOT NULL DEFAULT 0,
+  `ItemID` int(10) unsigned NOT NULL DEFAULT 0,
+  `charges` tinyint(3) unsigned DEFAULT 0,
+  `color` int(10) unsigned NOT NULL DEFAULT 0,
+  `augslot1` mediumint(7) unsigned NOT NULL DEFAULT 0,
+  `augslot2` mediumint(7) unsigned NOT NULL DEFAULT 0,
+  `augslot3` mediumint(7) unsigned NOT NULL DEFAULT 0,
+  `augslot4` mediumint(7) unsigned NOT NULL DEFAULT 0,
+  `augslot5` mediumint(7) unsigned DEFAULT 0,
+  `instnodrop` tinyint(1) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`BotInventoryID`),
+  KEY `FK_botinventory_1` (`BotID`),
+  CONSTRAINT `FK_botinventory_1` FOREIGN KEY (`BotID`) REFERENCES `bots_old` (`BotID`)
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.botpetbuffs_old
+CREATE TABLE IF NOT EXISTS `botpetbuffs_old` (
+  `BotPetBuffId` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `BotPetsId` int(10) unsigned NOT NULL DEFAULT 0,
+  `SpellId` int(10) unsigned NOT NULL DEFAULT 0,
+  `CasterLevel` int(10) unsigned NOT NULL DEFAULT 0,
+  `Duration` int(11) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`BotPetBuffId`),
+  KEY `FK_botpetbuffs_1` (`BotPetsId`),
+  CONSTRAINT `FK_botpetbuffs_1` FOREIGN KEY (`BotPetsId`) REFERENCES `botpets_old` (`BotPetsId`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.botpetinventory_old
+CREATE TABLE IF NOT EXISTS `botpetinventory_old` (
+  `BotPetInventoryId` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `BotPetsId` int(10) unsigned NOT NULL DEFAULT 0,
+  `ItemId` int(10) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`BotPetInventoryId`),
+  KEY `FK_botpetinventory_1` (`BotPetsId`),
+  CONSTRAINT `FK_botpetinventory_1` FOREIGN KEY (`BotPetsId`) REFERENCES `botpets_old` (`BotPetsId`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.botpets_old
+CREATE TABLE IF NOT EXISTS `botpets_old` (
+  `BotPetsId` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `PetId` int(10) unsigned NOT NULL DEFAULT 0,
+  `BotId` int(10) unsigned NOT NULL DEFAULT 0,
+  `Name` varchar(64) DEFAULT NULL,
+  `Mana` int(11) NOT NULL DEFAULT 0,
+  `HitPoints` int(11) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`BotPetsId`),
+  UNIQUE KEY `U_botpets_1` (`BotId`),
+  KEY `FK_botpets_1` (`BotId`),
+  CONSTRAINT `FK_botpets_1` FOREIGN KEY (`BotId`) REFERENCES `bots_old` (`BotID`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.botstances_old
+CREATE TABLE IF NOT EXISTS `botstances_old` (
+  `BotID` int(10) unsigned NOT NULL DEFAULT 0,
+  `StanceID` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`BotID`),
+  CONSTRAINT `FK_botstances_1` FOREIGN KEY (`BotID`) REFERENCES `bots_old` (`BotID`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.bots_old
+CREATE TABLE IF NOT EXISTS `bots_old` (
+  `BotID` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `BotOwnerCharacterID` int(10) unsigned NOT NULL,
+  `BotSpellsID` int(10) unsigned NOT NULL DEFAULT 0,
+  `Name` varchar(64) NOT NULL,
+  `LastName` varchar(32) DEFAULT NULL,
+  `BotLevel` tinyint(2) unsigned NOT NULL DEFAULT 0,
+  `Race` smallint(5) NOT NULL DEFAULT 0,
+  `Class` tinyint(2) NOT NULL DEFAULT 0,
+  `Gender` tinyint(2) NOT NULL DEFAULT 0,
+  `Size` float NOT NULL DEFAULT 0,
+  `Face` int(10) NOT NULL DEFAULT 1,
+  `LuclinHairStyle` int(10) NOT NULL DEFAULT 1,
+  `LuclinHairColor` int(10) NOT NULL DEFAULT 1,
+  `LuclinEyeColor` int(10) NOT NULL DEFAULT 1,
+  `LuclinEyeColor2` int(10) NOT NULL DEFAULT 1,
+  `LuclinBeardColor` int(10) NOT NULL DEFAULT 1,
+  `LuclinBeard` int(10) NOT NULL DEFAULT 0,
+  `DrakkinHeritage` int(10) NOT NULL DEFAULT 0,
+  `DrakkinTattoo` int(10) NOT NULL DEFAULT 0,
+  `DrakkinDetails` int(10) NOT NULL DEFAULT 0,
+  `HP` int(11) NOT NULL DEFAULT 0,
+  `Mana` int(11) NOT NULL DEFAULT 0,
+  `MR` smallint(5) NOT NULL DEFAULT 0,
+  `CR` smallint(5) NOT NULL DEFAULT 0,
+  `DR` smallint(5) NOT NULL DEFAULT 0,
+  `FR` smallint(5) NOT NULL DEFAULT 0,
+  `PR` smallint(5) NOT NULL DEFAULT 0,
+  `Corrup` smallint(5) NOT NULL DEFAULT 0,
+  `AC` smallint(5) NOT NULL DEFAULT 0,
+  `STR` mediumint(8) NOT NULL DEFAULT 75,
+  `STA` mediumint(8) NOT NULL DEFAULT 75,
+  `DEX` mediumint(8) NOT NULL DEFAULT 75,
+  `AGI` mediumint(8) NOT NULL DEFAULT 75,
+  `_INT` mediumint(8) NOT NULL DEFAULT 80,
+  `WIS` mediumint(8) NOT NULL DEFAULT 75,
+  `CHA` mediumint(8) NOT NULL DEFAULT 75,
+  `ATK` mediumint(9) NOT NULL DEFAULT 0,
+  `BotCreateDate` timestamp NOT NULL DEFAULT current_timestamp(),
+  `LastSpawnDate` datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
+  `TotalPlayTime` int(10) unsigned NOT NULL DEFAULT 0,
+  `LastZoneId` smallint(6) NOT NULL DEFAULT 0,
+  `BotInspectMessage` varchar(256) NOT NULL DEFAULT '',
+  PRIMARY KEY (`BotID`)
+) ENGINE=InnoDB AUTO_INCREMENT=16 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.bottimers_old
+CREATE TABLE IF NOT EXISTS `bottimers_old` (
+  `BotID` int(10) unsigned NOT NULL DEFAULT 0,
+  `TimerID` int(10) unsigned NOT NULL DEFAULT 0,
+  `Value` int(10) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`BotID`),
+  CONSTRAINT `FK_bottimers_1` FOREIGN KEY (`BotID`) REFERENCES `bots_old` (`BotID`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.bot_buffs
+CREATE TABLE IF NOT EXISTS `bot_buffs` (
   `buffs_index` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `bot_id` int(11) unsigned NOT NULL DEFAULT 0,
   `spell_id` int(10) unsigned NOT NULL DEFAULT 0,
@@ -606,47 +700,32 @@ CREATE TABLE `bot_buffs` (
   `instrument_mod` int(10) NOT NULL DEFAULT 10,
   PRIMARY KEY (`buffs_index`),
   KEY `FK_bot_buffs_1` (`bot_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=577551 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=343203 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
---
--- Table structure for table `bot_command_settings`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `bot_command_settings`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bot_command_settings` (
+-- Dumping structure for table proxeeus_db.bot_command_settings
+CREATE TABLE IF NOT EXISTS `bot_command_settings` (
   `bot_command` varchar(128) NOT NULL DEFAULT '',
   `access` int(11) NOT NULL DEFAULT 0,
   `aliases` varchar(256) NOT NULL DEFAULT '',
   PRIMARY KEY (`bot_command`),
   UNIQUE KEY `UK_bot_command_settings_1` (`bot_command`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `bot_create_combinations`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `bot_create_combinations`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bot_create_combinations` (
+-- Dumping structure for table proxeeus_db.bot_create_combinations
+CREATE TABLE IF NOT EXISTS `bot_create_combinations` (
   `race` int(10) unsigned NOT NULL DEFAULT 0,
   `classes` int(10) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`race`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci ROW_FORMAT=COMPACT;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `bot_data`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `bot_data`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bot_data` (
+-- Dumping structure for table proxeeus_db.bot_data
+CREATE TABLE IF NOT EXISTS `bot_data` (
   `bot_id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `owner_id` int(11) unsigned NOT NULL,
   `spells_id` int(11) unsigned NOT NULL DEFAULT 0,
@@ -699,65 +778,23 @@ CREATE TABLE `bot_data` (
   `enforce_spell_settings` tinyint(2) unsigned NOT NULL DEFAULT 0,
   `archery_setting` tinyint(2) unsigned NOT NULL DEFAULT 0,
   `caster_range` int(11) unsigned NOT NULL DEFAULT 300,
+  `taunting` tinyint(1) NOT NULL DEFAULT 0,
   PRIMARY KEY (`bot_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=608 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=610 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
---
--- Table structure for table `bot_guilds`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `bot_guilds`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bot_guilds` (
+-- Dumping structure for table proxeeus_db.bot_guilds
+CREATE TABLE IF NOT EXISTS `bot_guilds` (
   `bot_id` int(11) NOT NULL,
   `guild_id` int(11) NOT NULL,
   PRIMARY KEY (`bot_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `bot_heal_rotation_members`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `bot_heal_rotation_members`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bot_heal_rotation_members` (
-  `member_index` int(11) unsigned NOT NULL AUTO_INCREMENT,
-  `heal_rotation_index` int(11) unsigned NOT NULL DEFAULT 0,
-  `bot_id` int(11) unsigned NOT NULL DEFAULT 0,
-  PRIMARY KEY (`member_index`),
-  KEY `FK_bot_heal_rotation_members_1` (`heal_rotation_index`),
-  KEY `FK_bot_heal_rotation_members_2` (`bot_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=27 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `bot_heal_rotation_targets`
---
-
-DROP TABLE IF EXISTS `bot_heal_rotation_targets`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bot_heal_rotation_targets` (
-  `target_index` int(11) unsigned NOT NULL AUTO_INCREMENT,
-  `heal_rotation_index` int(11) unsigned NOT NULL DEFAULT 0,
-  `target_name` varchar(64) NOT NULL DEFAULT '',
-  PRIMARY KEY (`target_index`),
-  KEY `FK_bot_heal_rotation_targets` (`heal_rotation_index`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `bot_heal_rotations`
---
-
-DROP TABLE IF EXISTS `bot_heal_rotations`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bot_heal_rotations` (
+-- Dumping structure for table proxeeus_db.bot_heal_rotations
+CREATE TABLE IF NOT EXISTS `bot_heal_rotations` (
   `heal_rotation_index` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `bot_id` int(11) unsigned NOT NULL DEFAULT 0,
   `interval` int(11) unsigned NOT NULL DEFAULT 0,
@@ -776,32 +813,45 @@ CREATE TABLE `bot_heal_rotations` (
   `critical_hp_plate` float unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`heal_rotation_index`),
   KEY `FK_bot_heal_rotations` (`bot_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=24 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
---
--- Table structure for table `bot_inspect_messages`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `bot_inspect_messages`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bot_inspect_messages` (
+-- Dumping structure for table proxeeus_db.bot_heal_rotation_members
+CREATE TABLE IF NOT EXISTS `bot_heal_rotation_members` (
+  `member_index` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `heal_rotation_index` int(11) unsigned NOT NULL DEFAULT 0,
+  `bot_id` int(11) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`member_index`),
+  KEY `FK_bot_heal_rotation_members_1` (`heal_rotation_index`),
+  KEY `FK_bot_heal_rotation_members_2` (`bot_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=220 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.bot_heal_rotation_targets
+CREATE TABLE IF NOT EXISTS `bot_heal_rotation_targets` (
+  `target_index` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `heal_rotation_index` int(11) unsigned NOT NULL DEFAULT 0,
+  `target_name` varchar(64) NOT NULL DEFAULT '',
+  PRIMARY KEY (`target_index`),
+  KEY `FK_bot_heal_rotation_targets` (`heal_rotation_index`)
+) ENGINE=InnoDB AUTO_INCREMENT=34 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.bot_inspect_messages
+CREATE TABLE IF NOT EXISTS `bot_inspect_messages` (
   `bot_id` int(11) unsigned NOT NULL,
   `inspect_message` varchar(256) NOT NULL DEFAULT '',
   PRIMARY KEY (`bot_id`),
   KEY `bot_id` (`bot_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `bot_inventories`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `bot_inventories`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bot_inventories` (
+-- Dumping structure for table proxeeus_db.bot_inventories
+CREATE TABLE IF NOT EXISTS `bot_inventories` (
   `inventories_index` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `bot_id` int(11) unsigned NOT NULL DEFAULT 0,
   `slot_id` mediumint(7) unsigned NOT NULL DEFAULT 0,
@@ -821,66 +871,22 @@ CREATE TABLE `bot_inventories` (
   `augment_6` mediumint(7) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`inventories_index`),
   KEY `FK_bot_inventories_1` (`bot_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=10140 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=10272 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
---
--- Table structure for table `bot_owner_options`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `bot_owner_options`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bot_owner_options` (
+-- Dumping structure for table proxeeus_db.bot_owner_options
+CREATE TABLE IF NOT EXISTS `bot_owner_options` (
   `owner_id` int(11) unsigned NOT NULL,
   `option_type` smallint(3) unsigned NOT NULL,
   `option_value` smallint(3) unsigned DEFAULT 0,
   PRIMARY KEY (`owner_id`,`option_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `bot_pet_buffs`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `bot_pet_buffs`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bot_pet_buffs` (
-  `pet_buffs_index` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `pets_index` int(10) unsigned NOT NULL DEFAULT 0,
-  `spell_id` int(10) unsigned NOT NULL DEFAULT 0,
-  `caster_level` int(10) unsigned NOT NULL DEFAULT 0,
-  `duration` int(11) unsigned NOT NULL DEFAULT 0,
-  PRIMARY KEY (`pet_buffs_index`),
-  KEY `FK_bot_pet_buffs_1` (`pets_index`)
-) ENGINE=InnoDB AUTO_INCREMENT=64562 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `bot_pet_inventories`
---
-
-DROP TABLE IF EXISTS `bot_pet_inventories`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bot_pet_inventories` (
-  `pet_inventories_index` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `pets_index` int(10) unsigned NOT NULL DEFAULT 0,
-  `item_id` int(10) unsigned NOT NULL DEFAULT 0,
-  PRIMARY KEY (`pet_inventories_index`),
-  KEY `FK_bot_pet_inventories_1` (`pets_index`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `bot_pets`
---
-
-DROP TABLE IF EXISTS `bot_pets`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bot_pets` (
+-- Dumping structure for table proxeeus_db.bot_pets
+CREATE TABLE IF NOT EXISTS `bot_pets` (
   `pets_index` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `spell_id` int(10) unsigned NOT NULL DEFAULT 0,
   `bot_id` int(10) unsigned NOT NULL DEFAULT 0,
@@ -890,17 +896,67 @@ CREATE TABLE `bot_pets` (
   PRIMARY KEY (`pets_index`),
   UNIQUE KEY `U_bot_pets_1` (`bot_id`),
   KEY `FK_bot_pets_1` (`bot_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=13843 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=18047 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
---
--- Table structure for table `bot_spell_casting_chances`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `bot_spell_casting_chances`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bot_spell_casting_chances` (
+-- Dumping structure for table proxeeus_db.bot_pet_buffs
+CREATE TABLE IF NOT EXISTS `bot_pet_buffs` (
+  `pet_buffs_index` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `pets_index` int(10) unsigned NOT NULL DEFAULT 0,
+  `spell_id` int(10) unsigned NOT NULL DEFAULT 0,
+  `caster_level` int(10) unsigned NOT NULL DEFAULT 0,
+  `duration` int(11) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`pet_buffs_index`),
+  KEY `FK_bot_pet_buffs_1` (`pets_index`)
+) ENGINE=InnoDB AUTO_INCREMENT=125446 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.bot_pet_inventories
+CREATE TABLE IF NOT EXISTS `bot_pet_inventories` (
+  `pet_inventories_index` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `pets_index` int(10) unsigned NOT NULL DEFAULT 0,
+  `item_id` int(10) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`pet_inventories_index`),
+  KEY `FK_bot_pet_inventories_1` (`pets_index`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.bot_raid_roster
+CREATE TABLE IF NOT EXISTS `bot_raid_roster` (
+  `owner_id` int(10) unsigned NOT NULL,
+  `bot_id` int(10) unsigned NOT NULL,
+  PRIMARY KEY (`owner_id`,`bot_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.bot_spells_entries
+CREATE TABLE IF NOT EXISTS `bot_spells_entries` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `npc_spells_id` int(11) NOT NULL DEFAULT 0,
+  `spell_id` smallint(5) unsigned NOT NULL DEFAULT 0,
+  `type` int(10) unsigned NOT NULL DEFAULT 0,
+  `minlevel` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `maxlevel` tinyint(3) unsigned NOT NULL DEFAULT 255,
+  `manacost` smallint(5) NOT NULL DEFAULT -1,
+  `recast_delay` int(11) NOT NULL DEFAULT -1,
+  `priority` smallint(5) NOT NULL DEFAULT 0,
+  `resist_adjust` int(11) NOT NULL DEFAULT 0,
+  `min_hp` smallint(5) NOT NULL DEFAULT 0,
+  `max_hp` smallint(5) NOT NULL DEFAULT 0,
+  `bucket_name` varchar(100) NOT NULL DEFAULT '',
+  `bucket_value` varchar(100) NOT NULL DEFAULT '',
+  `bucket_comparison` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=2888 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.bot_spell_casting_chances
+CREATE TABLE IF NOT EXISTS `bot_spell_casting_chances` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `spell_type_index` tinyint(3) unsigned NOT NULL DEFAULT 0,
   `class_id` tinyint(3) unsigned NOT NULL DEFAULT 0,
@@ -923,17 +979,12 @@ CREATE TABLE `bot_spell_casting_chances` (
   `pHSND_value` tinyint(3) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   KEY `spelltype_class_stance` (`spell_type_index`,`class_id`,`stance_index`)
-) ENGINE=InnoDB AUTO_INCREMENT=2466 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=2473 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
---
--- Table structure for table `bot_spell_settings`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `bot_spell_settings`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bot_spell_settings` (
+-- Dumping structure for table proxeeus_db.bot_spell_settings
+CREATE TABLE IF NOT EXISTS `bot_spell_settings` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `bot_id` int(11) NOT NULL DEFAULT 0,
   `spell_id` smallint(5) NOT NULL DEFAULT 0,
@@ -942,58 +993,21 @@ CREATE TABLE `bot_spell_settings` (
   `max_hp` smallint(5) NOT NULL DEFAULT 0,
   `is_enabled` tinyint(1) unsigned NOT NULL DEFAULT 1,
   PRIMARY KEY (`id`) USING BTREE
-) ENGINE=InnoDB AUTO_INCREMENT=91 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=104 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Table structure for table `bot_spells_entries`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `bot_spells_entries`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bot_spells_entries` (
-  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
-  `npc_spells_id` int(11) NOT NULL DEFAULT 0,
-  `spellid` smallint(5) NOT NULL DEFAULT 0,
-  `type` int(10) unsigned NOT NULL DEFAULT 0,
-  `minlevel` tinyint(3) unsigned DEFAULT 0,
-  `maxlevel` tinyint(3) unsigned NOT NULL DEFAULT 255,
-  `manacost` smallint(5) NOT NULL DEFAULT -1,
-  `recast_delay` int(11) NOT NULL DEFAULT -1,
-  `priority` smallint(5) NOT NULL DEFAULT 0,
-  `resist_adjust` int(11) NOT NULL DEFAULT 0,
-  `min_hp` smallint(5) NOT NULL DEFAULT 0,
-  `max_hp` smallint(5) NOT NULL DEFAULT 0,
-  `bucket_name` varchar(100) NOT NULL DEFAULT '',
-  `bucket_value` varchar(100) NOT NULL DEFAULT '',
-  `bucket_comparison` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=2745 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `bot_stances`
---
-
-DROP TABLE IF EXISTS `bot_stances`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bot_stances` (
+-- Dumping structure for table proxeeus_db.bot_stances
+CREATE TABLE IF NOT EXISTS `bot_stances` (
   `bot_id` int(11) unsigned NOT NULL DEFAULT 0,
   `stance_id` tinyint(3) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`bot_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `bot_starting_items`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `bot_starting_items`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bot_starting_items` (
+-- Dumping structure for table proxeeus_db.bot_starting_items
+CREATE TABLE IF NOT EXISTS `bot_starting_items` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `races` int(11) unsigned NOT NULL DEFAULT 0,
   `classes` int(11) unsigned NOT NULL DEFAULT 0,
@@ -1013,16 +1027,11 @@ CREATE TABLE `bot_starting_items` (
   `content_flags_disabled` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `bot_timers`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `bot_timers`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bot_timers` (
+-- Dumping structure for table proxeeus_db.bot_timers
+CREATE TABLE IF NOT EXISTS `bot_timers` (
   `bot_id` int(11) unsigned NOT NULL DEFAULT 0,
   `timer_id` int(11) unsigned NOT NULL DEFAULT 0,
   `timer_value` int(11) unsigned NOT NULL DEFAULT 0,
@@ -1034,303 +1043,32 @@ CREATE TABLE `bot_timers` (
   `item_id` int(11) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`bot_id`,`timer_id`,`spell_id`,`item_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `botbuffs___`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `botbuffs___`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `botbuffs___` (
-  `BotBuffId` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `BotId` int(10) unsigned NOT NULL DEFAULT 0,
-  `SpellId` int(10) unsigned NOT NULL DEFAULT 0,
-  `CasterLevel` int(10) unsigned NOT NULL DEFAULT 0,
-  `DurationFormula` int(10) unsigned NOT NULL DEFAULT 0,
-  `TicsRemaining` int(11) unsigned NOT NULL DEFAULT 0,
-  `PoisonCounters` int(11) unsigned NOT NULL DEFAULT 0,
-  `DiseaseCounters` int(11) unsigned NOT NULL DEFAULT 0,
-  `CurseCounters` int(11) unsigned NOT NULL DEFAULT 0,
-  `CorruptionCounters` int(11) unsigned NOT NULL DEFAULT 0,
-  `HitCount` int(10) unsigned NOT NULL DEFAULT 0,
-  `MeleeRune` int(10) unsigned NOT NULL DEFAULT 0,
-  `MagicRune` int(10) unsigned NOT NULL DEFAULT 0,
-  `DeathSaveSuccessChance` int(10) unsigned NOT NULL DEFAULT 0,
-  `CasterAARank` int(10) unsigned NOT NULL DEFAULT 0,
-  `Persistent` tinyint(1) NOT NULL DEFAULT 0,
-  PRIMARY KEY (`BotBuffId`),
-  KEY `FK_botbuff_1` (`BotId`),
-  CONSTRAINT `FK_botbuff_1` FOREIGN KEY (`BotId`) REFERENCES `bots_old` (`BotID`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+-- Dumping structure for table proxeeus_db.bugs
+CREATE TABLE IF NOT EXISTS `bugs` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `zone` varchar(32) NOT NULL DEFAULT '',
+  `name` varchar(64) NOT NULL DEFAULT '',
+  `ui` varchar(128) NOT NULL DEFAULT '',
+  `x` float NOT NULL DEFAULT 0,
+  `y` float NOT NULL DEFAULT 0,
+  `z` float NOT NULL DEFAULT 0,
+  `type` varchar(64) NOT NULL DEFAULT '',
+  `flag` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `target` varchar(64) DEFAULT NULL,
+  `bug` text NOT NULL,
+  `date` date NOT NULL DEFAULT '0000-00-00',
+  `status` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `id` (`id`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `botbuffs_old`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `botbuffs_old`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `botbuffs_old` (
-  `BotBuffId` int(10) unsigned NOT NULL,
-  `BotId` int(10) unsigned NOT NULL DEFAULT 0,
-  `SpellId` int(10) unsigned NOT NULL DEFAULT 0,
-  `CasterLevel` int(10) unsigned NOT NULL DEFAULT 0,
-  `DurationFormula` int(10) unsigned NOT NULL DEFAULT 0,
-  `TicsRemaining` int(11) unsigned NOT NULL DEFAULT 0,
-  `PoisonCounters` int(11) unsigned NOT NULL DEFAULT 0,
-  `DiseaseCounters` int(11) unsigned NOT NULL DEFAULT 0,
-  `CurseCounters` int(11) unsigned NOT NULL DEFAULT 0,
-  `CorruptionCounters` int(11) unsigned NOT NULL DEFAULT 0,
-  `HitCount` int(10) unsigned NOT NULL DEFAULT 0,
-  `MeleeRune` int(10) unsigned NOT NULL DEFAULT 0,
-  `MagicRune` int(10) unsigned NOT NULL DEFAULT 0,
-  `dot_rune` int(10) unsigned NOT NULL DEFAULT 0,
-  `caston_x` int(10) unsigned NOT NULL DEFAULT 0,
-  `DeathSaveSuccessChance` int(10) unsigned NOT NULL DEFAULT 0,
-  `CasterAARank` int(10) unsigned NOT NULL DEFAULT 0,
-  `Persistent` tinyint(1) NOT NULL DEFAULT 0,
-  `caston_y` int(10) unsigned NOT NULL DEFAULT 0,
-  `caston_z` int(10) unsigned NOT NULL DEFAULT 0,
-  `ExtraDIChance` int(10) unsigned NOT NULL DEFAULT 0
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `botgroup_old`
---
-
-DROP TABLE IF EXISTS `botgroup_old`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `botgroup_old` (
-  `BotGroupId` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `BotGroupLeaderBotId` int(10) unsigned NOT NULL DEFAULT 0,
-  `BotGroupName` varchar(64) NOT NULL,
-  PRIMARY KEY (`BotGroupId`),
-  KEY `FK_botgroup_1` (`BotGroupLeaderBotId`),
-  CONSTRAINT `FK_botgroup_1` FOREIGN KEY (`BotGroupLeaderBotId`) REFERENCES `bots_old` (`BotID`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `botgroupmembers_old`
---
-
-DROP TABLE IF EXISTS `botgroupmembers_old`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `botgroupmembers_old` (
-  `BotGroupMemberId` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `BotGroupId` int(10) unsigned NOT NULL DEFAULT 0,
-  `BotId` int(10) unsigned NOT NULL DEFAULT 0,
-  PRIMARY KEY (`BotGroupMemberId`),
-  KEY `FK_botgroupmembers_1` (`BotGroupId`),
-  KEY `FK_botgroupmembers_2` (`BotId`),
-  CONSTRAINT `FK_botgroupmembers_1` FOREIGN KEY (`BotGroupId`) REFERENCES `botgroup_old` (`BotGroupId`),
-  CONSTRAINT `FK_botgroupmembers_2` FOREIGN KEY (`BotId`) REFERENCES `bots_old` (`BotID`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `botguildmembers_old`
---
-
-DROP TABLE IF EXISTS `botguildmembers_old`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `botguildmembers_old` (
-  `char_id` int(11) NOT NULL DEFAULT 0,
-  `guild_id` mediumint(8) unsigned NOT NULL DEFAULT 0,
-  `rank` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `tribute_enable` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `total_tribute` int(10) unsigned NOT NULL DEFAULT 0,
-  `last_tribute` int(10) unsigned NOT NULL DEFAULT 0,
-  `banker` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `public_note` text DEFAULT NULL,
-  `alt` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  PRIMARY KEY (`char_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `botinventory_old`
---
-
-DROP TABLE IF EXISTS `botinventory_old`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `botinventory_old` (
-  `BotInventoryID` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `BotID` int(10) unsigned NOT NULL DEFAULT 0,
-  `SlotID` int(11) NOT NULL DEFAULT 0,
-  `ItemID` int(10) unsigned NOT NULL DEFAULT 0,
-  `charges` tinyint(3) unsigned DEFAULT 0,
-  `color` int(10) unsigned NOT NULL DEFAULT 0,
-  `augslot1` mediumint(7) unsigned NOT NULL DEFAULT 0,
-  `augslot2` mediumint(7) unsigned NOT NULL DEFAULT 0,
-  `augslot3` mediumint(7) unsigned NOT NULL DEFAULT 0,
-  `augslot4` mediumint(7) unsigned NOT NULL DEFAULT 0,
-  `augslot5` mediumint(7) unsigned DEFAULT 0,
-  `instnodrop` tinyint(1) unsigned NOT NULL DEFAULT 0,
-  PRIMARY KEY (`BotInventoryID`),
-  KEY `FK_botinventory_1` (`BotID`),
-  CONSTRAINT `FK_botinventory_1` FOREIGN KEY (`BotID`) REFERENCES `bots_old` (`BotID`)
-) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `botpetbuffs_old`
---
-
-DROP TABLE IF EXISTS `botpetbuffs_old`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `botpetbuffs_old` (
-  `BotPetBuffId` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `BotPetsId` int(10) unsigned NOT NULL DEFAULT 0,
-  `SpellId` int(10) unsigned NOT NULL DEFAULT 0,
-  `CasterLevel` int(10) unsigned NOT NULL DEFAULT 0,
-  `Duration` int(11) unsigned NOT NULL DEFAULT 0,
-  PRIMARY KEY (`BotPetBuffId`),
-  KEY `FK_botpetbuffs_1` (`BotPetsId`),
-  CONSTRAINT `FK_botpetbuffs_1` FOREIGN KEY (`BotPetsId`) REFERENCES `botpets_old` (`BotPetsId`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `botpetinventory_old`
---
-
-DROP TABLE IF EXISTS `botpetinventory_old`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `botpetinventory_old` (
-  `BotPetInventoryId` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `BotPetsId` int(10) unsigned NOT NULL DEFAULT 0,
-  `ItemId` int(10) unsigned NOT NULL DEFAULT 0,
-  PRIMARY KEY (`BotPetInventoryId`),
-  KEY `FK_botpetinventory_1` (`BotPetsId`),
-  CONSTRAINT `FK_botpetinventory_1` FOREIGN KEY (`BotPetsId`) REFERENCES `botpets_old` (`BotPetsId`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `botpets_old`
---
-
-DROP TABLE IF EXISTS `botpets_old`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `botpets_old` (
-  `BotPetsId` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `PetId` int(10) unsigned NOT NULL DEFAULT 0,
-  `BotId` int(10) unsigned NOT NULL DEFAULT 0,
-  `Name` varchar(64) DEFAULT NULL,
-  `Mana` int(11) NOT NULL DEFAULT 0,
-  `HitPoints` int(11) NOT NULL DEFAULT 0,
-  PRIMARY KEY (`BotPetsId`),
-  UNIQUE KEY `U_botpets_1` (`BotId`),
-  KEY `FK_botpets_1` (`BotId`),
-  CONSTRAINT `FK_botpets_1` FOREIGN KEY (`BotId`) REFERENCES `bots_old` (`BotID`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `bots_old`
---
-
-DROP TABLE IF EXISTS `bots_old`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bots_old` (
-  `BotID` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `BotOwnerCharacterID` int(10) unsigned NOT NULL,
-  `BotSpellsID` int(10) unsigned NOT NULL DEFAULT 0,
-  `Name` varchar(64) NOT NULL,
-  `LastName` varchar(32) DEFAULT NULL,
-  `BotLevel` tinyint(2) unsigned NOT NULL DEFAULT 0,
-  `Race` smallint(5) NOT NULL DEFAULT 0,
-  `Class` tinyint(2) NOT NULL DEFAULT 0,
-  `Gender` tinyint(2) NOT NULL DEFAULT 0,
-  `Size` float NOT NULL DEFAULT 0,
-  `Face` int(10) NOT NULL DEFAULT 1,
-  `LuclinHairStyle` int(10) NOT NULL DEFAULT 1,
-  `LuclinHairColor` int(10) NOT NULL DEFAULT 1,
-  `LuclinEyeColor` int(10) NOT NULL DEFAULT 1,
-  `LuclinEyeColor2` int(10) NOT NULL DEFAULT 1,
-  `LuclinBeardColor` int(10) NOT NULL DEFAULT 1,
-  `LuclinBeard` int(10) NOT NULL DEFAULT 0,
-  `DrakkinHeritage` int(10) NOT NULL DEFAULT 0,
-  `DrakkinTattoo` int(10) NOT NULL DEFAULT 0,
-  `DrakkinDetails` int(10) NOT NULL DEFAULT 0,
-  `HP` int(11) NOT NULL DEFAULT 0,
-  `Mana` int(11) NOT NULL DEFAULT 0,
-  `MR` smallint(5) NOT NULL DEFAULT 0,
-  `CR` smallint(5) NOT NULL DEFAULT 0,
-  `DR` smallint(5) NOT NULL DEFAULT 0,
-  `FR` smallint(5) NOT NULL DEFAULT 0,
-  `PR` smallint(5) NOT NULL DEFAULT 0,
-  `Corrup` smallint(5) NOT NULL DEFAULT 0,
-  `AC` smallint(5) NOT NULL DEFAULT 0,
-  `STR` mediumint(8) NOT NULL DEFAULT 75,
-  `STA` mediumint(8) NOT NULL DEFAULT 75,
-  `DEX` mediumint(8) NOT NULL DEFAULT 75,
-  `AGI` mediumint(8) NOT NULL DEFAULT 75,
-  `_INT` mediumint(8) NOT NULL DEFAULT 80,
-  `WIS` mediumint(8) NOT NULL DEFAULT 75,
-  `CHA` mediumint(8) NOT NULL DEFAULT 75,
-  `ATK` mediumint(9) NOT NULL DEFAULT 0,
-  `BotCreateDate` timestamp NOT NULL DEFAULT current_timestamp(),
-  `LastSpawnDate` datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
-  `TotalPlayTime` int(10) unsigned NOT NULL DEFAULT 0,
-  `LastZoneId` smallint(6) NOT NULL DEFAULT 0,
-  `BotInspectMessage` varchar(256) NOT NULL DEFAULT '',
-  PRIMARY KEY (`BotID`)
-) ENGINE=InnoDB AUTO_INCREMENT=16 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `botstances_old`
---
-
-DROP TABLE IF EXISTS `botstances_old`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `botstances_old` (
-  `BotID` int(10) unsigned NOT NULL DEFAULT 0,
-  `StanceID` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  PRIMARY KEY (`BotID`),
-  CONSTRAINT `FK_botstances_1` FOREIGN KEY (`BotID`) REFERENCES `bots_old` (`BotID`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `bottimers_old`
---
-
-DROP TABLE IF EXISTS `bottimers_old`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bottimers_old` (
-  `BotID` int(10) unsigned NOT NULL DEFAULT 0,
-  `TimerID` int(10) unsigned NOT NULL DEFAULT 0,
-  `Value` int(10) unsigned NOT NULL DEFAULT 0,
-  PRIMARY KEY (`BotID`),
-  CONSTRAINT `FK_bottimers_1` FOREIGN KEY (`BotID`) REFERENCES `bots_old` (`BotID`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `bug_reports`
---
-
-DROP TABLE IF EXISTS `bug_reports`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bug_reports` (
+-- Dumping structure for table proxeeus_db.bug_reports
+CREATE TABLE IF NOT EXISTS `bug_reports` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `zone` varchar(32) NOT NULL DEFAULT 'Unknown',
   `client_version_id` int(11) unsigned NOT NULL DEFAULT 0,
@@ -1365,121 +1103,59 @@ CREATE TABLE `bug_reports` (
   `reviewer_notes` varchar(1024) NOT NULL DEFAULT '',
   PRIMARY KEY (`id`),
   UNIQUE KEY `id` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `bugs`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `bugs`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `bugs` (
-  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
-  `zone` varchar(32) NOT NULL DEFAULT '',
-  `name` varchar(64) NOT NULL DEFAULT '',
-  `ui` varchar(128) NOT NULL DEFAULT '',
-  `x` float NOT NULL DEFAULT 0,
-  `y` float NOT NULL DEFAULT 0,
-  `z` float NOT NULL DEFAULT 0,
-  `type` varchar(64) NOT NULL DEFAULT '',
-  `flag` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `target` varchar(64) DEFAULT NULL,
-  `bug` text NOT NULL,
-  `date` date NOT NULL DEFAULT '0000-00-00',
-  `status` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `id` (`id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `buyer`
---
-
-DROP TABLE IF EXISTS `buyer`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `buyer` (
-  `charid` int(11) NOT NULL DEFAULT 0,
-  `buyslot` int(11) NOT NULL DEFAULT 0,
-  `itemid` int(11) NOT NULL DEFAULT 0,
-  `itemname` varchar(65) NOT NULL DEFAULT '',
-  `quantity` int(11) NOT NULL DEFAULT 0,
-  `price` int(11) NOT NULL DEFAULT 0,
-  PRIMARY KEY (`charid`,`buyslot`)
+-- Dumping structure for table proxeeus_db.buyer
+CREATE TABLE IF NOT EXISTS `buyer` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `char_id` int(11) unsigned NOT NULL DEFAULT 0,
+  `char_entity_id` int(11) unsigned NOT NULL DEFAULT 0,
+  `char_name` varchar(64) DEFAULT NULL,
+  `char_zone_id` int(11) unsigned NOT NULL DEFAULT 0,
+  `char_zone_instance_id` int(11) unsigned NOT NULL DEFAULT 0,
+  `transaction_date` datetime DEFAULT NULL,
+  `welcome_message` varchar(256) DEFAULT NULL,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `charid` (`char_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `char_create_combinations`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `char_create_combinations`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `char_create_combinations` (
-  `allocation_id` int(10) unsigned NOT NULL,
-  `race` int(10) unsigned NOT NULL,
-  `class` int(10) unsigned NOT NULL,
-  `deity` int(10) unsigned NOT NULL,
-  `start_zone` int(10) unsigned NOT NULL,
-  `expansions_req` int(10) unsigned NOT NULL DEFAULT 0,
-  PRIMARY KEY (`race`,`class`,`deity`,`start_zone`)
+-- Dumping structure for table proxeeus_db.buyer_buy_lines
+CREATE TABLE IF NOT EXISTS `buyer_buy_lines` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `buyer_id` bigint(20) unsigned NOT NULL DEFAULT 0,
+  `char_id` int(11) unsigned NOT NULL DEFAULT 0,
+  `buy_slot_id` int(11) NOT NULL DEFAULT 0,
+  `item_id` int(11) NOT NULL DEFAULT 0,
+  `item_qty` int(11) NOT NULL DEFAULT 0,
+  `item_price` int(11) NOT NULL DEFAULT 0,
+  `item_icon` int(11) unsigned NOT NULL DEFAULT 0,
+  `item_name` varchar(64) NOT NULL DEFAULT '',
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `buyerid_charid_buyslotid` (`buyer_id`,`char_id`,`buy_slot_id`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `char_create_point_allocations`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `char_create_point_allocations`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `char_create_point_allocations` (
-  `id` int(10) unsigned NOT NULL,
-  `base_str` int(10) unsigned NOT NULL,
-  `base_sta` int(10) unsigned NOT NULL,
-  `base_dex` int(10) unsigned NOT NULL,
-  `base_agi` int(10) unsigned NOT NULL,
-  `base_int` int(10) unsigned NOT NULL,
-  `base_wis` int(10) unsigned NOT NULL,
-  `base_cha` int(10) unsigned NOT NULL,
-  `alloc_str` int(10) unsigned NOT NULL,
-  `alloc_sta` int(10) unsigned NOT NULL,
-  `alloc_dex` int(10) unsigned NOT NULL,
-  `alloc_agi` int(10) unsigned NOT NULL,
-  `alloc_int` int(10) unsigned NOT NULL,
-  `alloc_wis` int(10) unsigned NOT NULL,
-  `alloc_cha` int(10) unsigned NOT NULL,
-  PRIMARY KEY (`id`)
+-- Dumping structure for table proxeeus_db.buyer_trade_items
+CREATE TABLE IF NOT EXISTS `buyer_trade_items` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `buyer_buy_lines_id` bigint(20) unsigned NOT NULL DEFAULT 0,
+  `item_id` int(11) NOT NULL DEFAULT 0,
+  `item_qty` int(11) NOT NULL DEFAULT 0,
+  `item_icon` int(11) NOT NULL DEFAULT 0,
+  `item_name` varchar(64) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `buyerbuylinesid` (`buyer_buy_lines_id`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `char_recipe_list`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `char_recipe_list`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `char_recipe_list` (
-  `char_id` int(11) NOT NULL,
-  `recipe_id` int(11) NOT NULL,
-  `madecount` int(11) NOT NULL DEFAULT 0,
-  PRIMARY KEY (`char_id`,`recipe_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `character_activities`
---
-
-DROP TABLE IF EXISTS `character_activities`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_activities` (
+-- Dumping structure for table proxeeus_db.character_activities
+CREATE TABLE IF NOT EXISTS `character_activities` (
   `charid` int(11) unsigned NOT NULL DEFAULT 0,
   `taskid` int(11) unsigned NOT NULL DEFAULT 0,
   `activityid` int(11) unsigned NOT NULL DEFAULT 0,
@@ -1487,47 +1163,22 @@ CREATE TABLE `character_activities` (
   `completed` tinyint(1) DEFAULT 0,
   PRIMARY KEY (`charid`,`taskid`,`activityid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_alt_currency`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_alt_currency`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_alt_currency` (
-  `char_id` int(10) unsigned NOT NULL,
-  `currency_id` int(10) unsigned NOT NULL,
-  `amount` int(10) unsigned NOT NULL,
-  PRIMARY KEY (`char_id`,`currency_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `character_alternate_abilities`
---
-
-DROP TABLE IF EXISTS `character_alternate_abilities`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_alternate_abilities` (
+-- Dumping structure for table proxeeus_db.character_alternate_abilities
+CREATE TABLE IF NOT EXISTS `character_alternate_abilities` (
   `id` int(11) unsigned NOT NULL DEFAULT 0,
   `aa_id` smallint(11) unsigned NOT NULL DEFAULT 0,
   `aa_value` smallint(11) unsigned NOT NULL DEFAULT 0,
   `charges` smallint(11) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`,`aa_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_alternate_abilities_old`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_alternate_abilities_old`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_alternate_abilities_old` (
+-- Dumping structure for table proxeeus_db.character_alternate_abilities_old
+CREATE TABLE IF NOT EXISTS `character_alternate_abilities_old` (
   `id` int(11) unsigned NOT NULL DEFAULT 0,
   `slot` smallint(11) unsigned NOT NULL DEFAULT 0,
   `aa_id` smallint(11) unsigned NOT NULL DEFAULT 0,
@@ -1536,31 +1187,31 @@ CREATE TABLE `character_alternate_abilities_old` (
   PRIMARY KEY (`id`,`slot`),
   KEY `id` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_auras`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_auras`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_auras` (
+-- Dumping structure for table proxeeus_db.character_alt_currency
+CREATE TABLE IF NOT EXISTS `character_alt_currency` (
+  `char_id` int(10) unsigned NOT NULL,
+  `currency_id` int(10) unsigned NOT NULL,
+  `amount` int(10) unsigned NOT NULL,
+  PRIMARY KEY (`char_id`,`currency_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.character_auras
+CREATE TABLE IF NOT EXISTS `character_auras` (
   `id` int(10) NOT NULL,
   `slot` tinyint(10) NOT NULL,
   `spell_id` int(10) NOT NULL,
   PRIMARY KEY (`id`,`slot`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_backup`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_backup`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_backup` (
+-- Dumping structure for table proxeeus_db.character_backup
+CREATE TABLE IF NOT EXISTS `character_backup` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `backupreason` tinyint(3) unsigned NOT NULL DEFAULT 0,
   `charid` int(10) unsigned NOT NULL DEFAULT 0,
@@ -1579,16 +1230,11 @@ CREATE TABLE `character_backup` (
   KEY `name` (`name`),
   KEY `charid` (`charid`)
 ) ENGINE=MyISAM AUTO_INCREMENT=728 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_bandolier`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_bandolier`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_bandolier` (
+-- Dumping structure for table proxeeus_db.character_bandolier
+CREATE TABLE IF NOT EXISTS `character_bandolier` (
   `id` int(11) unsigned NOT NULL DEFAULT 0,
   `bandolier_id` tinyint(11) unsigned NOT NULL DEFAULT 0,
   `bandolier_slot` tinyint(11) unsigned NOT NULL DEFAULT 0,
@@ -1598,16 +1244,11 @@ CREATE TABLE `character_bandolier` (
   PRIMARY KEY (`id`,`bandolier_id`,`bandolier_slot`),
   KEY `id` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_bind`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_bind`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_bind` (
+-- Dumping structure for table proxeeus_db.character_bind
+CREATE TABLE IF NOT EXISTS `character_bind` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `slot` int(4) NOT NULL DEFAULT 0,
   `zone_id` smallint(11) unsigned NOT NULL DEFAULT 0,
@@ -1618,17 +1259,12 @@ CREATE TABLE `character_bind` (
   `heading` float NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`,`slot`),
   KEY `id` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=279 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=282 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
---
--- Table structure for table `character_buffs`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_buffs`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_buffs` (
+-- Dumping structure for table proxeeus_db.character_buffs
+CREATE TABLE IF NOT EXISTS `character_buffs` (
   `character_id` int(10) unsigned NOT NULL,
   `slot_id` tinyint(3) unsigned NOT NULL,
   `spell_id` smallint(10) unsigned NOT NULL,
@@ -1649,43 +1285,11 @@ CREATE TABLE `character_buffs` (
   PRIMARY KEY (`character_id`,`slot_id`),
   KEY `character_id` (`character_id`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_corpse_items`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_corpse_items`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_corpse_items` (
-  `corpse_id` int(11) unsigned NOT NULL,
-  `equip_slot` int(11) unsigned NOT NULL,
-  `item_id` int(11) unsigned DEFAULT NULL,
-  `charges` int(11) unsigned DEFAULT NULL,
-  `aug_1` int(11) unsigned DEFAULT 0,
-  `aug_2` int(11) unsigned DEFAULT 0,
-  `aug_3` int(11) unsigned DEFAULT 0,
-  `aug_4` int(11) unsigned DEFAULT 0,
-  `aug_5` int(11) unsigned DEFAULT 0,
-  `aug_6` int(11) unsigned DEFAULT 0,
-  `attuned` smallint(5) NOT NULL DEFAULT 0,
-  `custom_data` text DEFAULT NULL,
-  `ornamenticon` int(10) unsigned NOT NULL DEFAULT 0,
-  `ornamentidfile` int(10) unsigned NOT NULL DEFAULT 0,
-  `ornament_hero_model` int(10) unsigned NOT NULL DEFAULT 0,
-  PRIMARY KEY (`corpse_id`,`equip_slot`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `character_corpses`
---
-
-DROP TABLE IF EXISTS `character_corpses`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_corpses` (
+-- Dumping structure for table proxeeus_db.character_corpses
+CREATE TABLE IF NOT EXISTS `character_corpses` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `charid` int(10) unsigned NOT NULL DEFAULT 0,
   `charname` varchar(64) NOT NULL DEFAULT '',
@@ -1740,17 +1344,34 @@ CREATE TABLE `character_corpses` (
   PRIMARY KEY (`id`),
   KEY `zoneid` (`zone_id`),
   KEY `instanceid` (`instance_id`)
-) ENGINE=MyISAM AUTO_INCREMENT=366 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM AUTO_INCREMENT=377 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
 
---
--- Table structure for table `character_currency`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_currency`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_currency` (
+-- Dumping structure for table proxeeus_db.character_corpse_items
+CREATE TABLE IF NOT EXISTS `character_corpse_items` (
+  `corpse_id` int(11) unsigned NOT NULL,
+  `equip_slot` int(11) unsigned NOT NULL,
+  `item_id` int(11) unsigned DEFAULT NULL,
+  `charges` int(11) unsigned DEFAULT NULL,
+  `aug_1` int(11) unsigned DEFAULT 0,
+  `aug_2` int(11) unsigned DEFAULT 0,
+  `aug_3` int(11) unsigned DEFAULT 0,
+  `aug_4` int(11) unsigned DEFAULT 0,
+  `aug_5` int(11) unsigned DEFAULT 0,
+  `aug_6` int(11) unsigned DEFAULT 0,
+  `attuned` smallint(5) NOT NULL DEFAULT 0,
+  `custom_data` text DEFAULT NULL,
+  `ornamenticon` int(10) unsigned NOT NULL DEFAULT 0,
+  `ornamentidfile` int(10) unsigned NOT NULL DEFAULT 0,
+  `ornament_hero_model` int(10) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`corpse_id`,`equip_slot`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.character_currency
+CREATE TABLE IF NOT EXISTS `character_currency` (
   `id` int(11) unsigned NOT NULL DEFAULT 0,
   `platinum` int(11) unsigned NOT NULL DEFAULT 0,
   `gold` int(11) unsigned NOT NULL DEFAULT 0,
@@ -1771,16 +1392,11 @@ CREATE TABLE `character_currency` (
   PRIMARY KEY (`id`),
   KEY `id` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_data`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_data`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_data` (
+-- Dumping structure for table proxeeus_db.character_data
+CREATE TABLE IF NOT EXISTS `character_data` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `account_id` int(11) NOT NULL DEFAULT 0,
   `name` varchar(64) CHARACTER SET utf8mb3 COLLATE utf8mb3_unicode_ci NOT NULL DEFAULT '',
@@ -1888,17 +1504,12 @@ CREATE TABLE `character_data` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `name` (`name`),
   KEY `account_id` (`account_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=279 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=282 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
---
--- Table structure for table `character_data__`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_data__`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_data__` (
+-- Dumping structure for table proxeeus_db.character_data__
+CREATE TABLE IF NOT EXISTS `character_data__` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `account_id` int(11) NOT NULL DEFAULT 0,
   `name` varchar(64) NOT NULL DEFAULT '',
@@ -2001,63 +1612,31 @@ CREATE TABLE `character_data__` (
   UNIQUE KEY `name` (`name`),
   KEY `account_id` (`account_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=41 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_disciplines`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_disciplines`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_disciplines` (
+-- Dumping structure for table proxeeus_db.character_disciplines
+CREATE TABLE IF NOT EXISTS `character_disciplines` (
   `id` int(11) unsigned NOT NULL DEFAULT 0,
   `slot_id` smallint(11) unsigned NOT NULL DEFAULT 0,
   `disc_id` smallint(11) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`,`slot_id`),
   KEY `id` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_enabledtasks`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_enabledtasks`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_enabledtasks` (
+-- Dumping structure for table proxeeus_db.character_enabledtasks
+CREATE TABLE IF NOT EXISTS `character_enabledtasks` (
   `charid` int(11) unsigned NOT NULL DEFAULT 0,
   `taskid` int(11) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`charid`,`taskid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_exp_modifiers`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_exp_modifiers`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_exp_modifiers` (
-  `character_id` int(11) NOT NULL,
-  `zone_id` int(11) NOT NULL,
-  `instance_version` int(11) NOT NULL DEFAULT -1,
-  `aa_modifier` float NOT NULL,
-  `exp_modifier` float NOT NULL,
-  PRIMARY KEY (`character_id`,`zone_id`,`instance_version`) USING BTREE
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci ROW_FORMAT=COMPACT;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `character_expedition_lockouts`
---
-
-DROP TABLE IF EXISTS `character_expedition_lockouts`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_expedition_lockouts` (
+-- Dumping structure for table proxeeus_db.character_expedition_lockouts
+CREATE TABLE IF NOT EXISTS `character_expedition_lockouts` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `character_id` int(10) unsigned NOT NULL,
   `expedition_name` varchar(128) NOT NULL,
@@ -2068,31 +1647,33 @@ CREATE TABLE `character_expedition_lockouts` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `character_id_expedition_name_event_name` (`character_id`,`expedition_name`,`event_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_inspect_messages`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_inspect_messages`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_inspect_messages` (
+-- Dumping structure for table proxeeus_db.character_exp_modifiers
+CREATE TABLE IF NOT EXISTS `character_exp_modifiers` (
+  `character_id` int(11) NOT NULL,
+  `zone_id` int(11) NOT NULL,
+  `instance_version` int(11) NOT NULL DEFAULT -1,
+  `aa_modifier` float NOT NULL,
+  `exp_modifier` float NOT NULL,
+  PRIMARY KEY (`character_id`,`zone_id`,`instance_version`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci ROW_FORMAT=COMPACT;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.character_inspect_messages
+CREATE TABLE IF NOT EXISTS `character_inspect_messages` (
   `id` int(11) unsigned NOT NULL DEFAULT 0,
   `inspect_message` varchar(255) NOT NULL DEFAULT '',
   PRIMARY KEY (`id`),
   KEY `id` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_instance_safereturns`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_instance_safereturns`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_instance_safereturns` (
+-- Dumping structure for table proxeeus_db.character_instance_safereturns
+CREATE TABLE IF NOT EXISTS `character_instance_safereturns` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `character_id` int(10) unsigned NOT NULL,
   `instance_zone_id` int(11) NOT NULL DEFAULT 0,
@@ -2105,64 +1686,44 @@ CREATE TABLE `character_instance_safereturns` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `character_id` (`character_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_item_recast`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_item_recast`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_item_recast` (
+-- Dumping structure for table proxeeus_db.character_item_recast
+CREATE TABLE IF NOT EXISTS `character_item_recast` (
   `id` int(11) unsigned NOT NULL DEFAULT 0,
   `recast_type` int(11) unsigned NOT NULL DEFAULT 0,
   `timestamp` int(11) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`,`recast_type`),
   KEY `id` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_languages`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_languages`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_languages` (
+-- Dumping structure for table proxeeus_db.character_languages
+CREATE TABLE IF NOT EXISTS `character_languages` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `lang_id` smallint(11) unsigned NOT NULL DEFAULT 0,
   `value` smallint(11) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`,`lang_id`),
   KEY `id` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=279 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=282 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
---
--- Table structure for table `character_leadership_abilities`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_leadership_abilities`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_leadership_abilities` (
+-- Dumping structure for table proxeeus_db.character_leadership_abilities
+CREATE TABLE IF NOT EXISTS `character_leadership_abilities` (
   `id` int(11) unsigned NOT NULL DEFAULT 0,
   `slot` smallint(11) unsigned NOT NULL DEFAULT 0,
   `rank` smallint(11) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`,`slot`),
   KEY `id` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_material`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_material`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_material` (
+-- Dumping structure for table proxeeus_db.character_material
+CREATE TABLE IF NOT EXISTS `character_material` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `slot` tinyint(11) unsigned NOT NULL DEFAULT 0,
   `blue` tinyint(11) unsigned NOT NULL DEFAULT 0,
@@ -2173,32 +1734,22 @@ CREATE TABLE `character_material` (
   PRIMARY KEY (`id`,`slot`),
   KEY `id` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_memmed_spells`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_memmed_spells`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_memmed_spells` (
+-- Dumping structure for table proxeeus_db.character_memmed_spells
+CREATE TABLE IF NOT EXISTS `character_memmed_spells` (
   `id` int(11) unsigned NOT NULL DEFAULT 0,
   `slot_id` smallint(11) unsigned NOT NULL DEFAULT 0,
   `spell_id` smallint(11) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`,`slot_id`),
   KEY `id` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_old`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_old`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_old` (
+-- Dumping structure for table proxeeus_db.character_old
+CREATE TABLE IF NOT EXISTS `character_old` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `account_id` int(11) NOT NULL DEFAULT 0,
   `name` varchar(64) NOT NULL DEFAULT '',
@@ -2224,16 +1775,11 @@ CREATE TABLE `character_old` (
   UNIQUE KEY `name` (`name`),
   KEY `account_id` (`account_id`)
 ) ENGINE=MyISAM AUTO_INCREMENT=36 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_parcels`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_parcels`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_parcels` (
+-- Dumping structure for table proxeeus_db.character_parcels
+CREATE TABLE IF NOT EXISTS `character_parcels` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `char_id` int(10) unsigned NOT NULL DEFAULT 0,
   `item_id` int(10) unsigned NOT NULL DEFAULT 0,
@@ -2251,16 +1797,11 @@ CREATE TABLE `character_parcels` (
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE KEY `data_constraint` (`slot_id`,`char_id`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_parcels_containers`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_parcels_containers`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_parcels_containers` (
+-- Dumping structure for table proxeeus_db.character_parcels_containers
+CREATE TABLE IF NOT EXISTS `character_parcels_containers` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `parcels_id` int(10) unsigned NOT NULL DEFAULT 0,
   `slot_id` int(10) unsigned NOT NULL DEFAULT 0,
@@ -2276,30 +1817,20 @@ CREATE TABLE `character_parcels_containers` (
   KEY `fk_character_parcels_id` (`parcels_id`) USING BTREE,
   CONSTRAINT `fk_character_parcels_id` FOREIGN KEY (`parcels_id`) REFERENCES `character_parcels` (`id`) ON DELETE CASCADE ON UPDATE NO ACTION
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_peqzone_flags`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_peqzone_flags`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_peqzone_flags` (
+-- Dumping structure for table proxeeus_db.character_peqzone_flags
+CREATE TABLE IF NOT EXISTS `character_peqzone_flags` (
   `id` int(11) NOT NULL DEFAULT 0,
   `zone_id` int(11) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`,`zone_id`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci ROW_FORMAT=COMPACT;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_pet_buffs`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_pet_buffs`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_pet_buffs` (
+-- Dumping structure for table proxeeus_db.character_pet_buffs
+CREATE TABLE IF NOT EXISTS `character_pet_buffs` (
   `char_id` int(11) NOT NULL,
   `pet` int(11) NOT NULL,
   `slot` int(11) NOT NULL,
@@ -2313,16 +1844,11 @@ CREATE TABLE `character_pet_buffs` (
   `instrument_mod` tinyint(3) unsigned NOT NULL DEFAULT 10,
   PRIMARY KEY (`char_id`,`pet`,`slot`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_pet_info`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_pet_info`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_pet_info` (
+-- Dumping structure for table proxeeus_db.character_pet_info
+CREATE TABLE IF NOT EXISTS `character_pet_info` (
   `char_id` int(11) NOT NULL,
   `pet` int(11) NOT NULL,
   `petname` varchar(64) NOT NULL DEFAULT '',
@@ -2334,32 +1860,31 @@ CREATE TABLE `character_pet_info` (
   `taunting` tinyint(1) NOT NULL DEFAULT 1,
   PRIMARY KEY (`char_id`,`pet`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_pet_inventory`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_pet_inventory`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_pet_inventory` (
+-- Dumping structure for table proxeeus_db.character_pet_inventory
+CREATE TABLE IF NOT EXISTS `character_pet_inventory` (
   `char_id` int(11) NOT NULL,
   `pet` int(11) NOT NULL,
   `slot` int(11) NOT NULL,
   `item_id` int(11) NOT NULL,
   PRIMARY KEY (`char_id`,`pet`,`slot`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_potionbelt`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_potionbelt`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_potionbelt` (
+-- Dumping structure for table proxeeus_db.character_pet_name
+CREATE TABLE IF NOT EXISTS `character_pet_name` (
+  `character_id` int(11) NOT NULL,
+  `name` varchar(64) NOT NULL,
+  PRIMARY KEY (`character_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.character_potionbelt
+CREATE TABLE IF NOT EXISTS `character_potionbelt` (
   `id` int(11) unsigned NOT NULL DEFAULT 0,
   `potion_id` tinyint(11) unsigned NOT NULL DEFAULT 0,
   `item_id` int(11) unsigned NOT NULL DEFAULT 0,
@@ -2367,48 +1892,33 @@ CREATE TABLE `character_potionbelt` (
   PRIMARY KEY (`id`,`potion_id`),
   KEY `id` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_skills`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_skills`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_skills` (
+-- Dumping structure for table proxeeus_db.character_skills
+CREATE TABLE IF NOT EXISTS `character_skills` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `skill_id` smallint(11) unsigned NOT NULL DEFAULT 0,
   `value` smallint(11) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`,`skill_id`),
   KEY `id` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=279 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=282 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
---
--- Table structure for table `character_spells`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_spells`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_spells` (
+-- Dumping structure for table proxeeus_db.character_spells
+CREATE TABLE IF NOT EXISTS `character_spells` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `slot_id` smallint(11) unsigned NOT NULL DEFAULT 0,
   `spell_id` smallint(11) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`,`slot_id`),
   KEY `id` (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=279 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_stats_record`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_stats_record`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_stats_record` (
+-- Dumping structure for table proxeeus_db.character_stats_record
+CREATE TABLE IF NOT EXISTS `character_stats_record` (
   `character_id` int(11) NOT NULL DEFAULT 0,
   `name` varchar(100) DEFAULT NULL,
   `status` int(11) DEFAULT 0,
@@ -2485,16 +1995,24 @@ CREATE TABLE `character_stats_record` (
   `updated_at` datetime DEFAULT NULL,
   PRIMARY KEY (`character_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_task_timers`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_task_timers`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_task_timers` (
+-- Dumping structure for table proxeeus_db.character_tasks
+CREATE TABLE IF NOT EXISTS `character_tasks` (
+  `charid` int(11) unsigned NOT NULL DEFAULT 0,
+  `taskid` int(11) unsigned NOT NULL DEFAULT 0,
+  `slot` int(11) unsigned NOT NULL DEFAULT 0,
+  `type` tinyint(4) NOT NULL DEFAULT 0,
+  `acceptedtime` int(11) unsigned DEFAULT NULL,
+  `was_rewarded` tinyint(4) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`charid`,`taskid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.character_task_timers
+CREATE TABLE IF NOT EXISTS `character_task_timers` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `character_id` int(10) unsigned NOT NULL DEFAULT 0,
   `task_id` int(10) unsigned NOT NULL DEFAULT 0,
@@ -2505,34 +2023,11 @@ CREATE TABLE `character_task_timers` (
   KEY `character_id` (`character_id`),
   KEY `task_id` (`task_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `character_tasks`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `character_tasks`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_tasks` (
-  `charid` int(11) unsigned NOT NULL DEFAULT 0,
-  `taskid` int(11) unsigned NOT NULL DEFAULT 0,
-  `slot` int(11) unsigned NOT NULL DEFAULT 0,
-  `type` tinyint(4) NOT NULL DEFAULT 0,
-  `acceptedtime` int(11) unsigned DEFAULT NULL,
-  `was_rewarded` tinyint(4) NOT NULL DEFAULT 0,
-  PRIMARY KEY (`charid`,`taskid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `character_tribute`
---
-
-DROP TABLE IF EXISTS `character_tribute`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `character_tribute` (
+-- Dumping structure for table proxeeus_db.character_tribute
+CREATE TABLE IF NOT EXISTS `character_tribute` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `character_id` int(11) unsigned NOT NULL DEFAULT 0,
   `tier` tinyint(11) unsigned NOT NULL DEFAULT 0,
@@ -2540,31 +2035,56 @@ CREATE TABLE `character_tribute` (
   PRIMARY KEY (`id`),
   KEY `id` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `chatchannel_reserved_names`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `chatchannel_reserved_names`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `chatchannel_reserved_names` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `name` varchar(64) NOT NULL,
-  PRIMARY KEY (`id`) USING BTREE,
-  UNIQUE KEY `name` (`name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+-- Dumping structure for table proxeeus_db.char_create_combinations
+CREATE TABLE IF NOT EXISTS `char_create_combinations` (
+  `allocation_id` int(10) unsigned NOT NULL,
+  `race` int(10) unsigned NOT NULL,
+  `class` int(10) unsigned NOT NULL,
+  `deity` int(10) unsigned NOT NULL,
+  `start_zone` int(10) unsigned NOT NULL,
+  `expansions_req` int(10) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`race`,`class`,`deity`,`start_zone`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
---
--- Table structure for table `chatchannels`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `chatchannels`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `chatchannels` (
+-- Dumping structure for table proxeeus_db.char_create_point_allocations
+CREATE TABLE IF NOT EXISTS `char_create_point_allocations` (
+  `id` int(10) unsigned NOT NULL,
+  `base_str` int(10) unsigned NOT NULL,
+  `base_sta` int(10) unsigned NOT NULL,
+  `base_dex` int(10) unsigned NOT NULL,
+  `base_agi` int(10) unsigned NOT NULL,
+  `base_int` int(10) unsigned NOT NULL,
+  `base_wis` int(10) unsigned NOT NULL,
+  `base_cha` int(10) unsigned NOT NULL,
+  `alloc_str` int(10) unsigned NOT NULL,
+  `alloc_sta` int(10) unsigned NOT NULL,
+  `alloc_dex` int(10) unsigned NOT NULL,
+  `alloc_agi` int(10) unsigned NOT NULL,
+  `alloc_int` int(10) unsigned NOT NULL,
+  `alloc_wis` int(10) unsigned NOT NULL,
+  `alloc_cha` int(10) unsigned NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.char_recipe_list
+CREATE TABLE IF NOT EXISTS `char_recipe_list` (
+  `char_id` int(11) NOT NULL,
+  `recipe_id` int(11) NOT NULL,
+  `madecount` int(11) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`char_id`,`recipe_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.chatchannels
+CREATE TABLE IF NOT EXISTS `chatchannels` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(64) NOT NULL DEFAULT '',
   `owner` varchar(64) NOT NULL DEFAULT '',
@@ -2573,16 +2093,21 @@ CREATE TABLE `chatchannels` (
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE KEY `name` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `class_skill`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `class_skill`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `class_skill` (
+-- Dumping structure for table proxeeus_db.chatchannel_reserved_names
+CREATE TABLE IF NOT EXISTS `chatchannel_reserved_names` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `name` varchar(64) NOT NULL,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `name` (`name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.class_skill
+CREATE TABLE IF NOT EXISTS `class_skill` (
   `class` smallint(5) unsigned NOT NULL DEFAULT 0,
   `name` varchar(50) NOT NULL DEFAULT 'Enter a class name for quick reference',
   `skill_0` smallint(5) unsigned DEFAULT 66,
@@ -2661,77 +2186,62 @@ CREATE TABLE `class_skill` (
   `skill_73` smallint(5) unsigned DEFAULT 66,
   PRIMARY KEY (`class`),
   KEY `class` (`class`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `client_faction_associations`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `client_faction_associations`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `client_faction_associations` (
+-- Dumping structure for table proxeeus_db.client_faction_associations
+CREATE TABLE IF NOT EXISTS `client_faction_associations` (
   `faction_id` int(11) NOT NULL,
   `other_faction_id` int(11) NOT NULL,
   `mod` int(11) DEFAULT NULL,
   PRIMARY KEY (`faction_id`,`other_faction_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `client_faction_names`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `client_faction_names`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `client_faction_names` (
+-- Dumping structure for table proxeeus_db.client_faction_names
+CREATE TABLE IF NOT EXISTS `client_faction_names` (
   `id` int(11) NOT NULL,
   `name` varchar(45) NOT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `client_server_faction_map`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `client_server_faction_map`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `client_server_faction_map` (
+-- Dumping structure for table proxeeus_db.client_server_faction_map
+CREATE TABLE IF NOT EXISTS `client_server_faction_map` (
   `clientid` int(11) NOT NULL,
   `serverid` int(11) NOT NULL,
   PRIMARY KEY (`clientid`,`serverid`),
   KEY `serverid` (`serverid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `command_settings`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `command_settings`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `command_settings` (
+-- Dumping structure for table proxeeus_db.commands_old
+CREATE TABLE IF NOT EXISTS `commands_old` (
+  `command` varchar(20) NOT NULL DEFAULT '',
+  `access` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `description` varchar(255) DEFAULT NULL,
+  PRIMARY KEY (`command`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.command_settings
+CREATE TABLE IF NOT EXISTS `command_settings` (
   `command` varchar(128) NOT NULL DEFAULT '',
   `access` int(11) NOT NULL DEFAULT 0,
   `aliases` varchar(256) NOT NULL DEFAULT '',
   PRIMARY KEY (`command`),
   UNIQUE KEY `UK_command_settings_1` (`command`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `command_subsettings`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `command_subsettings`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `command_subsettings` (
+-- Dumping structure for table proxeeus_db.command_subsettings
+CREATE TABLE IF NOT EXISTS `command_subsettings` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `parent_command` varchar(32) NOT NULL,
   `sub_command` varchar(32) NOT NULL,
@@ -2739,64 +2249,12 @@ CREATE TABLE `command_subsettings` (
   `top_level_aliases` varchar(255) NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `command` (`parent_command`,`sub_command`)
-) ENGINE=InnoDB AUTO_INCREMENT=134 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=142 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
---
--- Table structure for table `commands_old`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `commands_old`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `commands_old` (
-  `command` varchar(20) NOT NULL DEFAULT '',
-  `access` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `description` varchar(255) DEFAULT NULL,
-  PRIMARY KEY (`command`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `completed_shared_task_activity_state`
---
-
-DROP TABLE IF EXISTS `completed_shared_task_activity_state`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `completed_shared_task_activity_state` (
-  `shared_task_id` bigint(20) NOT NULL,
-  `activity_id` int(11) NOT NULL,
-  `done_count` int(11) DEFAULT NULL,
-  `updated_time` datetime DEFAULT NULL,
-  `completed_time` datetime DEFAULT NULL,
-  PRIMARY KEY (`shared_task_id`,`activity_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `completed_shared_task_members`
---
-
-DROP TABLE IF EXISTS `completed_shared_task_members`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `completed_shared_task_members` (
-  `shared_task_id` bigint(20) NOT NULL,
-  `character_id` bigint(20) NOT NULL,
-  `is_leader` tinyint(4) DEFAULT NULL,
-  PRIMARY KEY (`shared_task_id`,`character_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `completed_shared_tasks`
---
-
-DROP TABLE IF EXISTS `completed_shared_tasks`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `completed_shared_tasks` (
+-- Dumping structure for table proxeeus_db.completed_shared_tasks
+CREATE TABLE IF NOT EXISTS `completed_shared_tasks` (
   `id` bigint(20) NOT NULL,
   `task_id` int(11) DEFAULT NULL,
   `accepted_time` datetime DEFAULT NULL,
@@ -2805,60 +2263,71 @@ CREATE TABLE `completed_shared_tasks` (
   `is_locked` tinyint(1) DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `completed_tasks`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `completed_tasks`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `completed_tasks` (
+-- Dumping structure for table proxeeus_db.completed_shared_task_activity_state
+CREATE TABLE IF NOT EXISTS `completed_shared_task_activity_state` (
+  `shared_task_id` bigint(20) NOT NULL,
+  `activity_id` int(11) NOT NULL,
+  `done_count` int(11) DEFAULT NULL,
+  `updated_time` datetime DEFAULT NULL,
+  `completed_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`shared_task_id`,`activity_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.completed_shared_task_members
+CREATE TABLE IF NOT EXISTS `completed_shared_task_members` (
+  `shared_task_id` bigint(20) NOT NULL,
+  `character_id` bigint(20) NOT NULL,
+  `is_leader` tinyint(4) DEFAULT NULL,
+  PRIMARY KEY (`shared_task_id`,`character_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.completed_tasks
+CREATE TABLE IF NOT EXISTS `completed_tasks` (
   `charid` int(11) unsigned NOT NULL DEFAULT 0,
   `completedtime` int(11) unsigned NOT NULL DEFAULT 0,
   `taskid` int(11) unsigned NOT NULL DEFAULT 0,
   `activityid` int(11) NOT NULL DEFAULT 0,
   PRIMARY KEY (`charid`,`completedtime`,`taskid`,`activityid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `content_flags`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `content_flags`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `content_flags` (
+-- Dumping structure for table proxeeus_db.content_flags
+CREATE TABLE IF NOT EXISTS `content_flags` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `flag_name` varchar(75) DEFAULT NULL,
   `enabled` tinyint(4) DEFAULT NULL,
   `notes` text DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `core_version`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `core_version`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `core_version` (
+-- Dumping structure for table proxeeus_db.core_version
+CREATE TABLE IF NOT EXISTS `core_version` (
   `rev` text NOT NULL
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `cust_sound_files`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `cust_sound_files`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `cust_sound_files` (
+-- Dumping structure for table proxeeus_db.custom_faction_mappings
+CREATE TABLE IF NOT EXISTS `custom_faction_mappings` (
+  `old_faction` int(11) NOT NULL DEFAULT 0,
+  `new_faction` int(11) DEFAULT NULL,
+  PRIMARY KEY (`old_faction`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.cust_sound_files
+CREATE TABLE IF NOT EXISTS `cust_sound_files` (
   `filename` varchar(100) NOT NULL,
   `length` int(11) DEFAULT NULL,
   `copyright` varchar(100) DEFAULT NULL,
@@ -2867,45 +2336,21 @@ CREATE TABLE `cust_sound_files` (
   `artist` varchar(100) DEFAULT NULL,
   `year` varchar(25) DEFAULT NULL,
   PRIMARY KEY (`filename`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `custom_faction_mappings`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `custom_faction_mappings`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `custom_faction_mappings` (
-  `old_faction` int(11) NOT NULL DEFAULT 0,
-  `new_faction` int(11) DEFAULT NULL,
-  PRIMARY KEY (`old_faction`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `damageshieldtypes`
---
-
-DROP TABLE IF EXISTS `damageshieldtypes`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `damageshieldtypes` (
+-- Dumping structure for table proxeeus_db.damageshieldtypes
+CREATE TABLE IF NOT EXISTS `damageshieldtypes` (
   `spellid` int(10) unsigned NOT NULL DEFAULT 0,
   `type` tinyint(3) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`spellid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `data_buckets`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `data_buckets`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `data_buckets` (
+-- Dumping structure for table proxeeus_db.data_buckets
+CREATE TABLE IF NOT EXISTS `data_buckets` (
   `id` bigint(11) unsigned NOT NULL AUTO_INCREMENT,
   `key` varchar(100) DEFAULT NULL,
   `value` text DEFAULT NULL,
@@ -2915,78 +2360,53 @@ CREATE TABLE `data_buckets` (
   `bot_id` bigint(11) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   UNIQUE KEY `keys` (`key`,`character_id`,`npc_id`,`bot_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Table structure for table `db_str`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `db_str`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `db_str` (
+-- Dumping structure for table proxeeus_db.db_str
+CREATE TABLE IF NOT EXISTS `db_str` (
   `id` int(10) NOT NULL,
   `type` int(10) NOT NULL,
   `value` text NOT NULL,
   PRIMARY KEY (`id`,`type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `db_version`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `db_version`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `db_version` (
+-- Dumping structure for table proxeeus_db.db_version
+CREATE TABLE IF NOT EXISTS `db_version` (
   `version` int(11) DEFAULT 0,
   `bots_version` int(11) DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `discord_webhooks`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `discord_webhooks`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `discord_webhooks` (
+-- Dumping structure for table proxeeus_db.discord_webhooks
+CREATE TABLE IF NOT EXISTS `discord_webhooks` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `webhook_name` varchar(100) DEFAULT NULL,
   `webhook_url` varchar(255) DEFAULT NULL,
   `created_at` datetime DEFAULT NULL,
   `deleted_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Table structure for table `discovered_items`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `discovered_items`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `discovered_items` (
+-- Dumping structure for table proxeeus_db.discovered_items
+CREATE TABLE IF NOT EXISTS `discovered_items` (
   `item_id` int(11) unsigned NOT NULL DEFAULT 0,
   `char_name` varchar(64) NOT NULL DEFAULT '',
   `discovered_date` int(11) unsigned NOT NULL DEFAULT 0,
   `account_status` int(11) NOT NULL DEFAULT 0,
   PRIMARY KEY (`item_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `doors`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `doors`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `doors` (
+-- Dumping structure for table proxeeus_db.doors
+CREATE TABLE IF NOT EXISTS `doors` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `doorid` smallint(4) NOT NULL DEFAULT 0,
   `zone` varchar(32) DEFAULT NULL,
@@ -3026,68 +2446,12 @@ CREATE TABLE `doors` (
   `content_flags_disabled` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `DoorIndex` (`zone`,`doorid`,`version`)
-) ENGINE=MyISAM AUTO_INCREMENT=36670 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM AUTO_INCREMENT=36670 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `dynamic_zone_members`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `dynamic_zone_members`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `dynamic_zone_members` (
-  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `dynamic_zone_id` int(10) unsigned NOT NULL DEFAULT 0,
-  `character_id` int(10) unsigned NOT NULL DEFAULT 0,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `dynamic_zone_id_character_id` (`dynamic_zone_id`,`character_id`),
-  KEY `character_id` (`character_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `dynamic_zone_templates`
---
-
-DROP TABLE IF EXISTS `dynamic_zone_templates`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `dynamic_zone_templates` (
-  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `zone_id` int(11) NOT NULL DEFAULT 0,
-  `zone_version` int(11) NOT NULL DEFAULT 0,
-  `name` varchar(128) NOT NULL DEFAULT '',
-  `min_players` int(11) NOT NULL DEFAULT 0,
-  `max_players` int(11) NOT NULL DEFAULT 0,
-  `duration_seconds` int(11) NOT NULL DEFAULT 0,
-  `dz_switch_id` int(11) NOT NULL DEFAULT 0,
-  `compass_zone_id` int(11) NOT NULL DEFAULT 0,
-  `compass_x` float NOT NULL DEFAULT 0,
-  `compass_y` float NOT NULL DEFAULT 0,
-  `compass_z` float NOT NULL DEFAULT 0,
-  `return_zone_id` int(11) NOT NULL DEFAULT 0,
-  `return_x` float NOT NULL DEFAULT 0,
-  `return_y` float NOT NULL DEFAULT 0,
-  `return_z` float NOT NULL DEFAULT 0,
-  `return_h` float NOT NULL DEFAULT 0,
-  `override_zone_in` tinyint(4) NOT NULL DEFAULT 0,
-  `zone_in_x` float NOT NULL DEFAULT 0,
-  `zone_in_y` float NOT NULL DEFAULT 0,
-  `zone_in_z` float NOT NULL DEFAULT 0,
-  `zone_in_h` float NOT NULL DEFAULT 0,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `dynamic_zones`
---
-
-DROP TABLE IF EXISTS `dynamic_zones`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `dynamic_zones` (
+-- Dumping structure for table proxeeus_db.dynamic_zones
+CREATE TABLE IF NOT EXISTS `dynamic_zones` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `instance_id` int(10) NOT NULL DEFAULT 0,
   `type` tinyint(3) unsigned NOT NULL DEFAULT 0,
@@ -3113,17 +2477,53 @@ CREATE TABLE `dynamic_zones` (
   `has_zone_in` tinyint(3) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   UNIQUE KEY `instance_id` (`instance_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Table structure for table `editor_values`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `editor_values`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `editor_values` (
+-- Dumping structure for table proxeeus_db.dynamic_zone_members
+CREATE TABLE IF NOT EXISTS `dynamic_zone_members` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `dynamic_zone_id` int(10) unsigned NOT NULL DEFAULT 0,
+  `character_id` int(10) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `dynamic_zone_id_character_id` (`dynamic_zone_id`,`character_id`),
+  KEY `character_id` (`character_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.dynamic_zone_templates
+CREATE TABLE IF NOT EXISTS `dynamic_zone_templates` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `zone_id` int(11) NOT NULL DEFAULT 0,
+  `zone_version` int(11) NOT NULL DEFAULT 0,
+  `name` varchar(128) NOT NULL DEFAULT '',
+  `min_players` int(11) NOT NULL DEFAULT 0,
+  `max_players` int(11) NOT NULL DEFAULT 0,
+  `duration_seconds` int(11) NOT NULL DEFAULT 0,
+  `dz_switch_id` int(11) NOT NULL DEFAULT 0,
+  `compass_zone_id` int(11) NOT NULL DEFAULT 0,
+  `compass_x` float NOT NULL DEFAULT 0,
+  `compass_y` float NOT NULL DEFAULT 0,
+  `compass_z` float NOT NULL DEFAULT 0,
+  `return_zone_id` int(11) NOT NULL DEFAULT 0,
+  `return_x` float NOT NULL DEFAULT 0,
+  `return_y` float NOT NULL DEFAULT 0,
+  `return_z` float NOT NULL DEFAULT 0,
+  `return_h` float NOT NULL DEFAULT 0,
+  `override_zone_in` tinyint(4) NOT NULL DEFAULT 0,
+  `zone_in_x` float NOT NULL DEFAULT 0,
+  `zone_in_y` float NOT NULL DEFAULT 0,
+  `zone_in_z` float NOT NULL DEFAULT 0,
+  `zone_in_h` float NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.editor_values
+CREATE TABLE IF NOT EXISTS `editor_values` (
   `name` varchar(64) NOT NULL,
   `location` mediumint(9) NOT NULL,
   `bytes` smallint(2) NOT NULL,
@@ -3135,32 +2535,22 @@ CREATE TABLE `editor_values` (
   `update_sql` text NOT NULL,
   PRIMARY KEY (`name`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `eqbnews`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `eqbnews`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `eqbnews` (
+-- Dumping structure for table proxeeus_db.eqbnews
+CREATE TABLE IF NOT EXISTS `eqbnews` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `date` date DEFAULT NULL,
   `title` varchar(250) NOT NULL DEFAULT '',
   `content` text NOT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=MyISAM AUTO_INCREMENT=13 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `eqtime`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `eqtime`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `eqtime` (
+-- Dumping structure for table proxeeus_db.eqtime
+CREATE TABLE IF NOT EXISTS `eqtime` (
   `minute` tinyint(4) NOT NULL DEFAULT 0,
   `hour` tinyint(4) NOT NULL DEFAULT 0,
   `day` tinyint(4) NOT NULL DEFAULT 0,
@@ -3168,16 +2558,23 @@ CREATE TABLE `eqtime` (
   `year` int(4) NOT NULL DEFAULT 0,
   `realtime` int(11) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `expedition_lockouts`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `expedition_lockouts`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `expedition_lockouts` (
+-- Dumping structure for table proxeeus_db.expeditions
+CREATE TABLE IF NOT EXISTS `expeditions` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `dynamic_zone_id` int(10) unsigned NOT NULL DEFAULT 0,
+  `add_replay_on_join` tinyint(3) unsigned NOT NULL DEFAULT 1,
+  `is_locked` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `dynamic_zone_id` (`dynamic_zone_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.expedition_lockouts
+CREATE TABLE IF NOT EXISTS `expedition_lockouts` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `expedition_id` int(10) unsigned NOT NULL,
   `event_name` varchar(256) NOT NULL,
@@ -3187,33 +2584,11 @@ CREATE TABLE `expedition_lockouts` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `expedition_id_event_name` (`expedition_id`,`event_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `expeditions`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `expeditions`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `expeditions` (
-  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `dynamic_zone_id` int(10) unsigned NOT NULL DEFAULT 0,
-  `add_replay_on_join` tinyint(3) unsigned NOT NULL DEFAULT 1,
-  `is_locked` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `dynamic_zone_id` (`dynamic_zone_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `faction_association`
---
-
-DROP TABLE IF EXISTS `faction_association`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `faction_association` (
+-- Dumping structure for table proxeeus_db.faction_association
+CREATE TABLE IF NOT EXISTS `faction_association` (
   `id` int(10) NOT NULL,
   `id_1` int(10) NOT NULL DEFAULT 0,
   `mod_1` float NOT NULL DEFAULT 0,
@@ -3237,16 +2612,11 @@ CREATE TABLE `faction_association` (
   `mod_10` float NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `faction_base_data`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `faction_base_data`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `faction_base_data` (
+-- Dumping structure for table proxeeus_db.faction_base_data
+CREATE TABLE IF NOT EXISTS `faction_base_data` (
   `client_faction_id` smallint(6) NOT NULL,
   `min` smallint(6) DEFAULT -2000,
   `max` smallint(6) DEFAULT 2000,
@@ -3255,32 +2625,22 @@ CREATE TABLE `faction_base_data` (
   `unk_hero3` smallint(6) DEFAULT NULL,
   PRIMARY KEY (`client_faction_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `faction_list`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `faction_list`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `faction_list` (
+-- Dumping structure for table proxeeus_db.faction_list
+CREATE TABLE IF NOT EXISTS `faction_list` (
   `id` int(11) NOT NULL,
   `name` varchar(50) NOT NULL DEFAULT '',
   `base` smallint(6) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   UNIQUE KEY `id` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `faction_list_mod`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `faction_list_mod`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `faction_list_mod` (
+-- Dumping structure for table proxeeus_db.faction_list_mod
+CREATE TABLE IF NOT EXISTS `faction_list_mod` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `faction_id` int(10) unsigned NOT NULL,
   `mod` smallint(6) NOT NULL,
@@ -3288,33 +2648,23 @@ CREATE TABLE `faction_list_mod` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `faction_id_mod_name` (`faction_id`,`mod_name`)
 ) ENGINE=InnoDB AUTO_INCREMENT=11686 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `faction_list_mod_prefix`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `faction_list_mod_prefix`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `faction_list_mod_prefix` (
+-- Dumping structure for table proxeeus_db.faction_list_mod_prefix
+CREATE TABLE IF NOT EXISTS `faction_list_mod_prefix` (
   `id` int(10) unsigned NOT NULL DEFAULT 0,
   `faction_id` int(10) unsigned NOT NULL,
   `mod` smallint(6) NOT NULL,
   `mod_name` varchar(16) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `faction_list_prefix`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `faction_list_prefix`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `faction_list_prefix` (
+-- Dumping structure for table proxeeus_db.faction_list_prefix
+CREATE TABLE IF NOT EXISTS `faction_list_prefix` (
   `id` int(11) NOT NULL DEFAULT 0,
-  `name` varchar(50) CHARACTER SET utf8mb3 COLLATE utf8mb3_uca1400_ai_ci NOT NULL DEFAULT '',
+  `name` varchar(50) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL DEFAULT '',
   `base` smallint(6) NOT NULL DEFAULT 0,
   `mod_c1` smallint(6) NOT NULL DEFAULT 0,
   `mod_c2` smallint(6) NOT NULL DEFAULT 0,
@@ -3371,47 +2721,32 @@ CREATE TABLE `faction_list_prefix` (
   `mod_d215` smallint(6) NOT NULL DEFAULT 0,
   `mod_d216` smallint(6) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `faction_values`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `faction_values`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `faction_values` (
+-- Dumping structure for table proxeeus_db.faction_values
+CREATE TABLE IF NOT EXISTS `faction_values` (
   `char_id` int(4) NOT NULL DEFAULT 0,
   `faction_id` int(4) NOT NULL DEFAULT 0,
   `current_value` smallint(6) NOT NULL DEFAULT 0,
   `temp` tinyint(3) NOT NULL DEFAULT 0,
   PRIMARY KEY (`char_id`,`faction_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `faction_values_prefix`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `faction_values_prefix`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `faction_values_prefix` (
+-- Dumping structure for table proxeeus_db.faction_values_prefix
+CREATE TABLE IF NOT EXISTS `faction_values_prefix` (
   `char_id` int(4) NOT NULL DEFAULT 0,
   `faction_id` int(4) NOT NULL DEFAULT 0,
   `current_value` smallint(6) NOT NULL DEFAULT 0,
   `temp` tinyint(3) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `fear_hints`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `fear_hints`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `fear_hints` (
+-- Dumping structure for table proxeeus_db.fear_hints
+CREATE TABLE IF NOT EXISTS `fear_hints` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `zone` varchar(16) NOT NULL DEFAULT '',
   `x` float NOT NULL DEFAULT 0,
@@ -3421,17 +2756,12 @@ CREATE TABLE `fear_hints` (
   `disjoint` tinyint(4) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   UNIQUE KEY `zone` (`zone`,`x`,`y`,`z`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `fishing`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `fishing`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `fishing` (
+-- Dumping structure for table proxeeus_db.fishing
+CREATE TABLE IF NOT EXISTS `fishing` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `zoneid` int(4) NOT NULL DEFAULT 0,
   `Itemid` int(11) NOT NULL DEFAULT 0,
@@ -3444,17 +2774,12 @@ CREATE TABLE `fishing` (
   `content_flags` varchar(100) DEFAULT NULL,
   `content_flags_disabled` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=MyISAM AUTO_INCREMENT=159 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM AUTO_INCREMENT=159 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `forage`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `forage`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `forage` (
+-- Dumping structure for table proxeeus_db.forage
+CREATE TABLE IF NOT EXISTS `forage` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `zoneid` int(4) NOT NULL DEFAULT 0,
   `Itemid` int(11) NOT NULL DEFAULT 0,
@@ -3465,32 +2790,58 @@ CREATE TABLE `forage` (
   `content_flags` varchar(100) DEFAULT NULL,
   `content_flags_disabled` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=MyISAM AUTO_INCREMENT=488 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM AUTO_INCREMENT=488 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `friends`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `friends`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `friends` (
+-- Dumping structure for table proxeeus_db.friends
+CREATE TABLE IF NOT EXISTS `friends` (
   `charid` int(10) unsigned NOT NULL DEFAULT 0,
   `type` tinyint(1) unsigned NOT NULL DEFAULT 1 COMMENT '1 = Friend, 0 = Ignore',
   `name` varchar(64) NOT NULL DEFAULT '',
   PRIMARY KEY (`charid`,`type`,`name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `global_loot`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `global_loot`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `global_loot` (
+-- Dumping structure for function proxeeus_db.GetMobType
+DELIMITER //
+CREATE FUNCTION `GetMobType`(mob_name VARCHAR(64)) RETURNS char(1) CHARSET latin1 COLLATE latin1_swedish_ci
+BEGIN
+	DECLARE Result CHAR(1);
+	
+	SET Result = NULL;
+	
+	IF ((SELECT COUNT(*) FROM `character_data` WHERE `name` = mob_name) > 0) THEN
+		SET Result = 'C';
+	ELSEIF ((SELECT COUNT(*) FROM `bot_data` WHERE `name` = mob_name) > 0) THEN
+		SET Result = 'B';
+	END IF;
+	
+	RETURN Result;
+END//
+DELIMITER ;
+
+-- Dumping structure for function proxeeus_db.GetMobTypeById
+DELIMITER //
+CREATE FUNCTION `GetMobTypeById`(mob_id INTEGER UNSIGNED) RETURNS char(1) CHARSET latin1 COLLATE latin1_swedish_ci
+BEGIN
+	DECLARE Result CHAR(1);
+	
+	SET Result = NULL;
+	
+	IF ((select `id` from `character_data` where `id` = mob_id) > 0) THEN
+		SET Result = 'C';
+	ELSEIF ((select `bot_id` from `bot_data` where `bot_id` = mob_id) > 0) THEN
+		SET Result = 'B';
+	END IF;
+	
+	RETURN Result;
+END//
+DELIMITER ;
+
+-- Dumping structure for table proxeeus_db.global_loot
+CREATE TABLE IF NOT EXISTS `global_loot` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `description` varchar(255) DEFAULT NULL,
   `loottable_id` int(11) NOT NULL,
@@ -3510,45 +2861,30 @@ CREATE TABLE `global_loot` (
   `content_flags_disabled` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `gm_ips`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `gm_ips`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `gm_ips` (
+-- Dumping structure for table proxeeus_db.gm_ips
+CREATE TABLE IF NOT EXISTS `gm_ips` (
   `name` varchar(64) NOT NULL DEFAULT '',
   `account_id` int(11) NOT NULL DEFAULT 0,
   `ip_address` varchar(15) NOT NULL DEFAULT '',
   UNIQUE KEY `account_id` (`account_id`,`ip_address`)
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `goallists_backup_9_25_2022`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `goallists_backup_9_25_2022`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `goallists_backup_9_25_2022` (
+-- Dumping structure for table proxeeus_db.goallists_backup_9_25_2022
+CREATE TABLE IF NOT EXISTS `goallists_backup_9_25_2022` (
   `listid` int(10) unsigned NOT NULL DEFAULT 0,
   `entry` int(10) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`listid`,`entry`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `graveyard`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `graveyard`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `graveyard` (
+-- Dumping structure for table proxeeus_db.graveyard
+CREATE TABLE IF NOT EXISTS `graveyard` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `zone_id` int(4) NOT NULL DEFAULT 0,
   `x` float NOT NULL DEFAULT 0,
@@ -3558,32 +2894,22 @@ CREATE TABLE `graveyard` (
   PRIMARY KEY (`id`),
   KEY `zone_id_nonunique` (`zone_id`)
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `grid`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `grid`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `grid` (
+-- Dumping structure for table proxeeus_db.grid
+CREATE TABLE IF NOT EXISTS `grid` (
   `id` int(10) NOT NULL DEFAULT 0,
   `zoneid` int(10) NOT NULL DEFAULT 0,
   `type` int(10) NOT NULL DEFAULT 0,
   `type2` int(10) NOT NULL DEFAULT 0,
   PRIMARY KEY (`zoneid`,`id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `grid_entries`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `grid_entries`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `grid_entries` (
+-- Dumping structure for table proxeeus_db.grid_entries
+CREATE TABLE IF NOT EXISTS `grid_entries` (
   `gridid` int(10) NOT NULL DEFAULT 0,
   `zoneid` int(10) NOT NULL DEFAULT 0,
   `number` int(10) NOT NULL DEFAULT 0,
@@ -3594,17 +2920,12 @@ CREATE TABLE `grid_entries` (
   `pause` int(10) NOT NULL DEFAULT 0,
   `centerpoint` tinyint(4) NOT NULL DEFAULT 0,
   PRIMARY KEY (`zoneid`,`gridid`,`number`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `ground_spawns`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `ground_spawns`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `ground_spawns` (
+-- Dumping structure for table proxeeus_db.ground_spawns
+CREATE TABLE IF NOT EXISTS `ground_spawns` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `zoneid` int(10) unsigned NOT NULL DEFAULT 0,
   `version` smallint(5) NOT NULL DEFAULT 0,
@@ -3626,17 +2947,12 @@ CREATE TABLE `ground_spawns` (
   `content_flags_disabled` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `zone` (`zoneid`)
-) ENGINE=MyISAM AUTO_INCREMENT=159 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM AUTO_INCREMENT=159 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `group_id`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `group_id`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `group_id` (
+-- Dumping structure for table proxeeus_db.group_id
+CREATE TABLE IF NOT EXISTS `group_id` (
   `group_id` int(11) unsigned NOT NULL DEFAULT 0,
   `name` varchar(64) NOT NULL DEFAULT '',
   `character_id` int(11) unsigned NOT NULL DEFAULT 0,
@@ -3644,16 +2960,11 @@ CREATE TABLE `group_id` (
   `merc_id` int(11) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`group_id`,`character_id`,`bot_id`,`merc_id`) USING BTREE
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `group_leaders`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `group_leaders`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `group_leaders` (
+-- Dumping structure for table proxeeus_db.group_leaders
+CREATE TABLE IF NOT EXISTS `group_leaders` (
   `gid` int(4) NOT NULL DEFAULT 0,
   `leadername` varchar(64) NOT NULL DEFAULT '',
   `marknpc` varchar(64) NOT NULL DEFAULT '',
@@ -3665,16 +2976,11 @@ CREATE TABLE `group_leaders` (
   `mentor_percent` int(4) NOT NULL DEFAULT 0,
   PRIMARY KEY (`gid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `group_leaders__`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `group_leaders__`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `group_leaders__` (
+-- Dumping structure for table proxeeus_db.group_leaders__
+CREATE TABLE IF NOT EXISTS `group_leaders__` (
   `gid` int(4) NOT NULL DEFAULT 0,
   `leadername` varchar(64) NOT NULL DEFAULT '',
   `assist` varchar(64) NOT NULL DEFAULT '',
@@ -3684,161 +2990,11 @@ CREATE TABLE `group_leaders__` (
   `mentor_percent` int(4) NOT NULL DEFAULT 0,
   PRIMARY KEY (`gid`)
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `guild_alliances`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `guild_alliances`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `guild_alliances` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `guildone` int(11) NOT NULL DEFAULT 0,
-  `guildtwo` int(11) NOT NULL DEFAULT 0,
-  PRIMARY KEY (`id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `guild_bank`
---
-
-DROP TABLE IF EXISTS `guild_bank`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `guild_bank` (
-  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `guildid` int(10) unsigned NOT NULL DEFAULT 0,
-  `area` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `slot` int(4) unsigned NOT NULL DEFAULT 0,
-  `itemid` int(10) unsigned NOT NULL DEFAULT 0,
-  `qty` int(10) NOT NULL DEFAULT 0,
-  `donator` varchar(64) DEFAULT NULL,
-  `permissions` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `whofor` varchar(64) DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `guildid` (`guildid`),
-  KEY `area` (`area`),
-  KEY `slot` (`slot`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `guild_controllers`
---
-
-DROP TABLE IF EXISTS `guild_controllers`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `guild_controllers` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `npc_id` int(11) NOT NULL DEFAULT 0,
-  `owned_guild_id` int(11) NOT NULL DEFAULT 0,
-  `zoneid` int(11) NOT NULL DEFAULT 0,
-  `terrainarea` varchar(64) NOT NULL DEFAULT '',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `npc_id` (`npc_id`),
-  UNIQUE KEY `zoneid` (`zoneid`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `guild_members`
---
-
-DROP TABLE IF EXISTS `guild_members`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `guild_members` (
-  `char_id` int(11) NOT NULL DEFAULT 0,
-  `guild_id` mediumint(8) unsigned NOT NULL DEFAULT 0,
-  `rank` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `tribute_enable` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `total_tribute` int(10) unsigned NOT NULL DEFAULT 0,
-  `last_tribute` int(10) unsigned NOT NULL DEFAULT 0,
-  `banker` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `public_note` text NOT NULL,
-  `alt` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `online` tinyint(3) unsigned NOT NULL DEFAULT 0
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `guild_permissions`
---
-
-DROP TABLE IF EXISTS `guild_permissions`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `guild_permissions` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `perm_id` int(11) NOT NULL DEFAULT 0,
-  `guild_id` int(11) NOT NULL DEFAULT 0,
-  `permission` int(11) NOT NULL DEFAULT 0,
-  PRIMARY KEY (`id`) USING BTREE,
-  UNIQUE KEY `perm_id_guild_id` (`perm_id`,`guild_id`) USING BTREE
-) ENGINE=InnoDB AUTO_INCREMENT=1801 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `guild_ranks`
---
-
-DROP TABLE IF EXISTS `guild_ranks`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `guild_ranks` (
-  `guild_id` mediumint(8) unsigned NOT NULL DEFAULT 0,
-  `rank` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `title` varchar(128) NOT NULL DEFAULT '',
-  PRIMARY KEY (`guild_id`,`rank`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `guild_relations`
---
-
-DROP TABLE IF EXISTS `guild_relations`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `guild_relations` (
-  `guild1` mediumint(8) unsigned NOT NULL DEFAULT 0,
-  `guild2` mediumint(8) unsigned NOT NULL DEFAULT 0,
-  `relation` tinyint(4) NOT NULL DEFAULT 0,
-  PRIMARY KEY (`guild1`,`guild2`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `guild_tributes`
---
-
-DROP TABLE IF EXISTS `guild_tributes`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `guild_tributes` (
-  `guild_id` int(11) unsigned NOT NULL DEFAULT 0,
-  `tribute_id_1` int(11) unsigned NOT NULL DEFAULT 0,
-  `tribute_id_1_tier` int(11) unsigned NOT NULL DEFAULT 0,
-  `tribute_id_2` int(11) unsigned NOT NULL DEFAULT 0,
-  `tribute_id_2_tier` int(11) unsigned NOT NULL DEFAULT 0,
-  `time_remaining` int(11) unsigned NOT NULL DEFAULT 0,
-  `enabled` int(11) unsigned NOT NULL DEFAULT 0,
-  PRIMARY KEY (`guild_id`) USING BTREE
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `guilds`
---
-
-DROP TABLE IF EXISTS `guilds`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `guilds` (
+-- Dumping structure for table proxeeus_db.guilds
+CREATE TABLE IF NOT EXISTS `guilds` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(32) NOT NULL DEFAULT '',
   `leader` int(11) NOT NULL DEFAULT 0,
@@ -3853,16 +3009,116 @@ CREATE TABLE `guilds` (
   UNIQUE KEY `name` (`name`),
   UNIQUE KEY `leader` (`leader`)
 ) ENGINE=InnoDB AUTO_INCREMENT=357 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `horses`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `horses`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `horses` (
+-- Dumping structure for table proxeeus_db.guild_alliances
+CREATE TABLE IF NOT EXISTS `guild_alliances` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `guildone` int(11) NOT NULL DEFAULT 0,
+  `guildtwo` int(11) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.guild_bank
+CREATE TABLE IF NOT EXISTS `guild_bank` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `guildid` int(10) unsigned NOT NULL DEFAULT 0,
+  `area` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `slot` int(4) unsigned NOT NULL DEFAULT 0,
+  `itemid` int(10) unsigned NOT NULL DEFAULT 0,
+  `qty` int(10) NOT NULL DEFAULT 0,
+  `donator` varchar(64) DEFAULT NULL,
+  `permissions` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `whofor` varchar(64) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `guildid` (`guildid`),
+  KEY `area` (`area`),
+  KEY `slot` (`slot`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.guild_controllers
+CREATE TABLE IF NOT EXISTS `guild_controllers` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `npc_id` int(11) NOT NULL DEFAULT 0,
+  `owned_guild_id` int(11) NOT NULL DEFAULT 0,
+  `zoneid` int(11) NOT NULL DEFAULT 0,
+  `terrainarea` varchar(64) NOT NULL DEFAULT '',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `npc_id` (`npc_id`),
+  UNIQUE KEY `zoneid` (`zoneid`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.guild_members
+CREATE TABLE IF NOT EXISTS `guild_members` (
+  `char_id` int(11) NOT NULL DEFAULT 0,
+  `guild_id` mediumint(8) unsigned NOT NULL DEFAULT 0,
+  `rank` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `tribute_enable` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `total_tribute` int(10) unsigned NOT NULL DEFAULT 0,
+  `last_tribute` int(10) unsigned NOT NULL DEFAULT 0,
+  `banker` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `public_note` text NOT NULL,
+  `alt` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `online` tinyint(3) unsigned NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.guild_permissions
+CREATE TABLE IF NOT EXISTS `guild_permissions` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `perm_id` int(11) NOT NULL DEFAULT 0,
+  `guild_id` int(11) NOT NULL DEFAULT 0,
+  `permission` int(11) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `perm_id_guild_id` (`perm_id`,`guild_id`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=1801 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.guild_ranks
+CREATE TABLE IF NOT EXISTS `guild_ranks` (
+  `guild_id` mediumint(8) unsigned NOT NULL DEFAULT 0,
+  `rank` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `title` varchar(128) NOT NULL DEFAULT '',
+  PRIMARY KEY (`guild_id`,`rank`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.guild_relations
+CREATE TABLE IF NOT EXISTS `guild_relations` (
+  `guild1` mediumint(8) unsigned NOT NULL DEFAULT 0,
+  `guild2` mediumint(8) unsigned NOT NULL DEFAULT 0,
+  `relation` tinyint(4) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`guild1`,`guild2`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.guild_tributes
+CREATE TABLE IF NOT EXISTS `guild_tributes` (
+  `guild_id` int(11) unsigned NOT NULL DEFAULT 0,
+  `tribute_id_1` int(11) unsigned NOT NULL DEFAULT 0,
+  `tribute_id_1_tier` int(11) unsigned NOT NULL DEFAULT 0,
+  `tribute_id_2` int(11) unsigned NOT NULL DEFAULT 0,
+  `tribute_id_2_tier` int(11) unsigned NOT NULL DEFAULT 0,
+  `time_remaining` int(11) unsigned NOT NULL DEFAULT 0,
+  `enabled` int(11) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`guild_id`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.horses
+CREATE TABLE IF NOT EXISTS `horses` (
   `id` int(20) NOT NULL AUTO_INCREMENT,
   `filename` varchar(32) NOT NULL DEFAULT '',
   `race` smallint(3) NOT NULL DEFAULT 216,
@@ -3872,17 +3128,12 @@ CREATE TABLE `horses` (
   `notes` varchar(64) DEFAULT 'Notes',
   PRIMARY KEY (`id`),
   UNIQUE KEY `filename` (`filename`)
-) ENGINE=InnoDB AUTO_INCREMENT=86 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=86 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `instance_list`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `instance_list`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `instance_list` (
+-- Dumping structure for table proxeeus_db.instance_list
+CREATE TABLE IF NOT EXISTS `instance_list` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `zone` int(11) unsigned NOT NULL DEFAULT 0,
   `version` tinyint(4) unsigned NOT NULL DEFAULT 0,
@@ -3894,31 +3145,21 @@ CREATE TABLE `instance_list` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `id` (`id`),
   KEY `id_2` (`id`)
-) ENGINE=MyISAM AUTO_INCREMENT=32 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM AUTO_INCREMENT=32 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `instance_list_player`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `instance_list_player`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `instance_list_player` (
+-- Dumping structure for table proxeeus_db.instance_list_player
+CREATE TABLE IF NOT EXISTS `instance_list_player` (
   `id` int(11) unsigned NOT NULL DEFAULT 0,
   `charid` int(11) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`charid`,`id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `inventory`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `inventory`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `inventory` (
+-- Dumping structure for table proxeeus_db.inventory
+CREATE TABLE IF NOT EXISTS `inventory` (
   `charid` int(11) unsigned NOT NULL DEFAULT 0,
   `slotid` mediumint(7) unsigned NOT NULL DEFAULT 0,
   `itemid` int(11) unsigned DEFAULT 0,
@@ -3935,18 +3176,39 @@ CREATE TABLE `inventory` (
   `ornamenticon` int(11) unsigned NOT NULL DEFAULT 0,
   `ornamentidfile` int(11) unsigned NOT NULL DEFAULT 0,
   `ornament_hero_model` int(11) NOT NULL DEFAULT 0,
+  `guid` bigint(20) unsigned DEFAULT 0,
   PRIMARY KEY (`charid`,`slotid`)
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `inventory_snapshots`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `inventory_snapshots`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `inventory_snapshots` (
+-- Dumping structure for table proxeeus_db.inventory_snapshots
+CREATE TABLE IF NOT EXISTS `inventory_snapshots` (
+  `time_index` int(11) unsigned NOT NULL DEFAULT 0,
+  `charid` int(11) unsigned NOT NULL DEFAULT 0,
+  `slotid` mediumint(7) unsigned NOT NULL DEFAULT 0,
+  `itemid` int(11) unsigned DEFAULT 0,
+  `charges` smallint(3) unsigned DEFAULT 0,
+  `color` int(11) unsigned NOT NULL DEFAULT 0,
+  `augslot1` mediumint(7) unsigned NOT NULL DEFAULT 0,
+  `augslot2` mediumint(7) unsigned NOT NULL DEFAULT 0,
+  `augslot3` mediumint(7) unsigned NOT NULL DEFAULT 0,
+  `augslot4` mediumint(7) unsigned NOT NULL DEFAULT 0,
+  `augslot5` mediumint(7) unsigned DEFAULT 0,
+  `augslot6` mediumint(7) NOT NULL DEFAULT 0,
+  `instnodrop` tinyint(1) unsigned NOT NULL DEFAULT 0,
+  `custom_data` text DEFAULT NULL,
+  `ornamenticon` int(11) unsigned NOT NULL DEFAULT 0,
+  `ornamentidfile` int(11) unsigned NOT NULL DEFAULT 0,
+  `ornament_hero_model` int(11) NOT NULL DEFAULT 0,
+  `guid` bigint(20) unsigned DEFAULT 0,
+  PRIMARY KEY (`time_index`,`charid`,`slotid`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.inventory_snapshots_v1_bak
+CREATE TABLE IF NOT EXISTS `inventory_snapshots_v1_bak` (
   `time_index` int(11) unsigned NOT NULL DEFAULT 0,
   `charid` int(11) unsigned NOT NULL DEFAULT 0,
   `slotid` mediumint(7) unsigned NOT NULL DEFAULT 0,
@@ -3966,74 +3228,30 @@ CREATE TABLE `inventory_snapshots` (
   `ornament_hero_model` int(11) NOT NULL DEFAULT 0,
   PRIMARY KEY (`time_index`,`charid`,`slotid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `inventory_snapshots_v1_bak`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `inventory_snapshots_v1_bak`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `inventory_snapshots_v1_bak` (
-  `time_index` int(11) unsigned NOT NULL DEFAULT 0,
-  `charid` int(11) unsigned NOT NULL DEFAULT 0,
-  `slotid` mediumint(7) unsigned NOT NULL DEFAULT 0,
-  `itemid` int(11) unsigned DEFAULT 0,
-  `charges` smallint(3) unsigned DEFAULT 0,
-  `color` int(11) unsigned NOT NULL DEFAULT 0,
-  `augslot1` mediumint(7) unsigned NOT NULL DEFAULT 0,
-  `augslot2` mediumint(7) unsigned NOT NULL DEFAULT 0,
-  `augslot3` mediumint(7) unsigned NOT NULL DEFAULT 0,
-  `augslot4` mediumint(7) unsigned NOT NULL DEFAULT 0,
-  `augslot5` mediumint(7) unsigned DEFAULT 0,
-  `augslot6` mediumint(7) NOT NULL DEFAULT 0,
-  `instnodrop` tinyint(1) unsigned NOT NULL DEFAULT 0,
-  `custom_data` text DEFAULT NULL,
-  `ornamenticon` int(11) unsigned NOT NULL DEFAULT 0,
-  `ornamentidfile` int(11) unsigned NOT NULL DEFAULT 0,
-  `ornament_hero_model` int(11) NOT NULL DEFAULT 0,
-  PRIMARY KEY (`time_index`,`charid`,`slotid`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `inventory_versions`
---
-
-DROP TABLE IF EXISTS `inventory_versions`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `inventory_versions` (
+-- Dumping structure for table proxeeus_db.inventory_versions
+CREATE TABLE IF NOT EXISTS `inventory_versions` (
   `version` int(11) unsigned NOT NULL DEFAULT 0,
   `step` int(11) unsigned NOT NULL DEFAULT 0,
   `bot_step` int(11) unsigned NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `ip_exemptions`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `ip_exemptions`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `ip_exemptions` (
+-- Dumping structure for table proxeeus_db.ip_exemptions
+CREATE TABLE IF NOT EXISTS `ip_exemptions` (
   `exemption_id` int(11) NOT NULL AUTO_INCREMENT,
   `exemption_ip` varchar(255) DEFAULT NULL,
   `exemption_amount` int(11) DEFAULT NULL,
   PRIMARY KEY (`exemption_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `items`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `items`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `items` (
+-- Dumping structure for table proxeeus_db.items
+CREATE TABLE IF NOT EXISTS `items` (
   `id` int(11) NOT NULL DEFAULT 0,
   `minstatus` smallint(5) NOT NULL DEFAULT 0,
   `Name` varchar(64) NOT NULL DEFAULT '',
@@ -4323,77 +3541,52 @@ CREATE TABLE `items` (
   KEY `name_idx` (`Name`),
   KEY `lore_idx` (`lore`),
   KEY `minstatus` (`minstatus`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `keyring`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `keyring`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `keyring` (
+-- Dumping structure for table proxeeus_db.keyring
+CREATE TABLE IF NOT EXISTS `keyring` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `char_id` int(11) NOT NULL DEFAULT 0,
   `item_id` int(11) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=38 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `launcher`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `launcher`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `launcher` (
+-- Dumping structure for table proxeeus_db.launcher
+CREATE TABLE IF NOT EXISTS `launcher` (
   `name` varchar(64) NOT NULL DEFAULT '',
   `dynamics` tinyint(3) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `launcher_zones`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `launcher_zones`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `launcher_zones` (
+-- Dumping structure for table proxeeus_db.launcher_zones
+CREATE TABLE IF NOT EXISTS `launcher_zones` (
   `launcher` varchar(64) NOT NULL DEFAULT '',
   `zone` varchar(16) NOT NULL DEFAULT '',
   `port` mediumint(9) NOT NULL DEFAULT 0,
   `date` int(32) NOT NULL,
   PRIMARY KEY (`launcher`,`zone`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `ldon_trap_entries`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `ldon_trap_entries`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `ldon_trap_entries` (
+-- Dumping structure for table proxeeus_db.ldon_trap_entries
+CREATE TABLE IF NOT EXISTS `ldon_trap_entries` (
   `id` int(10) unsigned NOT NULL DEFAULT 0,
   `trap_id` int(10) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`,`trap_id`),
   KEY `id` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `ldon_trap_templates`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `ldon_trap_templates`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `ldon_trap_templates` (
+-- Dumping structure for table proxeeus_db.ldon_trap_templates
+CREATE TABLE IF NOT EXISTS `ldon_trap_templates` (
   `id` int(10) unsigned NOT NULL DEFAULT 0,
   `type` tinyint(3) unsigned NOT NULL DEFAULT 1,
   `spell_id` smallint(5) unsigned NOT NULL DEFAULT 0,
@@ -4401,32 +3594,22 @@ CREATE TABLE `ldon_trap_templates` (
   `locked` tinyint(3) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   UNIQUE KEY `id` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `level_exp_mods`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `level_exp_mods`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `level_exp_mods` (
+-- Dumping structure for table proxeeus_db.level_exp_mods
+CREATE TABLE IF NOT EXISTS `level_exp_mods` (
   `level` int(11) NOT NULL DEFAULT 0,
   `exp_mod` float DEFAULT NULL,
   `aa_exp_mod` float DEFAULT NULL,
   PRIMARY KEY (`level`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `lfguild`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `lfguild`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `lfguild` (
+-- Dumping structure for table proxeeus_db.lfguild
+CREATE TABLE IF NOT EXISTS `lfguild` (
   `type` tinyint(3) unsigned NOT NULL DEFAULT 0,
   `name` varchar(32) NOT NULL,
   `comment` varchar(256) NOT NULL,
@@ -4438,150 +3621,11 @@ CREATE TABLE `lfguild` (
   `timeposted` int(10) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`type`,`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `login_accounts`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `login_accounts`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `login_accounts` (
-  `id` int(11) unsigned NOT NULL,
-  `account_name` varchar(50) NOT NULL,
-  `account_password` text NOT NULL,
-  `account_email` varchar(100) NOT NULL,
-  `source_loginserver` varchar(64) DEFAULT NULL,
-  `last_ip_address` varchar(80) NOT NULL,
-  `last_login_date` datetime NOT NULL,
-  `created_at` datetime DEFAULT NULL,
-  `updated_at` datetime DEFAULT current_timestamp(),
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `source_loginserver_account_name` (`source_loginserver`,`account_name`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `login_api_tokens`
---
-
-DROP TABLE IF EXISTS `login_api_tokens`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `login_api_tokens` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `token` varchar(200) DEFAULT NULL,
-  `can_write` int(11) DEFAULT 0,
-  `can_read` int(11) DEFAULT 0,
-  `created_at` datetime DEFAULT NULL,
-  `updated_at` datetime DEFAULT current_timestamp(),
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `login_authchange`
---
-
-DROP TABLE IF EXISTS `login_authchange`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `login_authchange` (
-  `account_id` int(11) unsigned NOT NULL DEFAULT 0,
-  `ip` varchar(16) NOT NULL DEFAULT '',
-  `time` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  PRIMARY KEY (`account_id`),
-  UNIQUE KEY `ip` (`ip`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `login_server_admins`
---
-
-DROP TABLE IF EXISTS `login_server_admins`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `login_server_admins` (
-  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `account_name` varchar(30) NOT NULL,
-  `account_password` varchar(255) NOT NULL,
-  `first_name` varchar(50) NOT NULL,
-  `last_name` varchar(50) NOT NULL,
-  `email` varchar(100) NOT NULL,
-  `registration_date` datetime NOT NULL,
-  `registration_ip_address` varchar(80) NOT NULL,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `login_server_list_types`
---
-
-DROP TABLE IF EXISTS `login_server_list_types`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `login_server_list_types` (
-  `id` int(10) unsigned NOT NULL,
-  `description` varchar(60) NOT NULL,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `login_world_servers`
---
-
-DROP TABLE IF EXISTS `login_world_servers`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `login_world_servers` (
-  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `long_name` varchar(100) NOT NULL,
-  `short_name` varchar(100) NOT NULL,
-  `tag_description` varchar(50) NOT NULL DEFAULT '',
-  `login_server_list_type_id` int(11) NOT NULL,
-  `last_login_date` datetime DEFAULT NULL,
-  `last_ip_address` varchar(80) DEFAULT NULL,
-  `login_server_admin_id` int(11) NOT NULL,
-  `is_server_trusted` int(11) NOT NULL,
-  `note` varchar(255) DEFAULT NULL,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `login_worldservers`
---
-
-DROP TABLE IF EXISTS `login_worldservers`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `login_worldservers` (
-  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
-  `account` varchar(30) NOT NULL DEFAULT '',
-  `password` varchar(30) NOT NULL DEFAULT '',
-  `name` varchar(250) NOT NULL DEFAULT '',
-  `admin_id` int(11) unsigned NOT NULL DEFAULT 0,
-  `greenname` tinyint(1) unsigned NOT NULL DEFAULT 0,
-  `showdown` tinyint(4) NOT NULL DEFAULT 0,
-  `chat` tinyint(4) NOT NULL DEFAULT 0,
-  `note` tinytext DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `account` (`account`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `loginserver_server_accounts`
---
-
-DROP TABLE IF EXISTS `loginserver_server_accounts`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `loginserver_server_accounts` (
+-- Dumping structure for table proxeeus_db.loginserver_server_accounts
+CREATE TABLE IF NOT EXISTS `loginserver_server_accounts` (
   `LoginServerID` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `AccountName` varchar(30) NOT NULL,
   `AccountPassword` varchar(50) NOT NULL,
@@ -4591,16 +3635,11 @@ CREATE TABLE `loginserver_server_accounts` (
   `LastIPAddress` varchar(15) NOT NULL,
   PRIMARY KEY (`LoginServerID`,`AccountName`)
 ) ENGINE=InnoDB AUTO_INCREMENT=17 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `loginserver_server_admin_registration`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `loginserver_server_admin_registration`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `loginserver_server_admin_registration` (
+-- Dumping structure for table proxeeus_db.loginserver_server_admin_registration
+CREATE TABLE IF NOT EXISTS `loginserver_server_admin_registration` (
   `ServerAdminID` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `AccountName` varchar(30) NOT NULL,
   `AccountPassword` varchar(30) NOT NULL,
@@ -4611,30 +3650,20 @@ CREATE TABLE `loginserver_server_admin_registration` (
   `RegistrationIPAddr` varchar(15) NOT NULL,
   PRIMARY KEY (`ServerAdminID`,`Email`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `loginserver_server_list_type`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `loginserver_server_list_type`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `loginserver_server_list_type` (
+-- Dumping structure for table proxeeus_db.loginserver_server_list_type
+CREATE TABLE IF NOT EXISTS `loginserver_server_list_type` (
   `ServerListTypeID` int(10) unsigned NOT NULL,
   `ServerListTypeDescription` varchar(20) NOT NULL,
   PRIMARY KEY (`ServerListTypeID`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `loginserver_world_server_registration`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `loginserver_world_server_registration`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `loginserver_world_server_registration` (
+-- Dumping structure for table proxeeus_db.loginserver_world_server_registration
+CREATE TABLE IF NOT EXISTS `loginserver_world_server_registration` (
   `ServerID` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `ServerLongName` varchar(100) NOT NULL,
   `ServerTagDescription` varchar(50) NOT NULL DEFAULT '',
@@ -4647,32 +3676,121 @@ CREATE TABLE `loginserver_world_server_registration` (
   `Note` varchar(300) DEFAULT NULL,
   PRIMARY KEY (`ServerID`,`ServerLongName`)
 ) ENGINE=InnoDB AUTO_INCREMENT=1230 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `logs`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `logs`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `logs` (
+-- Dumping structure for table proxeeus_db.login_accounts
+CREATE TABLE IF NOT EXISTS `login_accounts` (
+  `id` int(11) unsigned NOT NULL,
+  `account_name` varchar(50) NOT NULL,
+  `account_password` text NOT NULL,
+  `account_email` varchar(100) NOT NULL,
+  `source_loginserver` varchar(64) DEFAULT NULL,
+  `last_ip_address` varchar(80) NOT NULL,
+  `last_login_date` datetime NOT NULL,
+  `created_at` datetime DEFAULT NULL,
+  `updated_at` datetime DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `source_loginserver_account_name` (`source_loginserver`,`account_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.login_api_tokens
+CREATE TABLE IF NOT EXISTS `login_api_tokens` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `token` varchar(200) DEFAULT NULL,
+  `can_write` int(11) DEFAULT 0,
+  `can_read` int(11) DEFAULT 0,
+  `created_at` datetime DEFAULT NULL,
+  `updated_at` datetime DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.login_authchange
+CREATE TABLE IF NOT EXISTS `login_authchange` (
+  `account_id` int(11) unsigned NOT NULL DEFAULT 0,
+  `ip` varchar(16) NOT NULL DEFAULT '',
+  `time` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`account_id`),
+  UNIQUE KEY `ip` (`ip`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.login_server_admins
+CREATE TABLE IF NOT EXISTS `login_server_admins` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `account_name` varchar(30) NOT NULL,
+  `account_password` varchar(255) NOT NULL,
+  `first_name` varchar(50) NOT NULL,
+  `last_name` varchar(50) NOT NULL,
+  `email` varchar(100) NOT NULL,
+  `registration_date` datetime NOT NULL,
+  `registration_ip_address` varchar(80) NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.login_server_list_types
+CREATE TABLE IF NOT EXISTS `login_server_list_types` (
+  `id` int(10) unsigned NOT NULL,
+  `description` varchar(60) NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.login_worldservers
+CREATE TABLE IF NOT EXISTS `login_worldservers` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `account` varchar(30) NOT NULL DEFAULT '',
+  `password` varchar(30) NOT NULL DEFAULT '',
+  `name` varchar(250) NOT NULL DEFAULT '',
+  `admin_id` int(11) unsigned NOT NULL DEFAULT 0,
+  `greenname` tinyint(1) unsigned NOT NULL DEFAULT 0,
+  `showdown` tinyint(4) NOT NULL DEFAULT 0,
+  `chat` tinyint(4) NOT NULL DEFAULT 0,
+  `note` tinytext DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `account` (`account`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.login_world_servers
+CREATE TABLE IF NOT EXISTS `login_world_servers` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `long_name` varchar(100) NOT NULL,
+  `short_name` varchar(100) NOT NULL,
+  `tag_description` varchar(50) NOT NULL DEFAULT '',
+  `login_server_list_type_id` int(11) NOT NULL,
+  `last_login_date` datetime DEFAULT NULL,
+  `last_ip_address` varchar(80) DEFAULT NULL,
+  `login_server_admin_id` int(11) NOT NULL,
+  `is_server_trusted` int(11) NOT NULL,
+  `note` varchar(255) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.logs
+CREATE TABLE IF NOT EXISTS `logs` (
   `zone` varchar(16) NOT NULL DEFAULT '',
   `name` varchar(128) NOT NULL DEFAULT '',
   `type` int(10) unsigned NOT NULL DEFAULT 0,
   KEY `zone` (`zone`),
   KEY `name` (`name`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `logsys_categories`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `logsys_categories`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `logsys_categories` (
+-- Dumping structure for table proxeeus_db.logsys_categories
+CREATE TABLE IF NOT EXISTS `logsys_categories` (
   `log_category_id` int(11) NOT NULL,
   `log_category_description` varchar(150) DEFAULT NULL,
   `log_to_console` smallint(11) DEFAULT 0,
@@ -4682,16 +3800,11 @@ CREATE TABLE `logsys_categories` (
   `discord_webhook_id` int(11) DEFAULT 0,
   PRIMARY KEY (`log_category_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `lootdrop`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `lootdrop`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `lootdrop` (
+-- Dumping structure for table proxeeus_db.lootdrop
+CREATE TABLE IF NOT EXISTS `lootdrop` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `name` varchar(255) NOT NULL DEFAULT '',
   `min_expansion` tinyint(4) NOT NULL DEFAULT -1,
@@ -4699,17 +3812,12 @@ CREATE TABLE `lootdrop` (
   `content_flags` varchar(100) DEFAULT NULL,
   `content_flags_disabled` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=89452 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=89452 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `lootdrop_entries`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `lootdrop_entries`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `lootdrop_entries` (
+-- Dumping structure for table proxeeus_db.lootdrop_entries
+CREATE TABLE IF NOT EXISTS `lootdrop_entries` (
   `lootdrop_id` int(11) unsigned NOT NULL DEFAULT 0,
   `item_id` int(11) NOT NULL DEFAULT 0,
   `item_charges` smallint(2) unsigned NOT NULL DEFAULT 1,
@@ -4726,17 +3834,12 @@ CREATE TABLE `lootdrop_entries` (
   `content_flags` varchar(100) DEFAULT NULL,
   `content_flags_disabled` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`lootdrop_id`,`item_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `loottable`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `loottable`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `loottable` (
+-- Dumping structure for table proxeeus_db.loottable
+CREATE TABLE IF NOT EXISTS `loottable` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `name` varchar(255) NOT NULL DEFAULT '',
   `mincash` int(11) unsigned NOT NULL DEFAULT 0,
@@ -4748,17 +3851,12 @@ CREATE TABLE `loottable` (
   `content_flags` varchar(100) DEFAULT NULL,
   `content_flags_disabled` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=88435 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=88435 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `loottable_entries`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `loottable_entries`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `loottable_entries` (
+-- Dumping structure for table proxeeus_db.loottable_entries
+CREATE TABLE IF NOT EXISTS `loottable_entries` (
   `loottable_id` int(11) unsigned NOT NULL DEFAULT 0,
   `lootdrop_id` int(11) unsigned NOT NULL DEFAULT 0,
   `multiplier` tinyint(2) unsigned NOT NULL DEFAULT 1,
@@ -4766,17 +3864,12 @@ CREATE TABLE `loottable_entries` (
   `mindrop` tinyint(2) unsigned NOT NULL DEFAULT 1,
   `probability` float NOT NULL DEFAULT 100,
   PRIMARY KEY (`loottable_id`,`lootdrop_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `mail`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `mail`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `mail` (
+-- Dumping structure for table proxeeus_db.mail
+CREATE TABLE IF NOT EXISTS `mail` (
   `msgid` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `charid` int(10) unsigned NOT NULL DEFAULT 0,
   `timestamp` int(11) NOT NULL DEFAULT 0,
@@ -4788,16 +3881,92 @@ CREATE TABLE `mail` (
   PRIMARY KEY (`msgid`),
   KEY `charid` (`charid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `merc_armorinfo`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `merc_armorinfo`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `merc_armorinfo` (
+-- Dumping structure for table proxeeus_db.merchantlist
+CREATE TABLE IF NOT EXISTS `merchantlist` (
+  `merchantid` int(11) NOT NULL DEFAULT 0,
+  `slot` int(11) unsigned NOT NULL DEFAULT 0,
+  `item` int(11) NOT NULL DEFAULT 0,
+  `faction_required` smallint(6) NOT NULL DEFAULT -100,
+  `level_required` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `min_status` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `max_status` tinyint(3) unsigned NOT NULL DEFAULT 255,
+  `alt_currency_cost` smallint(5) unsigned NOT NULL DEFAULT 0,
+  `classes_required` int(11) NOT NULL DEFAULT 65535,
+  `probability` int(3) NOT NULL DEFAULT 100,
+  `bucket_name` varchar(100) NOT NULL DEFAULT '',
+  `bucket_value` varchar(100) NOT NULL DEFAULT '',
+  `bucket_comparison` tinyint(3) unsigned DEFAULT 0,
+  `min_expansion` tinyint(4) NOT NULL DEFAULT -1,
+  `max_expansion` tinyint(4) NOT NULL DEFAULT -1,
+  `content_flags` varchar(100) DEFAULT NULL,
+  `content_flags_disabled` varchar(100) DEFAULT NULL,
+  PRIMARY KEY (`merchantid`,`slot`),
+  UNIQUE KEY `merchantid` (`merchantid`,`item`),
+  KEY `item` (`item`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.merchantlist_temp
+CREATE TABLE IF NOT EXISTS `merchantlist_temp` (
+  `npcid` int(10) unsigned NOT NULL DEFAULT 0,
+  `slot` int(11) unsigned NOT NULL DEFAULT 0,
+  `zone_id` int(11) NOT NULL DEFAULT 0,
+  `instance_id` int(11) NOT NULL DEFAULT 0,
+  `itemid` int(10) unsigned NOT NULL DEFAULT 0,
+  `charges` int(10) unsigned NOT NULL DEFAULT 1,
+  PRIMARY KEY (`npcid`,`slot`,`zone_id`,`instance_id`),
+  KEY `npcid_2` (`npcid`,`itemid`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.merchantsets
+CREATE TABLE IF NOT EXISTS `merchantsets` (
+  `Id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `Name` varchar(128) NOT NULL DEFAULT '',
+  `showname` varchar(31) DEFAULT NULL,
+  PRIMARY KEY (`Id`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.mercs
+CREATE TABLE IF NOT EXISTS `mercs` (
+  `MercID` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `OwnerCharacterID` int(10) unsigned NOT NULL,
+  `Slot` tinyint(1) unsigned NOT NULL DEFAULT 0,
+  `Name` varchar(64) NOT NULL,
+  `TemplateID` int(10) unsigned NOT NULL DEFAULT 0,
+  `SuspendedTime` int(11) unsigned NOT NULL DEFAULT 0,
+  `IsSuspended` tinyint(1) unsigned NOT NULL DEFAULT 0,
+  `TimerRemaining` int(11) unsigned NOT NULL DEFAULT 0,
+  `Gender` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `MercSize` float NOT NULL DEFAULT 5,
+  `StanceID` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `HP` int(11) unsigned NOT NULL DEFAULT 0,
+  `Mana` int(11) unsigned NOT NULL DEFAULT 0,
+  `Endurance` int(11) unsigned NOT NULL DEFAULT 0,
+  `Face` int(10) unsigned NOT NULL DEFAULT 1,
+  `LuclinHairStyle` int(10) unsigned NOT NULL DEFAULT 1,
+  `LuclinHairColor` int(10) unsigned NOT NULL DEFAULT 1,
+  `LuclinEyeColor` int(10) unsigned NOT NULL DEFAULT 1,
+  `LuclinEyeColor2` int(10) unsigned NOT NULL DEFAULT 1,
+  `LuclinBeardColor` int(10) unsigned NOT NULL DEFAULT 1,
+  `LuclinBeard` int(10) unsigned NOT NULL DEFAULT 0,
+  `DrakkinHeritage` int(10) unsigned NOT NULL DEFAULT 0,
+  `DrakkinTattoo` int(10) unsigned NOT NULL DEFAULT 0,
+  `DrakkinDetails` int(10) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`MercID`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.merc_armorinfo
+CREATE TABLE IF NOT EXISTS `merc_armorinfo` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `merc_npc_type_id` int(11) unsigned NOT NULL,
   `minlevel` tinyint(2) unsigned NOT NULL DEFAULT 1,
@@ -4810,16 +3979,11 @@ CREATE TABLE `merc_armorinfo` (
   `armortint_blue` tinyint(3) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `merc_buffs`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `merc_buffs`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `merc_buffs` (
+-- Dumping structure for table proxeeus_db.merc_buffs
+CREATE TABLE IF NOT EXISTS `merc_buffs` (
   `MercBuffId` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `MercId` int(10) unsigned NOT NULL DEFAULT 0,
   `SpellId` int(10) unsigned NOT NULL DEFAULT 0,
@@ -4843,16 +4007,22 @@ CREATE TABLE `merc_buffs` (
   KEY `FK_mercbuff_1` (`MercId`),
   CONSTRAINT `FK_mercbuff_1` FOREIGN KEY (`MercId`) REFERENCES `mercs` (`MercID`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `merc_spell_list_entries`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `merc_spell_list_entries`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `merc_spell_list_entries` (
+-- Dumping structure for table proxeeus_db.merc_spell_lists
+CREATE TABLE IF NOT EXISTS `merc_spell_lists` (
+  `merc_spell_list_id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `class_id` int(10) unsigned NOT NULL,
+  `proficiency_id` tinyint(3) unsigned NOT NULL,
+  `name` varchar(50) NOT NULL,
+  PRIMARY KEY (`merc_spell_list_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.merc_spell_list_entries
+CREATE TABLE IF NOT EXISTS `merc_spell_list_entries` (
   `merc_spell_list_entry_id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `merc_spell_list_id` int(10) unsigned NOT NULL,
   `spell_id` int(10) unsigned NOT NULL,
@@ -4866,32 +4036,11 @@ CREATE TABLE `merc_spell_list_entries` (
   KEY `FK_merc_spell_lists_1` (`merc_spell_list_id`),
   CONSTRAINT `FK_merc_spell_lists_1` FOREIGN KEY (`merc_spell_list_id`) REFERENCES `merc_spell_lists` (`merc_spell_list_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=293 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `merc_spell_lists`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `merc_spell_lists`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `merc_spell_lists` (
-  `merc_spell_list_id` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `class_id` int(10) unsigned NOT NULL,
-  `proficiency_id` tinyint(3) unsigned NOT NULL,
-  `name` varchar(50) NOT NULL,
-  PRIMARY KEY (`merc_spell_list_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `merc_stats`
---
-
-DROP TABLE IF EXISTS `merc_stats`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `merc_stats` (
+-- Dumping structure for table proxeeus_db.merc_stats
+CREATE TABLE IF NOT EXISTS `merc_stats` (
   `merc_npc_type_id` int(11) unsigned NOT NULL,
   `clientlevel` tinyint(2) unsigned NOT NULL DEFAULT 1,
   `level` tinyint(2) unsigned NOT NULL DEFAULT 1,
@@ -4927,16 +4076,11 @@ CREATE TABLE `merc_stats` (
   `healscale` float NOT NULL DEFAULT 100,
   PRIMARY KEY (`merc_npc_type_id`,`clientlevel`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `merc_weaponinfo`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `merc_weaponinfo`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `merc_weaponinfo` (
+-- Dumping structure for table proxeeus_db.merc_weaponinfo
+CREATE TABLE IF NOT EXISTS `merc_weaponinfo` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `merc_npc_type_id` int(11) NOT NULL,
   `minlevel` tinyint(2) unsigned NOT NULL DEFAULT 0,
@@ -4947,132 +4091,21 @@ CREATE TABLE `merc_weaponinfo` (
   `sec_melee_type` tinyint(4) unsigned NOT NULL DEFAULT 28,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `merchantlist`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `merchantlist`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `merchantlist` (
-  `merchantid` int(11) NOT NULL DEFAULT 0,
-  `slot` int(11) unsigned NOT NULL DEFAULT 0,
-  `item` int(11) NOT NULL DEFAULT 0,
-  `faction_required` smallint(6) NOT NULL DEFAULT -100,
-  `level_required` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `min_status` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `max_status` tinyint(3) unsigned NOT NULL DEFAULT 255,
-  `alt_currency_cost` smallint(5) unsigned NOT NULL DEFAULT 0,
-  `classes_required` int(11) NOT NULL DEFAULT 65535,
-  `probability` int(3) NOT NULL DEFAULT 100,
-  `bucket_name` varchar(100) NOT NULL DEFAULT '',
-  `bucket_value` varchar(100) NOT NULL DEFAULT '',
-  `bucket_comparison` tinyint(3) unsigned DEFAULT 0,
-  `min_expansion` tinyint(4) NOT NULL DEFAULT -1,
-  `max_expansion` tinyint(4) NOT NULL DEFAULT -1,
-  `content_flags` varchar(100) DEFAULT NULL,
-  `content_flags_disabled` varchar(100) DEFAULT NULL,
-  PRIMARY KEY (`merchantid`,`slot`),
-  UNIQUE KEY `merchantid` (`merchantid`,`item`),
-  KEY `item` (`item`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `merchantlist_temp`
---
-
-DROP TABLE IF EXISTS `merchantlist_temp`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `merchantlist_temp` (
-  `npcid` int(10) unsigned NOT NULL DEFAULT 0,
-  `slot` int(11) unsigned NOT NULL DEFAULT 0,
-  `zone_id` int(11) NOT NULL DEFAULT 0,
-  `instance_id` int(11) NOT NULL DEFAULT 0,
-  `itemid` int(10) unsigned NOT NULL DEFAULT 0,
-  `charges` int(10) unsigned NOT NULL DEFAULT 1,
-  PRIMARY KEY (`npcid`,`slot`,`zone_id`,`instance_id`),
-  KEY `npcid_2` (`npcid`,`itemid`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `merchantsets`
---
-
-DROP TABLE IF EXISTS `merchantsets`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `merchantsets` (
-  `Id` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `Name` varchar(128) NOT NULL DEFAULT '',
-  `showname` varchar(31) DEFAULT NULL,
-  PRIMARY KEY (`Id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `mercs`
---
-
-DROP TABLE IF EXISTS `mercs`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `mercs` (
-  `MercID` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `OwnerCharacterID` int(10) unsigned NOT NULL,
-  `Slot` tinyint(1) unsigned NOT NULL DEFAULT 0,
-  `Name` varchar(64) NOT NULL,
-  `TemplateID` int(10) unsigned NOT NULL DEFAULT 0,
-  `SuspendedTime` int(11) unsigned NOT NULL DEFAULT 0,
-  `IsSuspended` tinyint(1) unsigned NOT NULL DEFAULT 0,
-  `TimerRemaining` int(11) unsigned NOT NULL DEFAULT 0,
-  `Gender` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `MercSize` float NOT NULL DEFAULT 5,
-  `StanceID` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `HP` int(11) unsigned NOT NULL DEFAULT 0,
-  `Mana` int(11) unsigned NOT NULL DEFAULT 0,
-  `Endurance` int(11) unsigned NOT NULL DEFAULT 0,
-  `Face` int(10) unsigned NOT NULL DEFAULT 1,
-  `LuclinHairStyle` int(10) unsigned NOT NULL DEFAULT 1,
-  `LuclinHairColor` int(10) unsigned NOT NULL DEFAULT 1,
-  `LuclinEyeColor` int(10) unsigned NOT NULL DEFAULT 1,
-  `LuclinEyeColor2` int(10) unsigned NOT NULL DEFAULT 1,
-  `LuclinBeardColor` int(10) unsigned NOT NULL DEFAULT 1,
-  `LuclinBeard` int(10) unsigned NOT NULL DEFAULT 0,
-  `DrakkinHeritage` int(10) unsigned NOT NULL DEFAULT 0,
-  `DrakkinTattoo` int(10) unsigned NOT NULL DEFAULT 0,
-  `DrakkinDetails` int(10) unsigned NOT NULL DEFAULT 0,
-  PRIMARY KEY (`MercID`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `name_filter`
---
-
-DROP TABLE IF EXISTS `name_filter`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `name_filter` (
+-- Dumping structure for table proxeeus_db.name_filter
+CREATE TABLE IF NOT EXISTS `name_filter` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(30) NOT NULL DEFAULT '',
   PRIMARY KEY (`id`) USING BTREE,
   KEY `name_search_index` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `npc_emotes`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `npc_emotes`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `npc_emotes` (
+-- Dumping structure for table proxeeus_db.npc_emotes
+CREATE TABLE IF NOT EXISTS `npc_emotes` (
   `id` int(10) NOT NULL AUTO_INCREMENT,
   `emoteid` int(10) unsigned NOT NULL DEFAULT 0,
   `event_` tinyint(3) NOT NULL DEFAULT 0,
@@ -5080,80 +4113,55 @@ CREATE TABLE `npc_emotes` (
   `text` varchar(512) NOT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=2323 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `npc_faction`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `npc_faction`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `npc_faction` (
+-- Dumping structure for table proxeeus_db.npc_faction
+CREATE TABLE IF NOT EXISTS `npc_faction` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` tinytext DEFAULT NULL,
   `primaryfaction` int(11) NOT NULL DEFAULT 0,
   `ignore_primary_assist` tinyint(3) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`)
-) ENGINE=MyISAM AUTO_INCREMENT=20254 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM AUTO_INCREMENT=20254 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `npc_faction_entries`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `npc_faction_entries`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `npc_faction_entries` (
+-- Dumping structure for table proxeeus_db.npc_faction_entries
+CREATE TABLE IF NOT EXISTS `npc_faction_entries` (
   `npc_faction_id` int(11) unsigned NOT NULL DEFAULT 0,
   `faction_id` int(11) unsigned NOT NULL DEFAULT 0,
   `value` int(11) NOT NULL DEFAULT 0,
   `npc_value` tinyint(3) NOT NULL DEFAULT 0,
   `temp` tinyint(3) NOT NULL DEFAULT 0,
   PRIMARY KEY (`npc_faction_id`,`faction_id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `npc_faction_entries_prefix`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `npc_faction_entries_prefix`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `npc_faction_entries_prefix` (
+-- Dumping structure for table proxeeus_db.npc_faction_entries_prefix
+CREATE TABLE IF NOT EXISTS `npc_faction_entries_prefix` (
   `npc_faction_id` int(11) unsigned NOT NULL DEFAULT 0,
   `faction_id` int(11) unsigned NOT NULL DEFAULT 0,
   `value` int(11) NOT NULL DEFAULT 0,
   `npc_value` tinyint(3) NOT NULL DEFAULT 0,
   `temp` tinyint(3) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `npc_faction_prefix`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `npc_faction_prefix`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `npc_faction_prefix` (
+-- Dumping structure for table proxeeus_db.npc_faction_prefix
+CREATE TABLE IF NOT EXISTS `npc_faction_prefix` (
   `id` int(11) NOT NULL DEFAULT 0,
-  `name` tinytext CHARACTER SET utf8mb3 COLLATE utf8mb3_uca1400_ai_ci DEFAULT NULL,
+  `name` tinytext CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci DEFAULT NULL,
   `primaryfaction` int(11) NOT NULL DEFAULT 0,
   `ignore_primary_assist` tinyint(3) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `npc_scale_global_base`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `npc_scale_global_base`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `npc_scale_global_base` (
+-- Dumping structure for table proxeeus_db.npc_scale_global_base
+CREATE TABLE IF NOT EXISTS `npc_scale_global_base` (
   `type` int(11) NOT NULL DEFAULT 0,
   `level` int(11) NOT NULL,
   `zone_id_list` int(11) unsigned NOT NULL DEFAULT 0,
@@ -5188,17 +4196,12 @@ CREATE TABLE `npc_scale_global_base` (
   `heroic_strikethrough` int(11) NOT NULL DEFAULT 0,
   `special_abilities` text CHARACTER SET latin1 COLLATE latin1_swedish_ci NOT NULL,
   PRIMARY KEY (`type`,`level`,`zone_id_list`,`instance_version_list`) USING BTREE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Table structure for table `npc_spells`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `npc_spells`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `npc_spells` (
+-- Dumping structure for table proxeeus_db.npc_spells
+CREATE TABLE IF NOT EXISTS `npc_spells` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `name` tinytext DEFAULT NULL,
   `parent_list` int(10) unsigned NOT NULL DEFAULT 0,
@@ -5221,32 +4224,22 @@ CREATE TABLE `npc_spells` (
   `idle_no_sp_recast_max` int(11) unsigned NOT NULL DEFAULT 0,
   `idle_b_chance` tinyint(11) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`)
-) ENGINE=MyISAM AUTO_INCREMENT=3108 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM AUTO_INCREMENT=3108 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `npc_spells_effects`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `npc_spells_effects`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `npc_spells_effects` (
+-- Dumping structure for table proxeeus_db.npc_spells_effects
+CREATE TABLE IF NOT EXISTS `npc_spells_effects` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `name` tinytext DEFAULT NULL,
   `parent_list` int(11) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=31 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `npc_spells_effects_entries`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `npc_spells_effects_entries`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `npc_spells_effects_entries` (
+-- Dumping structure for table proxeeus_db.npc_spells_effects_entries
+CREATE TABLE IF NOT EXISTS `npc_spells_effects_entries` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `npc_spells_effects_id` int(11) NOT NULL DEFAULT 0,
   `spell_effect_id` smallint(5) NOT NULL DEFAULT 0,
@@ -5258,16 +4251,11 @@ CREATE TABLE `npc_spells_effects_entries` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `spellsid_spellid` (`npc_spells_effects_id`,`spell_effect_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=31 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `npc_spells_entries`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `npc_spells_entries`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `npc_spells_entries` (
+-- Dumping structure for table proxeeus_db.npc_spells_entries
+CREATE TABLE IF NOT EXISTS `npc_spells_entries` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `npc_spells_id` int(11) NOT NULL DEFAULT 0,
   `spellid` smallint(5) unsigned NOT NULL DEFAULT 0,
@@ -5286,17 +4274,12 @@ CREATE TABLE `npc_spells_entries` (
   `content_flags_disabled` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `spellsid_spellid` (`npc_spells_id`,`spellid`)
-) ENGINE=MyISAM AUTO_INCREMENT=9444 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM AUTO_INCREMENT=9444 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `npc_types`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `npc_types`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `npc_types` (
+-- Dumping structure for table proxeeus_db.npc_types
+CREATE TABLE IF NOT EXISTS `npc_types` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` text NOT NULL,
   `lastname` varchar(32) DEFAULT NULL,
@@ -5426,18 +4409,14 @@ CREATE TABLE `npc_types` (
   `faction_amount` int(10) NOT NULL DEFAULT 0,
   `keeps_sold_items` tinyint(1) unsigned NOT NULL DEFAULT 1,
   `is_parcel_merchant` tinyint(1) unsigned NOT NULL DEFAULT 0,
+  `multiquest_enabled` tinyint(1) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=5000095 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=5000095 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `npc_types_metadata`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `npc_types_metadata`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `npc_types_metadata` (
+-- Dumping structure for table proxeeus_db.npc_types_metadata
+CREATE TABLE IF NOT EXISTS `npc_types_metadata` (
   `npc_types_id` int(11) NOT NULL DEFAULT 0,
   `isPKMob` tinyint(4) NOT NULL DEFAULT 0,
   `isNamedMob` tinyint(4) NOT NULL DEFAULT 0,
@@ -5445,17 +4424,12 @@ CREATE TABLE `npc_types_metadata` (
   `isCreatedMob` tinyint(4) NOT NULL DEFAULT 0,
   `isCustomFeatureNPC` tinyint(4) NOT NULL DEFAULT 0,
   PRIMARY KEY (`npc_types_id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `npc_types_tint`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `npc_types_tint`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `npc_types_tint` (
+-- Dumping structure for table proxeeus_db.npc_types_tint
+CREATE TABLE IF NOT EXISTS `npc_types_tint` (
   `id` int(10) unsigned NOT NULL DEFAULT 0,
   `tint_set_name` text NOT NULL,
   `red1h` tinyint(3) unsigned NOT NULL DEFAULT 0,
@@ -5486,17 +4460,12 @@ CREATE TABLE `npc_types_tint` (
   `grn9x` tinyint(3) unsigned NOT NULL DEFAULT 0,
   `blu9x` tinyint(3) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `object`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `object`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `object` (
+-- Dumping structure for table proxeeus_db.object
+CREATE TABLE IF NOT EXISTS `object` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `zoneid` int(11) unsigned NOT NULL DEFAULT 0,
   `version` smallint(5) NOT NULL DEFAULT 0,
@@ -5529,17 +4498,12 @@ CREATE TABLE `object` (
   `content_flags_disabled` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `zone` (`zoneid`)
-) ENGINE=MyISAM AUTO_INCREMENT=536 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM AUTO_INCREMENT=536 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `object_contents`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `object_contents`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `object_contents` (
+-- Dumping structure for table proxeeus_db.object_contents
+CREATE TABLE IF NOT EXISTS `object_contents` (
   `zoneid` int(11) unsigned NOT NULL DEFAULT 0,
   `parentid` int(11) unsigned NOT NULL DEFAULT 0,
   `bagidx` int(11) unsigned NOT NULL DEFAULT 0,
@@ -5554,32 +4518,22 @@ CREATE TABLE `object_contents` (
   `augslot6` mediumint(7) NOT NULL DEFAULT 0,
   PRIMARY KEY (`parentid`,`bagidx`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `peq_admin`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `peq_admin`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `peq_admin` (
+-- Dumping structure for table proxeeus_db.peq_admin
+CREATE TABLE IF NOT EXISTS `peq_admin` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `login` varchar(30) NOT NULL,
   `password` varchar(255) NOT NULL,
   `administrator` int(11) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `perl_event_export_settings`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `perl_event_export_settings`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `perl_event_export_settings` (
+-- Dumping structure for table proxeeus_db.perl_event_export_settings
+CREATE TABLE IF NOT EXISTS `perl_event_export_settings` (
   `event_id` int(11) NOT NULL,
   `event_description` varchar(150) DEFAULT NULL,
   `export_qglobals` smallint(11) DEFAULT 0,
@@ -5589,16 +4543,11 @@ CREATE TABLE `perl_event_export_settings` (
   `export_event` smallint(11) DEFAULT 0,
   PRIMARY KEY (`event_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `petitions`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `petitions`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `petitions` (
+-- Dumping structure for table proxeeus_db.petitions
+CREATE TABLE IF NOT EXISTS `petitions` (
   `dib` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `petid` int(10) unsigned NOT NULL DEFAULT 0,
   `charname` varchar(32) NOT NULL DEFAULT '',
@@ -5617,17 +4566,12 @@ CREATE TABLE `petitions` (
   `senttime` bigint(11) NOT NULL DEFAULT 0,
   PRIMARY KEY (`dib`),
   KEY `petid` (`petid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
 
---
--- Table structure for table `pets`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `pets`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `pets` (
+-- Dumping structure for table proxeeus_db.pets
+CREATE TABLE IF NOT EXISTS `pets` (
   `id` int(20) NOT NULL AUTO_INCREMENT,
   `type` varchar(64) NOT NULL DEFAULT '',
   `petpower` int(11) NOT NULL DEFAULT 0,
@@ -5640,31 +4584,11 @@ CREATE TABLE `pets` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `type_petpower` (`type`,`petpower`)
 ) ENGINE=InnoDB AUTO_INCREMENT=257 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `pets__`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `pets__`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `pets__` (
-  `type` varchar(64) NOT NULL DEFAULT '',
-  `npcID` int(11) NOT NULL DEFAULT 0,
-  `temp` tinyint(4) NOT NULL DEFAULT 0,
-  PRIMARY KEY (`type`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `pets_beastlord_data`
---
-
-DROP TABLE IF EXISTS `pets_beastlord_data`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `pets_beastlord_data` (
+-- Dumping structure for table proxeeus_db.pets_beastlord_data
+CREATE TABLE IF NOT EXISTS `pets_beastlord_data` (
   `player_race` int(10) unsigned NOT NULL DEFAULT 1,
   `pet_race` int(10) unsigned NOT NULL DEFAULT 42,
   `texture` tinyint(3) unsigned NOT NULL DEFAULT 0,
@@ -5674,16 +4598,21 @@ CREATE TABLE `pets_beastlord_data` (
   `face` tinyint(3) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`player_race`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci ROW_FORMAT=COMPACT;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `player_corpses_backup`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `player_corpses_backup`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `player_corpses_backup` (
+-- Dumping structure for table proxeeus_db.pets__
+CREATE TABLE IF NOT EXISTS `pets__` (
+  `type` varchar(64) NOT NULL DEFAULT '',
+  `npcID` int(11) NOT NULL DEFAULT 0,
+  `temp` tinyint(4) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`type`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.player_corpses_backup
+CREATE TABLE IF NOT EXISTS `player_corpses_backup` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `charid` int(10) unsigned NOT NULL DEFAULT 0,
   `parent_corpse_id` int(10) unsigned NOT NULL DEFAULT 0,
@@ -5698,33 +4627,11 @@ CREATE TABLE `player_corpses_backup` (
   PRIMARY KEY (`id`),
   KEY `charid` (`charid`)
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `player_event_log_settings`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `player_event_log_settings`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `player_event_log_settings` (
-  `id` bigint(20) NOT NULL,
-  `event_name` varchar(100) DEFAULT NULL,
-  `event_enabled` tinyint(1) DEFAULT NULL,
-  `retention_days` int(11) DEFAULT 0,
-  `discord_webhook_id` int(11) DEFAULT 0,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `player_event_logs`
---
-
-DROP TABLE IF EXISTS `player_event_logs`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `player_event_logs` (
+-- Dumping structure for table proxeeus_db.player_event_logs
+CREATE TABLE IF NOT EXISTS `player_event_logs` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `account_id` bigint(20) DEFAULT NULL,
   `character_id` bigint(20) DEFAULT NULL,
@@ -5743,45 +4650,42 @@ CREATE TABLE `player_event_logs` (
   KEY `zone_id` (`zone_id`),
   KEY `character_id` (`character_id`,`zone_id`) USING BTREE,
   KEY `created_at` (`created_at`)
-) ENGINE=InnoDB AUTO_INCREMENT=25 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=1504 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Table structure for table `player_titlesets`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `player_titlesets`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `player_titlesets` (
+-- Dumping structure for table proxeeus_db.player_event_log_settings
+CREATE TABLE IF NOT EXISTS `player_event_log_settings` (
+  `id` bigint(20) NOT NULL,
+  `event_name` varchar(100) DEFAULT NULL,
+  `event_enabled` tinyint(1) DEFAULT NULL,
+  `retention_days` int(11) DEFAULT 0,
+  `discord_webhook_id` int(11) DEFAULT 0,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.player_titlesets
+CREATE TABLE IF NOT EXISTS `player_titlesets` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `char_id` int(11) unsigned NOT NULL,
   `title_set` int(11) unsigned NOT NULL,
   PRIMARY KEY (`id`),
   KEY `id` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `profanity_list`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `profanity_list`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `profanity_list` (
+-- Dumping structure for table proxeeus_db.profanity_list
+CREATE TABLE IF NOT EXISTS `profanity_list` (
   `word` varchar(16) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `proximities_backup_9203`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `proximities_backup_9203`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `proximities_backup_9203` (
+-- Dumping structure for table proxeeus_db.proximities_backup_9203
+CREATE TABLE IF NOT EXISTS `proximities_backup_9203` (
   `zoneid` int(10) unsigned NOT NULL DEFAULT 0,
   `exploreid` int(10) unsigned NOT NULL DEFAULT 0,
   `minx` float(14,6) NOT NULL DEFAULT 0.000000,
@@ -5791,33 +4695,23 @@ CREATE TABLE `proximities_backup_9203` (
   `minz` float(14,6) NOT NULL DEFAULT 0.000000,
   `maxz` float(14,6) NOT NULL DEFAULT 0.000000,
   PRIMARY KEY (`zoneid`,`exploreid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `qed_admin`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `qed_admin`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `qed_admin` (
+-- Dumping structure for table proxeeus_db.qed_admin
+CREATE TABLE IF NOT EXISTS `qed_admin` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `login` varchar(30) NOT NULL DEFAULT '',
   `password` varchar(255) NOT NULL DEFAULT '',
   `access` int(11) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `qed_quests`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `qed_quests`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `qed_quests` (
+-- Dumping structure for table proxeeus_db.qed_quests
+CREATE TABLE IF NOT EXISTS `qed_quests` (
   `quest_id` int(11) NOT NULL AUTO_INCREMENT,
   `quest_name` varchar(64) NOT NULL DEFAULT '',
   `startzone_id` int(11) NOT NULL DEFAULT 0,
@@ -5826,34 +4720,24 @@ CREATE TABLE `qed_quests` (
   `quest_developer` varchar(30) NOT NULL DEFAULT 'Asram',
   `last_modified` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   UNIQUE KEY `ID` (`quest_id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `qed_zone`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `qed_zone`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `qed_zone` (
+-- Dumping structure for table proxeeus_db.qed_zone
+CREATE TABLE IF NOT EXISTS `qed_zone` (
   `zoneidnumber` int(4) NOT NULL DEFAULT 0,
   `short_name` varchar(16) NOT NULL DEFAULT '',
   `long_name` text NOT NULL,
   `expansion` int(4) NOT NULL DEFAULT 0,
   PRIMARY KEY (`zoneidnumber`),
   UNIQUE KEY `zoneidnumber` (`zoneidnumber`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `qs_merchant_transaction_record`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `qs_merchant_transaction_record`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `qs_merchant_transaction_record` (
+-- Dumping structure for table proxeeus_db.qs_merchant_transaction_record
+CREATE TABLE IF NOT EXISTS `qs_merchant_transaction_record` (
   `transaction_id` int(11) NOT NULL AUTO_INCREMENT,
   `time` timestamp NULL DEFAULT NULL ON UPDATE current_timestamp(),
   `zone_id` int(11) DEFAULT 0,
@@ -5870,17 +4754,12 @@ CREATE TABLE `qs_merchant_transaction_record` (
   `char_cp` int(11) DEFAULT 0,
   `char_items` mediumint(7) DEFAULT 0,
   PRIMARY KEY (`transaction_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `qs_merchant_transaction_record_entries`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `qs_merchant_transaction_record_entries`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `qs_merchant_transaction_record_entries` (
+-- Dumping structure for table proxeeus_db.qs_merchant_transaction_record_entries
+CREATE TABLE IF NOT EXISTS `qs_merchant_transaction_record_entries` (
   `event_id` int(11) DEFAULT 0,
   `char_slot` mediumint(7) DEFAULT 0,
   `item_id` int(11) DEFAULT 0,
@@ -5890,49 +4769,34 @@ CREATE TABLE `qs_merchant_transaction_record_entries` (
   `aug_3` int(11) DEFAULT 0,
   `aug_4` int(11) DEFAULT 0,
   `aug_5` int(11) DEFAULT 0
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `qs_player_aa_rate_hourly`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `qs_player_aa_rate_hourly`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `qs_player_aa_rate_hourly` (
+-- Dumping structure for table proxeeus_db.qs_player_aa_rate_hourly
+CREATE TABLE IF NOT EXISTS `qs_player_aa_rate_hourly` (
   `char_id` int(11) NOT NULL DEFAULT 0,
   `hour_time` int(11) NOT NULL,
   `aa_count` varchar(11) DEFAULT NULL,
   PRIMARY KEY (`char_id`,`hour_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `qs_player_delete_record`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `qs_player_delete_record`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `qs_player_delete_record` (
+-- Dumping structure for table proxeeus_db.qs_player_delete_record
+CREATE TABLE IF NOT EXISTS `qs_player_delete_record` (
   `delete_id` int(11) NOT NULL AUTO_INCREMENT,
   `time` timestamp NULL DEFAULT NULL ON UPDATE current_timestamp(),
   `char_id` int(11) DEFAULT 0,
   `stack_size` mediumint(7) DEFAULT 0,
   `char_items` mediumint(7) DEFAULT 0,
   PRIMARY KEY (`delete_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `qs_player_delete_record_entries`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `qs_player_delete_record_entries`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `qs_player_delete_record_entries` (
+-- Dumping structure for table proxeeus_db.qs_player_delete_record_entries
+CREATE TABLE IF NOT EXISTS `qs_player_delete_record_entries` (
   `event_id` int(11) DEFAULT 0,
   `char_slot` mediumint(7) DEFAULT 0,
   `item_id` int(11) DEFAULT 0,
@@ -5942,17 +4806,12 @@ CREATE TABLE `qs_player_delete_record_entries` (
   `aug_3` int(11) DEFAULT 0,
   `aug_4` int(11) DEFAULT 0,
   `aug_5` int(11) DEFAULT 0
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `qs_player_events`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `qs_player_events`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `qs_player_events` (
+-- Dumping structure for table proxeeus_db.qs_player_events
+CREATE TABLE IF NOT EXISTS `qs_player_events` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `char_id` int(11) DEFAULT 0,
   `event` int(11) unsigned DEFAULT 0,
@@ -5960,16 +4819,11 @@ CREATE TABLE `qs_player_events` (
   `time` int(11) unsigned DEFAULT 0,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `qs_player_handin_record`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `qs_player_handin_record`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `qs_player_handin_record` (
+-- Dumping structure for table proxeeus_db.qs_player_handin_record
+CREATE TABLE IF NOT EXISTS `qs_player_handin_record` (
   `handin_id` int(11) NOT NULL AUTO_INCREMENT,
   `time` timestamp NULL DEFAULT NULL ON UPDATE current_timestamp(),
   `quest_id` int(11) DEFAULT 0,
@@ -5986,17 +4840,12 @@ CREATE TABLE `qs_player_handin_record` (
   `npc_cp` int(11) DEFAULT 0,
   `npc_items` mediumint(7) DEFAULT 0,
   PRIMARY KEY (`handin_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `qs_player_handin_record_entries`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `qs_player_handin_record_entries`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `qs_player_handin_record_entries` (
+-- Dumping structure for table proxeeus_db.qs_player_handin_record_entries
+CREATE TABLE IF NOT EXISTS `qs_player_handin_record_entries` (
   `event_id` int(11) DEFAULT 0,
   `action_type` char(6) DEFAULT 'action',
   `char_slot` mediumint(7) DEFAULT 0,
@@ -6007,17 +4856,12 @@ CREATE TABLE `qs_player_handin_record_entries` (
   `aug_3` int(11) DEFAULT 0,
   `aug_4` int(11) DEFAULT 0,
   `aug_5` int(11) DEFAULT 0
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `qs_player_move_record`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `qs_player_move_record`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `qs_player_move_record` (
+-- Dumping structure for table proxeeus_db.qs_player_move_record
+CREATE TABLE IF NOT EXISTS `qs_player_move_record` (
   `move_id` int(11) NOT NULL AUTO_INCREMENT,
   `time` timestamp NULL DEFAULT NULL ON UPDATE current_timestamp(),
   `char_id` int(11) DEFAULT 0,
@@ -6027,17 +4871,12 @@ CREATE TABLE `qs_player_move_record` (
   `char_items` mediumint(7) DEFAULT 0,
   `postaction` tinyint(1) DEFAULT 0,
   PRIMARY KEY (`move_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `qs_player_move_record_entries`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `qs_player_move_record_entries`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `qs_player_move_record_entries` (
+-- Dumping structure for table proxeeus_db.qs_player_move_record_entries
+CREATE TABLE IF NOT EXISTS `qs_player_move_record_entries` (
   `event_id` int(11) DEFAULT 0,
   `from_slot` mediumint(7) DEFAULT 0,
   `to_slot` mediumint(7) DEFAULT 0,
@@ -6048,47 +4887,32 @@ CREATE TABLE `qs_player_move_record_entries` (
   `aug_3` int(11) DEFAULT 0,
   `aug_4` int(11) DEFAULT 0,
   `aug_5` int(11) DEFAULT 0
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `qs_player_npc_kill_record`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `qs_player_npc_kill_record`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `qs_player_npc_kill_record` (
+-- Dumping structure for table proxeeus_db.qs_player_npc_kill_record
+CREATE TABLE IF NOT EXISTS `qs_player_npc_kill_record` (
   `fight_id` int(11) NOT NULL AUTO_INCREMENT,
   `npc_id` int(11) DEFAULT NULL,
   `type` int(11) DEFAULT NULL,
   `zone_id` int(11) DEFAULT NULL,
   `time` timestamp NULL DEFAULT NULL ON UPDATE current_timestamp(),
   PRIMARY KEY (`fight_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `qs_player_npc_kill_record_entries`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `qs_player_npc_kill_record_entries`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `qs_player_npc_kill_record_entries` (
+-- Dumping structure for table proxeeus_db.qs_player_npc_kill_record_entries
+CREATE TABLE IF NOT EXISTS `qs_player_npc_kill_record_entries` (
   `event_id` int(11) DEFAULT 0,
   `char_id` int(11) DEFAULT 0
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `qs_player_speech`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `qs_player_speech`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `qs_player_speech` (
+-- Dumping structure for table proxeeus_db.qs_player_speech
+CREATE TABLE IF NOT EXISTS `qs_player_speech` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `from` varchar(64) NOT NULL,
   `to` varchar(64) NOT NULL,
@@ -6098,17 +4922,12 @@ CREATE TABLE `qs_player_speech` (
   `type` tinyint(3) NOT NULL,
   `timerecorded` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `qs_player_trade_record`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `qs_player_trade_record`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `qs_player_trade_record` (
+-- Dumping structure for table proxeeus_db.qs_player_trade_record
+CREATE TABLE IF NOT EXISTS `qs_player_trade_record` (
   `trade_id` int(11) NOT NULL AUTO_INCREMENT,
   `time` timestamp NULL DEFAULT NULL ON UPDATE current_timestamp(),
   `char1_id` int(11) DEFAULT 0,
@@ -6124,17 +4943,12 @@ CREATE TABLE `qs_player_trade_record` (
   `char2_cp` int(11) DEFAULT 0,
   `char2_items` mediumint(7) DEFAULT 0,
   PRIMARY KEY (`trade_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `qs_player_trade_record_entries`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `qs_player_trade_record_entries`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `qs_player_trade_record_entries` (
+-- Dumping structure for table proxeeus_db.qs_player_trade_record_entries
+CREATE TABLE IF NOT EXISTS `qs_player_trade_record_entries` (
   `event_id` int(11) DEFAULT 0,
   `from_id` int(11) DEFAULT 0,
   `from_slot` mediumint(7) DEFAULT 0,
@@ -6147,17 +4961,12 @@ CREATE TABLE `qs_player_trade_record_entries` (
   `aug_3` int(11) DEFAULT 0,
   `aug_4` int(11) DEFAULT 0,
   `aug_5` int(11) DEFAULT 0
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `quest_globals`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `quest_globals`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `quest_globals` (
+-- Dumping structure for table proxeeus_db.quest_globals
+CREATE TABLE IF NOT EXISTS `quest_globals` (
   `charid` int(11) NOT NULL DEFAULT 0,
   `npcid` int(11) NOT NULL DEFAULT 0,
   `zoneid` int(11) NOT NULL DEFAULT 0,
@@ -6167,16 +4976,11 @@ CREATE TABLE `quest_globals` (
   PRIMARY KEY (`charid`,`npcid`,`zoneid`,`name`),
   UNIQUE KEY `qname` (`name`,`charid`,`npcid`,`zoneid`)
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `quest_items`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `quest_items`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `quest_items` (
+-- Dumping structure for table proxeeus_db.quest_items
+CREATE TABLE IF NOT EXISTS `quest_items` (
   `item_id` int(11) NOT NULL DEFAULT 0,
   `npc` varchar(64) NOT NULL DEFAULT '',
   `zone` varchar(64) NOT NULL DEFAULT '',
@@ -6185,31 +4989,21 @@ CREATE TABLE `quest_items` (
   PRIMARY KEY (`item_id`,`npc`,`zone`),
   KEY `item_id` (`item_id`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `races`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `races`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `races` (
+-- Dumping structure for table proxeeus_db.races
+CREATE TABLE IF NOT EXISTS `races` (
   `name` varchar(64) NOT NULL DEFAULT '',
   `id` int(11) NOT NULL DEFAULT 0,
   PRIMARY KEY (`name`),
   KEY `id` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `raid_details`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `raid_details`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `raid_details` (
+-- Dumping structure for table proxeeus_db.raid_details
+CREATE TABLE IF NOT EXISTS `raid_details` (
   `raidid` int(4) NOT NULL DEFAULT 0,
   `loottype` int(4) NOT NULL DEFAULT 0,
   `locked` tinyint(1) NOT NULL DEFAULT 0,
@@ -6225,45 +5019,30 @@ CREATE TABLE `raid_details` (
   `marked_npc_3_instance_id` int(10) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`raidid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `raid_groups`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `raid_groups`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `raid_groups` (
+-- Dumping structure for table proxeeus_db.raid_groups
+CREATE TABLE IF NOT EXISTS `raid_groups` (
   `raidid` int(4) NOT NULL DEFAULT 0,
   `groupid` int(4) NOT NULL DEFAULT 0,
   `groupindex` tinyint(1) NOT NULL DEFAULT 0,
   PRIMARY KEY (`raidid`,`groupid`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `raid_leader`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `raid_leader`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `raid_leader` (
+-- Dumping structure for table proxeeus_db.raid_leader
+CREATE TABLE IF NOT EXISTS `raid_leader` (
   `raidid` int(4) NOT NULL DEFAULT 0,
   `name` varchar(64) NOT NULL DEFAULT '',
   PRIMARY KEY (`raidid`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `raid_leaders`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `raid_leaders`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `raid_leaders` (
+-- Dumping structure for table proxeeus_db.raid_leaders
+CREATE TABLE IF NOT EXISTS `raid_leaders` (
   `gid` int(4) unsigned NOT NULL,
   `rid` int(4) unsigned NOT NULL,
   `marknpc` varchar(64) NOT NULL,
@@ -6274,16 +5053,11 @@ CREATE TABLE `raid_leaders` (
   `mentoree` varchar(64) NOT NULL,
   `mentor_percent` int(4) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `raid_members`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `raid_members`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `raid_members` (
+-- Dumping structure for table proxeeus_db.raid_members
+CREATE TABLE IF NOT EXISTS `raid_members` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `raidid` int(4) NOT NULL DEFAULT 0,
   `charid` int(4) NOT NULL DEFAULT 0,
@@ -6300,80 +5074,55 @@ CREATE TABLE `raid_members` (
   `note` varchar(64) NOT NULL DEFAULT '',
   PRIMARY KEY (`id`),
   UNIQUE KEY `UNIQUE` (`name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=3946 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
 
---
--- Table structure for table `raid_ungrouped_members`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `raid_ungrouped_members`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `raid_ungrouped_members` (
+-- Dumping structure for table proxeeus_db.raid_ungrouped_members
+CREATE TABLE IF NOT EXISTS `raid_ungrouped_members` (
   `raidid` int(4) NOT NULL DEFAULT 0,
   `charid` int(4) NOT NULL DEFAULT 0,
   `name` varchar(64) NOT NULL DEFAULT '',
   `ismaintank` tinyint(1) NOT NULL DEFAULT 0,
   PRIMARY KEY (`raidid`,`charid`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `reports`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `reports`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `reports` (
+-- Dumping structure for table proxeeus_db.reports
+CREATE TABLE IF NOT EXISTS `reports` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `name` varchar(64) DEFAULT NULL,
   `reported` varchar(64) DEFAULT NULL,
   `reported_text` text DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `id` (`id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `respawn_times`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `respawn_times`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `respawn_times` (
+-- Dumping structure for table proxeeus_db.respawn_times
+CREATE TABLE IF NOT EXISTS `respawn_times` (
   `id` int(11) NOT NULL DEFAULT 0,
   `start` int(11) NOT NULL DEFAULT 0,
   `duration` int(11) NOT NULL DEFAULT 0,
   `instance_id` smallint(6) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`,`instance_id`)
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `rule_sets`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `rule_sets`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `rule_sets` (
+-- Dumping structure for table proxeeus_db.rule_sets
+CREATE TABLE IF NOT EXISTS `rule_sets` (
   `ruleset_id` tinyint(3) unsigned NOT NULL AUTO_INCREMENT,
   `name` varchar(255) NOT NULL DEFAULT '',
   PRIMARY KEY (`ruleset_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `rule_values`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `rule_values`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `rule_values` (
+-- Dumping structure for table proxeeus_db.rule_values
+CREATE TABLE IF NOT EXISTS `rule_values` (
   `ruleset_id` tinyint(3) unsigned NOT NULL DEFAULT 0,
   `rule_name` varchar(64) NOT NULL DEFAULT '',
   `rule_value` text DEFAULT NULL,
@@ -6381,31 +5130,21 @@ CREATE TABLE `rule_values` (
   PRIMARY KEY (`ruleset_id`,`rule_name`),
   KEY `ruleset_id` (`ruleset_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `saylink`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `saylink`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `saylink` (
+-- Dumping structure for table proxeeus_db.saylink
+CREATE TABLE IF NOT EXISTS `saylink` (
   `id` int(10) NOT NULL AUTO_INCREMENT,
   `phrase` varchar(64) NOT NULL DEFAULT '',
   PRIMARY KEY (`id`),
   KEY `phrase_index` (`phrase`) USING BTREE
-) ENGINE=InnoDB AUTO_INCREMENT=23043 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_bin;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=23961 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_bin;
 
---
--- Table structure for table `server_scheduled_events`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `server_scheduled_events`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `server_scheduled_events` (
+-- Dumping structure for table proxeeus_db.server_scheduled_events
+CREATE TABLE IF NOT EXISTS `server_scheduled_events` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `description` varchar(255) DEFAULT NULL,
   `event_type` varchar(100) DEFAULT NULL,
@@ -6425,80 +5164,11 @@ CREATE TABLE `server_scheduled_events` (
   `deleted_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `shared_task_activity_state`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `shared_task_activity_state`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `shared_task_activity_state` (
-  `shared_task_id` bigint(20) NOT NULL,
-  `activity_id` int(11) NOT NULL,
-  `done_count` int(11) DEFAULT NULL,
-  `updated_time` datetime DEFAULT NULL,
-  `completed_time` datetime DEFAULT NULL,
-  PRIMARY KEY (`shared_task_id`,`activity_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `shared_task_dynamic_zones`
---
-
-DROP TABLE IF EXISTS `shared_task_dynamic_zones`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `shared_task_dynamic_zones` (
-  `shared_task_id` bigint(20) NOT NULL,
-  `dynamic_zone_id` int(10) unsigned NOT NULL,
-  PRIMARY KEY (`shared_task_id`,`dynamic_zone_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `shared_task_members`
---
-
-DROP TABLE IF EXISTS `shared_task_members`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `shared_task_members` (
-  `shared_task_id` bigint(20) NOT NULL,
-  `character_id` bigint(20) NOT NULL,
-  `is_leader` tinyint(4) DEFAULT NULL,
-  PRIMARY KEY (`shared_task_id`,`character_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `shared_tasks`
---
-
-DROP TABLE IF EXISTS `shared_tasks`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `shared_tasks` (
-  `id` bigint(20) NOT NULL AUTO_INCREMENT,
-  `task_id` int(11) DEFAULT NULL,
-  `accepted_time` datetime DEFAULT NULL,
-  `expire_time` datetime DEFAULT NULL,
-  `completion_time` datetime DEFAULT NULL,
-  `is_locked` tinyint(1) DEFAULT NULL,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `sharedbank`
---
-
-DROP TABLE IF EXISTS `sharedbank`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `sharedbank` (
+-- Dumping structure for table proxeeus_db.sharedbank
+CREATE TABLE IF NOT EXISTS `sharedbank` (
   `acctid` int(11) unsigned DEFAULT 0,
   `slotid` mediumint(7) unsigned DEFAULT 0,
   `itemid` int(11) unsigned DEFAULT 0,
@@ -6512,16 +5182,55 @@ CREATE TABLE `sharedbank` (
   `custom_data` text DEFAULT NULL,
   UNIQUE KEY `account` (`acctid`,`slotid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `skill_caps`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `skill_caps`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `skill_caps` (
+-- Dumping structure for table proxeeus_db.shared_tasks
+CREATE TABLE IF NOT EXISTS `shared_tasks` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `task_id` int(11) DEFAULT NULL,
+  `accepted_time` datetime DEFAULT NULL,
+  `expire_time` datetime DEFAULT NULL,
+  `completion_time` datetime DEFAULT NULL,
+  `is_locked` tinyint(1) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.shared_task_activity_state
+CREATE TABLE IF NOT EXISTS `shared_task_activity_state` (
+  `shared_task_id` bigint(20) NOT NULL,
+  `activity_id` int(11) NOT NULL,
+  `done_count` int(11) DEFAULT NULL,
+  `updated_time` datetime DEFAULT NULL,
+  `completed_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`shared_task_id`,`activity_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.shared_task_dynamic_zones
+CREATE TABLE IF NOT EXISTS `shared_task_dynamic_zones` (
+  `shared_task_id` bigint(20) NOT NULL,
+  `dynamic_zone_id` int(10) unsigned NOT NULL,
+  PRIMARY KEY (`shared_task_id`,`dynamic_zone_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.shared_task_members
+CREATE TABLE IF NOT EXISTS `shared_task_members` (
+  `shared_task_id` bigint(20) NOT NULL,
+  `character_id` bigint(20) NOT NULL,
+  `is_leader` tinyint(4) DEFAULT NULL,
+  PRIMARY KEY (`shared_task_id`,`character_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.skill_caps
+CREATE TABLE IF NOT EXISTS `skill_caps` (
   `id` int(3) unsigned NOT NULL AUTO_INCREMENT,
   `skill_id` tinyint(3) unsigned NOT NULL DEFAULT 0,
   `class_id` tinyint(3) unsigned NOT NULL DEFAULT 0,
@@ -6530,17 +5239,12 @@ CREATE TABLE `skill_caps` (
   `class_` tinyint(3) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`) USING BTREE,
   KEY `level_skill_cap` (`skill_id`,`class_id`,`level`,`cap`)
-) ENGINE=InnoDB AUTO_INCREMENT=40652 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=40652 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `spawn2`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `spawn2`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `spawn2` (
+-- Dumping structure for table proxeeus_db.spawn2
+CREATE TABLE IF NOT EXISTS `spawn2` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `spawngroupID` int(11) NOT NULL DEFAULT 0,
   `zone` varchar(32) DEFAULT NULL,
@@ -6562,17 +5266,12 @@ CREATE TABLE `spawn2` (
   `content_flags_disabled` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `ZoneGroup` (`zone`)
-) ENGINE=MyISAM AUTO_INCREMENT=227632 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM AUTO_INCREMENT=227632 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `spawn2_backup_2023_10_29`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `spawn2_backup_2023_10_29`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `spawn2_backup_2023_10_29` (
+-- Dumping structure for table proxeeus_db.spawn2_backup_2023_10_29
+CREATE TABLE IF NOT EXISTS `spawn2_backup_2023_10_29` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `spawngroupID` int(11) NOT NULL DEFAULT 0,
   `zone` varchar(32) DEFAULT NULL,
@@ -6595,94 +5294,24 @@ CREATE TABLE `spawn2_backup_2023_10_29` (
   `content_flags_disabled` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `ZoneGroup` (`zone`)
-) ENGINE=MyISAM AUTO_INCREMENT=227555 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM AUTO_INCREMENT=227555 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `spawn2_disabled`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `spawn2_disabled`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `spawn2_disabled` (
+-- Dumping structure for table proxeeus_db.spawn2_disabled
+CREATE TABLE IF NOT EXISTS `spawn2_disabled` (
   `id` bigint(11) NOT NULL AUTO_INCREMENT,
   `spawn2_id` int(11) DEFAULT NULL,
   `instance_id` int(11) DEFAULT 0,
   `disabled` smallint(11) DEFAULT 0,
   PRIMARY KEY (`id`),
   UNIQUE KEY `spawn2_id` (`spawn2_id`,`instance_id`) USING BTREE
-) ENGINE=InnoDB AUTO_INCREMENT=39 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=39 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Table structure for table `spawn_condition_values`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `spawn_condition_values`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `spawn_condition_values` (
-  `id` int(10) unsigned NOT NULL,
-  `value` tinyint(3) unsigned DEFAULT NULL,
-  `zone` varchar(64) NOT NULL,
-  `instance_id` int(10) unsigned NOT NULL,
-  UNIQUE KEY `instance` (`id`,`instance_id`,`zone`),
-  KEY `zoneinstance` (`zone`,`instance_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `spawn_conditions`
---
-
-DROP TABLE IF EXISTS `spawn_conditions`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `spawn_conditions` (
-  `zone` varchar(16) NOT NULL DEFAULT '',
-  `id` mediumint(8) unsigned NOT NULL DEFAULT 1,
-  `value` mediumint(9) NOT NULL DEFAULT 0,
-  `onchange` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `name` varchar(255) NOT NULL DEFAULT '',
-  PRIMARY KEY (`zone`,`id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `spawn_events`
---
-
-DROP TABLE IF EXISTS `spawn_events`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `spawn_events` (
-  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `zone` varchar(16) NOT NULL DEFAULT '',
-  `cond_id` mediumint(8) unsigned NOT NULL DEFAULT 0,
-  `name` varchar(255) NOT NULL DEFAULT '',
-  `period` int(10) unsigned NOT NULL DEFAULT 0,
-  `next_minute` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `next_hour` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `next_day` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `next_month` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `next_year` int(10) unsigned NOT NULL DEFAULT 0,
-  `enabled` tinyint(4) NOT NULL DEFAULT 1,
-  `action` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `argument` mediumint(9) NOT NULL DEFAULT 0,
-  `strict` tinyint(4) NOT NULL DEFAULT 0,
-  PRIMARY KEY (`id`)
-) ENGINE=MyISAM AUTO_INCREMENT=487 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `spawnentry`
---
-
-DROP TABLE IF EXISTS `spawnentry`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `spawnentry` (
+-- Dumping structure for table proxeeus_db.spawnentry
+CREATE TABLE IF NOT EXISTS `spawnentry` (
   `spawngroupID` int(11) NOT NULL DEFAULT 0,
   `npcID` int(11) NOT NULL DEFAULT 0,
   `chance` smallint(4) NOT NULL DEFAULT 0,
@@ -6694,17 +5323,12 @@ CREATE TABLE `spawnentry` (
   `content_flags` varchar(100) DEFAULT NULL,
   `content_flags_disabled` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`spawngroupID`,`npcID`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `spawngroup`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `spawngroup`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `spawngroup` (
+-- Dumping structure for table proxeeus_db.spawngroup
+CREATE TABLE IF NOT EXISTS `spawngroup` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(30) NOT NULL DEFAULT '',
   `spawn_limit` tinyint(4) NOT NULL DEFAULT 0,
@@ -6720,33 +5344,57 @@ CREATE TABLE `spawngroup` (
   `wp_spawns` tinyint(1) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   UNIQUE KEY `name` (`name`)
-) ENGINE=MyISAM AUTO_INCREMENT=243867 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM AUTO_INCREMENT=243867 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `spell_buckets`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `spell_buckets`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `spell_buckets` (
-  `spellid` bigint(11) unsigned NOT NULL,
-  `key` varchar(100) DEFAULT NULL,
-  `value` text DEFAULT NULL,
-  PRIMARY KEY (`spellid`),
-  KEY `key_index` (`key`) USING BTREE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+-- Dumping structure for table proxeeus_db.spawn_conditions
+CREATE TABLE IF NOT EXISTS `spawn_conditions` (
+  `zone` varchar(16) NOT NULL DEFAULT '',
+  `id` mediumint(8) unsigned NOT NULL DEFAULT 1,
+  `value` mediumint(9) NOT NULL DEFAULT 0,
+  `onchange` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `name` varchar(255) NOT NULL DEFAULT '',
+  PRIMARY KEY (`zone`,`id`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `spells`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `spells`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `spells` (
+-- Dumping structure for table proxeeus_db.spawn_condition_values
+CREATE TABLE IF NOT EXISTS `spawn_condition_values` (
+  `id` int(10) unsigned NOT NULL,
+  `value` tinyint(3) unsigned DEFAULT NULL,
+  `zone` varchar(64) NOT NULL,
+  `instance_id` int(10) unsigned NOT NULL,
+  UNIQUE KEY `instance` (`id`,`instance_id`,`zone`),
+  KEY `zoneinstance` (`zone`,`instance_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.spawn_events
+CREATE TABLE IF NOT EXISTS `spawn_events` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `zone` varchar(16) NOT NULL DEFAULT '',
+  `cond_id` mediumint(8) unsigned NOT NULL DEFAULT 0,
+  `name` varchar(255) NOT NULL DEFAULT '',
+  `period` int(10) unsigned NOT NULL DEFAULT 0,
+  `next_minute` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `next_hour` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `next_day` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `next_month` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `next_year` int(10) unsigned NOT NULL DEFAULT 0,
+  `enabled` tinyint(4) NOT NULL DEFAULT 1,
+  `action` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `argument` mediumint(9) NOT NULL DEFAULT 0,
+  `strict` tinyint(4) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`)
+) ENGINE=MyISAM AUTO_INCREMENT=487 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.spells
+CREATE TABLE IF NOT EXISTS `spells` (
   `spellid` int(11) NOT NULL DEFAULT 0,
   `name` varchar(64) NOT NULL DEFAULT '',
   `castonyou` varchar(120) NOT NULL DEFAULT '',
@@ -6841,16 +5489,11 @@ CREATE TABLE `spells` (
   `timeofday` int(11) NOT NULL DEFAULT 0,
   UNIQUE KEY `spellid` (`spellid`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `spells_new`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `spells_new`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `spells_new` (
+-- Dumping structure for table proxeeus_db.spells_new
+CREATE TABLE IF NOT EXISTS `spells_new` (
   `id` int(11) NOT NULL DEFAULT 0,
   `name` varchar(64) DEFAULT NULL,
   `player_1` varchar(64) DEFAULT 'BLUE_TRAIL',
@@ -7087,38 +5730,27 @@ CREATE TABLE `spells_new` (
   `field233` int(11) NOT NULL DEFAULT 0,
   `field234` int(11) NOT NULL DEFAULT 0,
   `field235` int(11) NOT NULL DEFAULT 0,
+  `expansion` varchar(150) DEFAULT '0',
   `field236` int(11) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `spire_analytic_event_counts`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `spire_analytic_event_counts`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `spire_analytic_event_counts` (
-  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
-  `event_name` varchar(50) DEFAULT NULL,
-  `event_key` varchar(120) DEFAULT NULL,
-  `count` bigint(11) DEFAULT NULL,
-  `updated_at` datetime(3) DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `event_name` (`event_name`),
-  KEY `event_name_key` (`event_name`,`event_key`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+-- Dumping structure for table proxeeus_db.spell_buckets
+CREATE TABLE IF NOT EXISTS `spell_buckets` (
+  `spell_id` int(10) unsigned NOT NULL,
+  `bucket_name` varchar(100) CHARACTER SET latin1 COLLATE latin1_swedish_ci NOT NULL DEFAULT '',
+  `bucket_value` varchar(100) CHARACTER SET latin1 COLLATE latin1_swedish_ci NOT NULL DEFAULT '',
+  `bucket_comparison` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`spell_id`) USING BTREE,
+  KEY `key_index` (`bucket_name`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Table structure for table `spire_analytic_events`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `spire_analytic_events`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `spire_analytic_events` (
+-- Dumping structure for table proxeeus_db.spire_analytic_events
+CREATE TABLE IF NOT EXISTS `spire_analytic_events` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `event_name` varchar(50) DEFAULT NULL,
   `event_value` varchar(200) DEFAULT NULL,
@@ -7130,16 +5762,25 @@ CREATE TABLE `spire_analytic_events` (
   KEY `event_name_ip_address` (`event_name`,`ip_address`),
   KEY `event_name` (`event_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `spire_crash_reports`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `spire_crash_reports`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `spire_crash_reports` (
+-- Dumping structure for table proxeeus_db.spire_analytic_event_counts
+CREATE TABLE IF NOT EXISTS `spire_analytic_event_counts` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `event_name` varchar(50) DEFAULT NULL,
+  `event_key` varchar(120) DEFAULT NULL,
+  `count` bigint(11) DEFAULT NULL,
+  `updated_at` datetime(3) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `event_name` (`event_name`),
+  KEY `event_name_key` (`event_name`,`event_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.spire_crash_reports
+CREATE TABLE IF NOT EXISTS `spire_crash_reports` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `platform_name` varchar(20) DEFAULT NULL,
   `origination_info` varchar(150) DEFAULT NULL,
@@ -7166,16 +5807,11 @@ CREATE TABLE `spire_crash_reports` (
   KEY `version` (`server_version`),
   KEY `fingerprint` (`fingerprint`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `spire_server_database_connections`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `spire_server_database_connections`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `spire_server_database_connections` (
+-- Dumping structure for table proxeeus_db.spire_server_database_connections
+CREATE TABLE IF NOT EXISTS `spire_server_database_connections` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `name` varchar(255) DEFAULT NULL,
   `db_host` varchar(50) DEFAULT NULL,
@@ -7201,16 +5837,11 @@ CREATE TABLE `spire_server_database_connections` (
   `deleted_at` datetime(3) DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `spire_settings`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `spire_settings`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `spire_settings` (
+-- Dumping structure for table proxeeus_db.spire_settings
+CREATE TABLE IF NOT EXISTS `spire_settings` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `setting` varchar(190) DEFAULT NULL,
   `value` varchar(255) DEFAULT NULL,
@@ -7218,75 +5849,11 @@ CREATE TABLE `spire_settings` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `idx_spire_settings_setting` (`setting`)
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `spire_user_event_log`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `spire_user_event_log`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `spire_user_event_log` (
-  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
-  `user_id` bigint(20) unsigned DEFAULT NULL,
-  `server_database_connection_id` bigint(20) unsigned DEFAULT NULL,
-  `event_name` varchar(191) DEFAULT NULL,
-  `data` longtext DEFAULT NULL,
-  `created_at` datetime(3) DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `server_database_connection_id_event` (`server_database_connection_id`,`event_name`),
-  KEY `server_database_connection_id` (`server_database_connection_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `spire_user_server_database_connections`
---
-
-DROP TABLE IF EXISTS `spire_user_server_database_connections`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `spire_user_server_database_connections` (
-  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
-  `user_id` bigint(20) unsigned DEFAULT NULL,
-  `server_database_connection_id` bigint(20) unsigned DEFAULT NULL,
-  `active` bigint(20) unsigned DEFAULT 0,
-  `created_by` bigint(20) unsigned DEFAULT 0,
-  `created_at` datetime(3) DEFAULT NULL,
-  `updated_at` datetime(3) DEFAULT NULL,
-  `deleted_at` datetime(3) DEFAULT NULL,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `spire_user_server_resource_permissions`
---
-
-DROP TABLE IF EXISTS `spire_user_server_resource_permissions`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `spire_user_server_resource_permissions` (
-  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
-  `user_id` bigint(20) unsigned DEFAULT NULL,
-  `server_database_connection_id` bigint(20) unsigned DEFAULT NULL,
-  `resource_name` longtext DEFAULT NULL,
-  `can_write` tinyint(3) unsigned DEFAULT NULL,
-  `can_read` tinyint(3) unsigned DEFAULT NULL,
-  `created_at` datetime(3) DEFAULT NULL,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `spire_users`
---
-
-DROP TABLE IF EXISTS `spire_users`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `spire_users` (
+-- Dumping structure for table proxeeus_db.spire_users
+CREATE TABLE IF NOT EXISTS `spire_users` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `user_name` longtext DEFAULT NULL,
   `full_name` longtext DEFAULT NULL,
@@ -7303,48 +5870,55 @@ CREATE TABLE `spire_users` (
   `deleted` datetime(3) DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `start_zones`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `start_zones`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `start_zones` (
-  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `x` float NOT NULL DEFAULT 0,
-  `y` float NOT NULL DEFAULT 0,
-  `z` float NOT NULL DEFAULT 0,
-  `heading` float NOT NULL DEFAULT 0,
-  `zone_id` int(4) NOT NULL DEFAULT 0,
-  `bind_id` int(4) NOT NULL DEFAULT 0,
-  `player_choice` int(2) NOT NULL DEFAULT 0,
-  `player_class` int(2) NOT NULL DEFAULT 0,
-  `player_deity` int(4) NOT NULL DEFAULT 0,
-  `player_race` int(4) NOT NULL DEFAULT 0,
-  `start_zone` int(4) NOT NULL DEFAULT 0,
-  `bind_x` float NOT NULL DEFAULT 0,
-  `bind_y` float NOT NULL DEFAULT 0,
-  `bind_z` float NOT NULL DEFAULT 0,
-  `select_rank` tinyint(3) unsigned NOT NULL DEFAULT 50,
-  `min_expansion` tinyint(4) NOT NULL DEFAULT -1,
-  `max_expansion` tinyint(4) NOT NULL DEFAULT -1,
-  `content_flags` varchar(100) DEFAULT NULL,
-  `content_flags_disabled` varchar(100) DEFAULT NULL,
-  PRIMARY KEY (`id`,`player_choice`,`player_race`,`player_class`,`player_deity`)
-) ENGINE=MyISAM AUTO_INCREMENT=345 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+-- Dumping structure for table proxeeus_db.spire_user_event_log
+CREATE TABLE IF NOT EXISTS `spire_user_event_log` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint(20) unsigned DEFAULT NULL,
+  `server_database_connection_id` bigint(20) unsigned DEFAULT NULL,
+  `event_name` varchar(191) DEFAULT NULL,
+  `data` longtext DEFAULT NULL,
+  `created_at` datetime(3) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `server_database_connection_id_event` (`server_database_connection_id`,`event_name`),
+  KEY `server_database_connection_id` (`server_database_connection_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
---
--- Table structure for table `starting_items`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `starting_items`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `starting_items` (
+-- Dumping structure for table proxeeus_db.spire_user_server_database_connections
+CREATE TABLE IF NOT EXISTS `spire_user_server_database_connections` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint(20) unsigned DEFAULT NULL,
+  `server_database_connection_id` bigint(20) unsigned DEFAULT NULL,
+  `active` bigint(20) unsigned DEFAULT 0,
+  `created_by` bigint(20) unsigned DEFAULT 0,
+  `created_at` datetime(3) DEFAULT NULL,
+  `updated_at` datetime(3) DEFAULT NULL,
+  `deleted_at` datetime(3) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.spire_user_server_resource_permissions
+CREATE TABLE IF NOT EXISTS `spire_user_server_resource_permissions` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint(20) unsigned DEFAULT NULL,
+  `server_database_connection_id` bigint(20) unsigned DEFAULT NULL,
+  `resource_name` longtext DEFAULT NULL,
+  `can_write` tinyint(3) unsigned DEFAULT NULL,
+  `can_read` tinyint(3) unsigned DEFAULT NULL,
+  `created_at` datetime(3) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.starting_items
+CREATE TABLE IF NOT EXISTS `starting_items` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `class_list` text DEFAULT NULL,
   `race_list` text DEFAULT NULL,
@@ -7366,37 +5940,11 @@ CREATE TABLE `starting_items` (
   `content_flags_disabled` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=150 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `starting_items___`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `starting_items___`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `starting_items___` (
-  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `race` int(11) NOT NULL DEFAULT 0,
-  `class` int(11) NOT NULL DEFAULT 0,
-  `deityid` int(11) NOT NULL DEFAULT 0,
-  `zoneid` int(11) NOT NULL DEFAULT 0,
-  `itemid` int(11) NOT NULL DEFAULT 0,
-  `item_charges` tinyint(3) unsigned NOT NULL DEFAULT 1,
-  `gm` tinyint(1) NOT NULL DEFAULT 0,
-  `slot` mediumint(9) NOT NULL DEFAULT -1,
-  PRIMARY KEY (`id`,`race`)
-) ENGINE=MyISAM AUTO_INCREMENT=182 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `starting_items_backup_9243`
---
-
-DROP TABLE IF EXISTS `starting_items_backup_9243`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `starting_items_backup_9243` (
+-- Dumping structure for table proxeeus_db.starting_items_backup_9243
+CREATE TABLE IF NOT EXISTS `starting_items_backup_9243` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `race` int(11) NOT NULL DEFAULT 0,
   `class` int(11) NOT NULL DEFAULT 0,
@@ -7412,83 +5960,54 @@ CREATE TABLE `starting_items_backup_9243` (
   `content_flags_disabled` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`id`,`race`)
 ) ENGINE=InnoDB AUTO_INCREMENT=246 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `task_activities`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `task_activities`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `task_activities` (
-  `taskid` int(11) unsigned NOT NULL DEFAULT 0,
-  `activityid` int(11) unsigned NOT NULL DEFAULT 0,
-  `req_activity_id` int(11) NOT NULL DEFAULT -1,
-  `step` int(11) NOT NULL DEFAULT 0,
-  `activitytype` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `target_name` varchar(64) NOT NULL DEFAULT '',
-  `goalmethod` int(10) unsigned NOT NULL DEFAULT 0,
-  `goalcount` int(11) DEFAULT 1,
-  `description_override` varchar(128) CHARACTER SET latin1 COLLATE latin1_swedish_ci NOT NULL DEFAULT '',
-  `npc_match_list` text DEFAULT NULL,
-  `item_id_list` text DEFAULT NULL,
-  `item_list` varchar(128) CHARACTER SET latin1 COLLATE latin1_swedish_ci NOT NULL DEFAULT '',
-  `dz_switch_id` int(11) NOT NULL DEFAULT 0,
-  `min_x` float NOT NULL DEFAULT 0,
-  `min_y` float NOT NULL DEFAULT 0,
-  `min_z` float NOT NULL DEFAULT 0,
-  `max_x` float NOT NULL DEFAULT 0,
-  `max_y` float NOT NULL DEFAULT 0,
-  `max_z` float NOT NULL DEFAULT 0,
-  `skill_list` varchar(64) CHARACTER SET latin1 COLLATE latin1_swedish_ci NOT NULL DEFAULT '-1',
-  `spell_list` varchar(64) CHARACTER SET latin1 COLLATE latin1_swedish_ci NOT NULL DEFAULT '0',
-  `zones` varchar(64) NOT NULL DEFAULT '',
-  `zone_version` int(11) DEFAULT -1,
-  `optional` tinyint(1) NOT NULL DEFAULT 0,
-  `list_group` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  PRIMARY KEY (`taskid`,`activityid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+-- Dumping structure for table proxeeus_db.starting_items___
+CREATE TABLE IF NOT EXISTS `starting_items___` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `race` int(11) NOT NULL DEFAULT 0,
+  `class` int(11) NOT NULL DEFAULT 0,
+  `deityid` int(11) NOT NULL DEFAULT 0,
+  `zoneid` int(11) NOT NULL DEFAULT 0,
+  `itemid` int(11) NOT NULL DEFAULT 0,
+  `item_charges` tinyint(3) unsigned NOT NULL DEFAULT 1,
+  `gm` tinyint(1) NOT NULL DEFAULT 0,
+  `slot` mediumint(9) NOT NULL DEFAULT -1,
+  PRIMARY KEY (`id`,`race`)
+) ENGINE=MyISAM AUTO_INCREMENT=182 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `task_activities_backup_9203`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `task_activities_backup_9203`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `task_activities_backup_9203` (
-  `taskid` int(11) unsigned NOT NULL DEFAULT 0,
-  `activityid` int(11) unsigned NOT NULL DEFAULT 0,
-  `req_activity_id` int(11) NOT NULL DEFAULT -1,
-  `step` int(11) NOT NULL DEFAULT 0,
-  `activitytype` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `target_name` varchar(64) NOT NULL DEFAULT '',
-  `item_list` varchar(128) NOT NULL DEFAULT '',
-  `skill_list` varchar(64) NOT NULL DEFAULT '-1',
-  `spell_list` varchar(64) NOT NULL DEFAULT '0',
-  `description_override` varchar(128) NOT NULL DEFAULT '',
-  `goalid` int(11) unsigned NOT NULL DEFAULT 0,
-  `goal_match_list` text DEFAULT NULL,
-  `goalmethod` int(10) unsigned NOT NULL DEFAULT 0,
-  `goalcount` int(11) DEFAULT 1,
-  `delivertonpc` int(11) unsigned NOT NULL DEFAULT 0,
-  `zones` varchar(64) NOT NULL DEFAULT '',
-  `zone_version` int(11) DEFAULT -1,
-  `optional` tinyint(1) NOT NULL DEFAULT 0,
-  PRIMARY KEY (`taskid`,`activityid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+-- Dumping structure for table proxeeus_db.start_zones
+CREATE TABLE IF NOT EXISTS `start_zones` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `x` float NOT NULL DEFAULT 0,
+  `y` float NOT NULL DEFAULT 0,
+  `z` float NOT NULL DEFAULT 0,
+  `heading` float NOT NULL DEFAULT 0,
+  `zone_id` int(4) NOT NULL DEFAULT 0,
+  `bind_id` int(4) NOT NULL DEFAULT 0,
+  `player_choice` int(2) NOT NULL DEFAULT 0,
+  `player_class` int(2) NOT NULL DEFAULT 0,
+  `player_deity` int(4) NOT NULL DEFAULT 0,
+  `player_race` int(4) NOT NULL DEFAULT 0,
+  `start_zone` int(4) NOT NULL DEFAULT 0,
+  `bind_x` float NOT NULL DEFAULT 0,
+  `bind_y` float NOT NULL DEFAULT 0,
+  `bind_z` float NOT NULL DEFAULT 0,
+  `select_rank` tinyint(3) unsigned NOT NULL DEFAULT 50,
+  `min_expansion` tinyint(4) NOT NULL DEFAULT -1,
+  `max_expansion` tinyint(4) NOT NULL DEFAULT -1,
+  `content_flags` varchar(100) DEFAULT NULL,
+  `content_flags_disabled` varchar(100) DEFAULT NULL,
+  PRIMARY KEY (`id`,`player_choice`,`player_race`,`player_class`,`player_deity`)
+) ENGINE=MyISAM AUTO_INCREMENT=345 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `tasks`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `tasks`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `tasks` (
+-- Dumping structure for table proxeeus_db.tasks
+CREATE TABLE IF NOT EXISTS `tasks` (
   `id` int(11) unsigned NOT NULL DEFAULT 0,
   `type` tinyint(4) NOT NULL DEFAULT 0,
   `duration` int(11) unsigned NOT NULL DEFAULT 0,
@@ -7519,17 +6038,21 @@ CREATE TABLE `tasks` (
   `faction_amount` int(10) NOT NULL DEFAULT 0,
   `enabled` smallint(6) DEFAULT 1,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `tasks_backup_9_25_2022`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `tasks_backup_9_25_2022`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `tasks_backup_9_25_2022` (
+-- Dumping structure for table proxeeus_db.tasksets
+CREATE TABLE IF NOT EXISTS `tasksets` (
+  `id` int(11) unsigned NOT NULL DEFAULT 0,
+  `taskid` int(11) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`,`taskid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.tasks_backup_9_25_2022
+CREATE TABLE IF NOT EXISTS `tasks_backup_9_25_2022` (
   `id` int(11) unsigned NOT NULL DEFAULT 0,
   `type` tinyint(4) NOT NULL DEFAULT 0,
   `duration` int(11) unsigned NOT NULL DEFAULT 0,
@@ -7559,45 +6082,78 @@ CREATE TABLE `tasks_backup_9_25_2022` (
   `lock_activity_id` int(11) NOT NULL DEFAULT -1,
   `faction_amount` int(10) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `tasksets`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `tasksets`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `tasksets` (
-  `id` int(11) unsigned NOT NULL DEFAULT 0,
+-- Dumping structure for table proxeeus_db.task_activities
+CREATE TABLE IF NOT EXISTS `task_activities` (
   `taskid` int(11) unsigned NOT NULL DEFAULT 0,
-  PRIMARY KEY (`id`,`taskid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+  `activityid` int(11) unsigned NOT NULL DEFAULT 0,
+  `req_activity_id` int(11) NOT NULL DEFAULT -1,
+  `step` int(11) NOT NULL DEFAULT 0,
+  `activitytype` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `target_name` varchar(64) NOT NULL DEFAULT '',
+  `goalmethod` int(10) unsigned NOT NULL DEFAULT 0,
+  `goalcount` int(11) DEFAULT 1,
+  `description_override` varchar(128) CHARACTER SET latin1 COLLATE latin1_swedish_ci NOT NULL DEFAULT '',
+  `npc_match_list` text DEFAULT NULL,
+  `item_id_list` text DEFAULT NULL,
+  `item_list` varchar(128) CHARACTER SET latin1 COLLATE latin1_swedish_ci NOT NULL DEFAULT '',
+  `dz_switch_id` int(11) NOT NULL DEFAULT 0,
+  `min_x` float NOT NULL DEFAULT 0,
+  `min_y` float NOT NULL DEFAULT 0,
+  `min_z` float NOT NULL DEFAULT 0,
+  `max_x` float NOT NULL DEFAULT 0,
+  `max_y` float NOT NULL DEFAULT 0,
+  `max_z` float NOT NULL DEFAULT 0,
+  `skill_list` varchar(64) CHARACTER SET latin1 COLLATE latin1_swedish_ci NOT NULL DEFAULT '-1',
+  `spell_list` varchar(64) CHARACTER SET latin1 COLLATE latin1_swedish_ci NOT NULL DEFAULT '0',
+  `zones` varchar(64) NOT NULL DEFAULT '',
+  `zone_version` int(11) DEFAULT -1,
+  `optional` tinyint(1) NOT NULL DEFAULT 0,
+  `list_group` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`taskid`,`activityid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `taunt_flags`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `taunt_flags`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `taunt_flags` (
+-- Dumping structure for table proxeeus_db.task_activities_backup_9203
+CREATE TABLE IF NOT EXISTS `task_activities_backup_9203` (
+  `taskid` int(11) unsigned NOT NULL DEFAULT 0,
+  `activityid` int(11) unsigned NOT NULL DEFAULT 0,
+  `req_activity_id` int(11) NOT NULL DEFAULT -1,
+  `step` int(11) NOT NULL DEFAULT 0,
+  `activitytype` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `target_name` varchar(64) NOT NULL DEFAULT '',
+  `item_list` varchar(128) NOT NULL DEFAULT '',
+  `skill_list` varchar(64) NOT NULL DEFAULT '-1',
+  `spell_list` varchar(64) NOT NULL DEFAULT '0',
+  `description_override` varchar(128) NOT NULL DEFAULT '',
+  `goalid` int(11) unsigned NOT NULL DEFAULT 0,
+  `goal_match_list` text DEFAULT NULL,
+  `goalmethod` int(10) unsigned NOT NULL DEFAULT 0,
+  `goalcount` int(11) DEFAULT 1,
+  `delivertonpc` int(11) unsigned NOT NULL DEFAULT 0,
+  `zones` varchar(64) NOT NULL DEFAULT '',
+  `zone_version` int(11) DEFAULT -1,
+  `optional` tinyint(1) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`taskid`,`activityid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.taunt_flags
+CREATE TABLE IF NOT EXISTS `taunt_flags` (
   `charID` int(11) NOT NULL DEFAULT 0,
   `tauntID` int(11) NOT NULL DEFAULT 0,
   PRIMARY KEY (`charID`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `timers`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `timers`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `timers` (
+-- Dumping structure for table proxeeus_db.timers
+CREATE TABLE IF NOT EXISTS `timers` (
   `char_id` int(11) NOT NULL DEFAULT 0,
   `type` mediumint(8) unsigned NOT NULL DEFAULT 0,
   `start` int(10) unsigned NOT NULL DEFAULT 0,
@@ -7605,16 +6161,11 @@ CREATE TABLE `timers` (
   `enable` tinyint(4) NOT NULL DEFAULT 0,
   PRIMARY KEY (`char_id`,`type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `titles`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `titles`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `titles` (
+-- Dumping structure for table proxeeus_db.titles
+CREATE TABLE IF NOT EXISTS `titles` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `skill_id` tinyint(3) NOT NULL DEFAULT -1,
   `min_skill_value` mediumint(8) NOT NULL DEFAULT -1,
@@ -7630,17 +6181,12 @@ CREATE TABLE `titles` (
   `suffix` varchar(32) NOT NULL DEFAULT '',
   `title_set` int(11) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `tool_game_objects`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `tool_game_objects`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `tool_game_objects` (
+-- Dumping structure for table proxeeus_db.tool_game_objects
+CREATE TABLE IF NOT EXISTS `tool_game_objects` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `zoneid` int(11) NOT NULL DEFAULT 0,
   `zonesn` varchar(50) NOT NULL DEFAULT '',
@@ -7648,17 +6194,12 @@ CREATE TABLE `tool_game_objects` (
   `file_from` varchar(50) DEFAULT NULL,
   `is_global` tinyint(1) DEFAULT 0,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=51381 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=51381 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `trader`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `trader`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `trader` (
+-- Dumping structure for table proxeeus_db.trader
+CREATE TABLE IF NOT EXISTS `trader` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `char_id` int(11) unsigned NOT NULL DEFAULT 0,
   `item_id` int(11) unsigned NOT NULL DEFAULT 0,
@@ -7678,16 +6219,11 @@ CREATE TABLE `trader` (
   PRIMARY KEY (`id`),
   KEY `charid_slotid` (`char_id`,`slot_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `trader_audit`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `trader_audit`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `trader_audit` (
+-- Dumping structure for table proxeeus_db.trader_audit
+CREATE TABLE IF NOT EXISTS `trader_audit` (
   `time` datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
   `seller` varchar(64) NOT NULL DEFAULT '',
   `buyer` varchar(64) NOT NULL DEFAULT '',
@@ -7696,16 +6232,11 @@ CREATE TABLE `trader_audit` (
   `totalcost` int(11) NOT NULL DEFAULT 0,
   `trantype` tinyint(4) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `tradeskill_recipe`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `tradeskill_recipe`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `tradeskill_recipe` (
+-- Dumping structure for table proxeeus_db.tradeskill_recipe
+CREATE TABLE IF NOT EXISTS `tradeskill_recipe` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(64) NOT NULL DEFAULT '',
   `tradeskill` smallint(6) NOT NULL DEFAULT 0,
@@ -7723,17 +6254,12 @@ CREATE TABLE `tradeskill_recipe` (
   `content_flags` varchar(100) DEFAULT NULL,
   `content_flags_disabled` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=10115 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=10115 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `tradeskill_recipe_entries`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `tradeskill_recipe_entries`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `tradeskill_recipe_entries` (
+-- Dumping structure for table proxeeus_db.tradeskill_recipe_entries
+CREATE TABLE IF NOT EXISTS `tradeskill_recipe_entries` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `recipe_id` int(11) NOT NULL DEFAULT 0,
   `item_id` int(11) NOT NULL DEFAULT 0,
@@ -7745,17 +6271,12 @@ CREATE TABLE `tradeskill_recipe_entries` (
   PRIMARY KEY (`id`),
   KEY `recipe_id` (`recipe_id`),
   KEY `item_id` (`item_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=126516 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB AUTO_INCREMENT=126516 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `traps`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `traps`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `traps` (
+-- Dumping structure for table proxeeus_db.traps
+CREATE TABLE IF NOT EXISTS `traps` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `zone` varchar(16) NOT NULL DEFAULT '',
   `version` smallint(5) unsigned NOT NULL DEFAULT 0,
@@ -7783,77 +6304,56 @@ CREATE TABLE `traps` (
   `content_flags_disabled` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `zone` (`zone`)
-) ENGINE=MyISAM AUTO_INCREMENT=891 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM AUTO_INCREMENT=891 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `tribute_levels`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `tribute_levels`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `tribute_levels` (
-  `tribute_id` int(10) unsigned NOT NULL DEFAULT 0,
-  `level` int(10) unsigned NOT NULL DEFAULT 0,
-  `cost` int(10) unsigned NOT NULL DEFAULT 0,
-  `item_id` int(10) unsigned NOT NULL DEFAULT 0,
-  PRIMARY KEY (`tribute_id`,`level`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `tributes`
---
-
-DROP TABLE IF EXISTS `tributes`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `tributes` (
+-- Dumping structure for table proxeeus_db.tributes
+CREATE TABLE IF NOT EXISTS `tributes` (
   `id` int(10) unsigned NOT NULL DEFAULT 0,
   `unknown` int(10) unsigned NOT NULL DEFAULT 0,
   `name` varchar(255) NOT NULL DEFAULT '',
   `descr` mediumtext NOT NULL,
   `isguild` tinyint(4) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`,`isguild`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Temporary table structure for view `vaggroradius`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `vaggroradius`;
-/*!50001 DROP VIEW IF EXISTS `vaggroradius`*/;
-SET @saved_cs_client     = @@character_set_client;
-SET character_set_client = utf8mb4;
-/*!50001 CREATE VIEW `vaggroradius` AS SELECT
- 1 AS `id`,
-  1 AS `name`,
-  1 AS `aggroradius`,
-  1 AS `assistradius`,
-  1 AS `Spawn2X`,
-  1 AS `Spawn2Y`,
-  1 AS `Spawn2Z`,
-  1 AS `spawngroup_name`,
-  1 AS `Spawngroup_id`,
-  1 AS `Spawngroup_minX`,
-  1 AS `Spawngroup_maxX`,
-  1 AS `Spawngroup_minY`,
-  1 AS `Spawngroup_maxY`,
-  1 AS `Spawngroup_dist`,
-  1 AS `Spawngroup_mindelay`,
-  1 AS `Spawngroup_delay` */;
-SET character_set_client = @saved_cs_client;
+-- Dumping structure for table proxeeus_db.tribute_levels
+CREATE TABLE IF NOT EXISTS `tribute_levels` (
+  `tribute_id` int(10) unsigned NOT NULL DEFAULT 0,
+  `level` int(10) unsigned NOT NULL DEFAULT 0,
+  `cost` int(10) unsigned NOT NULL DEFAULT 0,
+  `item_id` int(10) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`tribute_id`,`level`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `variables`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `variables`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `variables` (
+-- Dumping structure for view proxeeus_db.vaggroradius
+-- Creating temporary table to overcome VIEW dependency errors
+CREATE TABLE `vaggroradius` (
+	`id` INT(11) NOT NULL,
+	`name` TEXT NOT NULL COLLATE 'utf8mb3_general_ci',
+	`aggroradius` INT(10) UNSIGNED NOT NULL,
+	`assistradius` INT(10) UNSIGNED NOT NULL,
+	`Spawn2X` FLOAT(14,6) NOT NULL,
+	`Spawn2Y` FLOAT(14,6) NOT NULL,
+	`Spawn2Z` FLOAT(14,6) NOT NULL,
+	`spawngroup_name` VARCHAR(30) NOT NULL COLLATE 'utf8mb3_general_ci',
+	`Spawngroup_id` INT(11) NOT NULL,
+	`Spawngroup_minX` FLOAT NOT NULL,
+	`Spawngroup_maxX` FLOAT NOT NULL,
+	`Spawngroup_minY` FLOAT NOT NULL,
+	`Spawngroup_maxY` FLOAT NOT NULL,
+	`Spawngroup_dist` FLOAT NOT NULL,
+	`Spawngroup_mindelay` INT(11) NOT NULL,
+	`Spawngroup_delay` INT(11) NOT NULL
+) ENGINE=MyISAM;
+
+-- Dumping structure for table proxeeus_db.variables
+CREATE TABLE IF NOT EXISTS `variables` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `varname` varchar(25) NOT NULL DEFAULT '',
   `value` text NOT NULL,
@@ -7862,109 +6362,67 @@ CREATE TABLE `variables` (
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE KEY `varname` (`varname`)
 ) ENGINE=InnoDB AUTO_INCREMENT=34 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Temporary table structure for view `vatkdelayzero`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `vatkdelayzero`;
-/*!50001 DROP VIEW IF EXISTS `vatkdelayzero`*/;
-SET @saved_cs_client     = @@character_set_client;
-SET character_set_client = utf8mb4;
-/*!50001 CREATE VIEW `vatkdelayzero` AS SELECT
- 1 AS `id`,
-  1 AS `name`,
-  1 AS `level`,
-  1 AS `attack_delay`,
-  1 AS `zone` */;
-SET character_set_client = @saved_cs_client;
+-- Dumping structure for view proxeeus_db.vatkdelayzero
+-- Creating temporary table to overcome VIEW dependency errors
+CREATE TABLE `vatkdelayzero` (
+	`id` INT(11) NOT NULL,
+	`name` TEXT NOT NULL COLLATE 'utf8mb3_general_ci',
+	`level` TINYINT(2) UNSIGNED NOT NULL,
+	`attack_delay` TINYINT(3) UNSIGNED NOT NULL,
+	`zone` VARCHAR(32) NULL COLLATE 'utf8mb3_general_ci'
+) ENGINE=MyISAM;
 
---
--- Temporary table structure for view `vbot_spells`
---
+-- Dumping structure for view proxeeus_db.vbotsnpcspells
+-- Creating temporary table to overcome VIEW dependency errors
+CREATE TABLE `vbotsnpcspells` 
+) ENGINE=MyISAM;
 
-DROP TABLE IF EXISTS `vbot_spells`;
-/*!50001 DROP VIEW IF EXISTS `vbot_spells`*/;
-SET @saved_cs_client     = @@character_set_client;
-SET character_set_client = utf8mb4;
-/*!50001 CREATE VIEW `vbot_spells` AS SELECT
- 1 AS `spell_set_name`,
-  1 AS `spell_name`,
-  1 AS `spellid`,
-  1 AS `type`,
-  1 AS `minlevel`,
-  1 AS `maxlevel`,
-  1 AS `manacost`,
-  1 AS `recast_delay`,
-  1 AS `priority`,
-  1 AS `resist_adjust`,
-  1 AS `min_hp`,
-  1 AS `max_hp`,
-  1 AS `bucket_name`,
-  1 AS `bucket_value`,
-  1 AS `bucket_comparison` */;
-SET character_set_client = @saved_cs_client;
+-- Dumping structure for view proxeeus_db.vbotspellsentries
+-- Creating temporary table to overcome VIEW dependency errors
+CREATE TABLE `vbotspellsentries` (
+	`class_id` INT(11) NOT NULL,
+	`class_name` VARCHAR(13) NOT NULL COLLATE 'utf8mb4_general_ci',
+	`spell_id` SMALLINT(5) UNSIGNED NOT NULL,
+	`spell_name` VARCHAR(64) NULL COLLATE 'utf8mb3_general_ci',
+	`bot_spell_type` INT(10) UNSIGNED NOT NULL,
+	`bot_spell_type_desc` VARCHAR(19) NOT NULL COLLATE 'utf8mb4_general_ci',
+	`minlevel` TINYINT(3) UNSIGNED NOT NULL,
+	`maxlevel` TINYINT(3) UNSIGNED NOT NULL
+) ENGINE=MyISAM;
 
---
--- Temporary table structure for view `vbotsnpcspells`
---
+-- Dumping structure for view proxeeus_db.vbot_spells
+-- Creating temporary table to overcome VIEW dependency errors
+CREATE TABLE `vbot_spells` 
+) ENGINE=MyISAM;
 
-DROP TABLE IF EXISTS `vbotsnpcspells`;
-/*!50001 DROP VIEW IF EXISTS `vbotsnpcspells`*/;
-SET @saved_cs_client     = @@character_set_client;
-SET character_set_client = utf8mb4;
-/*!50001 CREATE VIEW `vbotsnpcspells` AS SELECT
- 1 AS `bse_spellid`,
-  1 AS `npc_spells_id`,
-  1 AS `name`,
-  1 AS `spellid`,
-  1 AS `type`,
-  1 AS `minlevel`,
-  1 AS `maxlevel`,
-  1 AS `manacost`,
-  1 AS `recast_delay`,
-  1 AS `priority`,
-  1 AS `resist_adjust` */;
-SET character_set_client = @saved_cs_client;
+-- Dumping structure for view proxeeus_db.vemotes
+-- Creating temporary table to overcome VIEW dependency errors
+CREATE TABLE `vemotes` (
+	`id` INT(11) NOT NULL,
+	`name` TEXT NOT NULL COLLATE 'utf8mb3_general_ci',
+	`emoteid` INT(10) UNSIGNED NOT NULL,
+	`Emote_Event` TINYINT(3) NOT NULL,
+	`Event_Type` TINYINT(3) NOT NULL,
+	`text` VARCHAR(512) NOT NULL COLLATE 'latin1_swedish_ci',
+	`Spawn2X` FLOAT(14,6) NOT NULL,
+	`Spawn2Y` FLOAT(14,6) NOT NULL,
+	`Spawn2Z` FLOAT(14,6) NOT NULL,
+	`spawngroup_name` VARCHAR(30) NOT NULL COLLATE 'utf8mb3_general_ci',
+	`Spawngroup_id` INT(11) NOT NULL,
+	`Spawngroup_minX` FLOAT NOT NULL,
+	`Spawngroup_maxX` FLOAT NOT NULL,
+	`Spawngroup_minY` FLOAT NOT NULL,
+	`Spawngroup_maxY` FLOAT NOT NULL,
+	`Spawngroup_dist` FLOAT NOT NULL,
+	`Spawngroup_mindelay` INT(11) NOT NULL,
+	`Spawngroup_delay` INT(11) NOT NULL
+) ENGINE=MyISAM;
 
---
--- Temporary table structure for view `vemotes`
---
-
-DROP TABLE IF EXISTS `vemotes`;
-/*!50001 DROP VIEW IF EXISTS `vemotes`*/;
-SET @saved_cs_client     = @@character_set_client;
-SET character_set_client = utf8mb4;
-/*!50001 CREATE VIEW `vemotes` AS SELECT
- 1 AS `id`,
-  1 AS `name`,
-  1 AS `emoteid`,
-  1 AS `Emote_Event`,
-  1 AS `Event_Type`,
-  1 AS `text`,
-  1 AS `Spawn2X`,
-  1 AS `Spawn2Y`,
-  1 AS `Spawn2Z`,
-  1 AS `spawngroup_name`,
-  1 AS `Spawngroup_id`,
-  1 AS `Spawngroup_minX`,
-  1 AS `Spawngroup_maxX`,
-  1 AS `Spawngroup_minY`,
-  1 AS `Spawngroup_maxY`,
-  1 AS `Spawngroup_dist`,
-  1 AS `Spawngroup_mindelay`,
-  1 AS `Spawngroup_delay` */;
-SET character_set_client = @saved_cs_client;
-
---
--- Table structure for table `veteran_reward_templates`
---
-
-DROP TABLE IF EXISTS `veteran_reward_templates`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `veteran_reward_templates` (
+-- Dumping structure for table proxeeus_db.veteran_reward_templates
+CREATE TABLE IF NOT EXISTS `veteran_reward_templates` (
   `claim_id` int(10) unsigned NOT NULL DEFAULT 0,
   `name` varchar(64) NOT NULL DEFAULT '',
   `item_id` int(10) unsigned NOT NULL DEFAULT 0,
@@ -7972,115 +6430,80 @@ CREATE TABLE `veteran_reward_templates` (
   `reward_slot` tinyint(3) unsigned NOT NULL DEFAULT 0,
   UNIQUE KEY `claim_reward` (`claim_id`,`reward_slot`),
   KEY `claim_id` (`claim_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Temporary table structure for view `vfaction`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `vfaction`;
-/*!50001 DROP VIEW IF EXISTS `vfaction`*/;
-SET @saved_cs_client     = @@character_set_client;
-SET character_set_client = utf8mb4;
-/*!50001 CREATE VIEW `vfaction` AS SELECT
- 1 AS `id`,
-  1 AS `sgID`,
-  1 AS `name`,
-  1 AS `npc_faction_id` */;
-SET character_set_client = @saved_cs_client;
+-- Dumping structure for view proxeeus_db.vfaction
+-- Creating temporary table to overcome VIEW dependency errors
+CREATE TABLE `vfaction` (
+	`id` INT(11) NOT NULL,
+	`sgID` INT(11) NOT NULL,
+	`name` TEXT NOT NULL COLLATE 'utf8mb3_general_ci',
+	`npc_faction_id` INT(11) NOT NULL
+) ENGINE=MyISAM;
 
---
--- Temporary table structure for view `vhp`
---
+-- Dumping structure for view proxeeus_db.vhp
+-- Creating temporary table to overcome VIEW dependency errors
+CREATE TABLE `vhp` (
+	`id` INT(11) NOT NULL,
+	`name` TEXT NOT NULL COLLATE 'utf8mb3_general_ci',
+	`level` TINYINT(2) UNSIGNED NOT NULL,
+	`hp` BIGINT(20) NOT NULL,
+	`hp_regen_rate` BIGINT(20) NOT NULL
+) ENGINE=MyISAM;
 
-DROP TABLE IF EXISTS `vhp`;
-/*!50001 DROP VIEW IF EXISTS `vhp`*/;
-SET @saved_cs_client     = @@character_set_client;
-SET character_set_client = utf8mb4;
-/*!50001 CREATE VIEW `vhp` AS SELECT
- 1 AS `id`,
-  1 AS `name`,
-  1 AS `level`,
-  1 AS `hp`,
-  1 AS `hp_regen_rate` */;
-SET character_set_client = @saved_cs_client;
+-- Dumping structure for view proxeeus_db.vloottables
+-- Creating temporary table to overcome VIEW dependency errors
+CREATE TABLE `vloottables` (
+	`id` INT(11) NOT NULL,
+	`name` TEXT NOT NULL COLLATE 'utf8mb3_general_ci',
+	`level` TINYINT(2) UNSIGNED NOT NULL,
+	`loottable_id` INT(11) UNSIGNED NOT NULL
+) ENGINE=MyISAM;
 
---
--- Temporary table structure for view `vloottables`
---
+-- Dumping structure for view proxeeus_db.vrespawn
+-- Creating temporary table to overcome VIEW dependency errors
+CREATE TABLE `vrespawn` (
+	`id` INT(11) NOT NULL,
+	`name` TEXT NOT NULL COLLATE 'utf8mb3_general_ci',
+	`level` TINYINT(2) UNSIGNED NOT NULL,
+	`respawntime` INT(11) NOT NULL,
+	`Spawn2X` FLOAT(14,6) NOT NULL,
+	`Spawn2Y` FLOAT(14,6) NOT NULL,
+	`Spawn2Z` FLOAT(14,6) NOT NULL,
+	`spawngroup_name` VARCHAR(30) NOT NULL COLLATE 'utf8mb3_general_ci',
+	`Spawngroup_id` INT(11) NOT NULL,
+	`Spawngroup_minX` FLOAT NOT NULL,
+	`Spawngroup_maxX` FLOAT NOT NULL,
+	`Spawngroup_minY` FLOAT NOT NULL,
+	`Spawngroup_maxY` FLOAT NOT NULL,
+	`Spawngroup_dist` FLOAT NOT NULL,
+	`Spawngroup_mindelay` INT(11) NOT NULL,
+	`Spawngroup_delay` INT(11) NOT NULL
+) ENGINE=MyISAM;
 
-DROP TABLE IF EXISTS `vloottables`;
-/*!50001 DROP VIEW IF EXISTS `vloottables`*/;
-SET @saved_cs_client     = @@character_set_client;
-SET character_set_client = utf8mb4;
-/*!50001 CREATE VIEW `vloottables` AS SELECT
- 1 AS `id`,
-  1 AS `name`,
-  1 AS `level`,
-  1 AS `loottable_id` */;
-SET character_set_client = @saved_cs_client;
+-- Dumping structure for view proxeeus_db.vspawncondi
+-- Creating temporary table to overcome VIEW dependency errors
+CREATE TABLE `vspawncondi` (
+	`id` INT(11) NOT NULL,
+	`name` TEXT NOT NULL COLLATE 'utf8mb3_general_ci',
+	`level` TINYINT(2) UNSIGNED NOT NULL,
+	`zone` VARCHAR(32) NULL COLLATE 'utf8mb3_general_ci',
+	`spawngroup_name` VARCHAR(30) NOT NULL COLLATE 'utf8mb3_general_ci',
+	`Spawngroup_id` INT(11) NOT NULL,
+	`_condition` MEDIUMINT(8) UNSIGNED NOT NULL
+) ENGINE=MyISAM;
 
---
--- Temporary table structure for view `vrespawn`
---
-
-DROP TABLE IF EXISTS `vrespawn`;
-/*!50001 DROP VIEW IF EXISTS `vrespawn`*/;
-SET @saved_cs_client     = @@character_set_client;
-SET character_set_client = utf8mb4;
-/*!50001 CREATE VIEW `vrespawn` AS SELECT
- 1 AS `id`,
-  1 AS `name`,
-  1 AS `level`,
-  1 AS `respawntime`,
-  1 AS `Spawn2X`,
-  1 AS `Spawn2Y`,
-  1 AS `Spawn2Z`,
-  1 AS `spawngroup_name`,
-  1 AS `Spawngroup_id`,
-  1 AS `Spawngroup_minX`,
-  1 AS `Spawngroup_maxX`,
-  1 AS `Spawngroup_minY`,
-  1 AS `Spawngroup_maxY`,
-  1 AS `Spawngroup_dist`,
-  1 AS `Spawngroup_mindelay`,
-  1 AS `Spawngroup_delay` */;
-SET character_set_client = @saved_cs_client;
-
---
--- Temporary table structure for view `vspawncondi`
---
-
-DROP TABLE IF EXISTS `vspawncondi`;
-/*!50001 DROP VIEW IF EXISTS `vspawncondi`*/;
-SET @saved_cs_client     = @@character_set_client;
-SET character_set_client = utf8mb4;
-/*!50001 CREATE VIEW `vspawncondi` AS SELECT
- 1 AS `id`,
-  1 AS `name`,
-  1 AS `level`,
-  1 AS `zone`,
-  1 AS `spawngroup_name`,
-  1 AS `Spawngroup_id`,
-  1 AS `_condition` */;
-SET character_set_client = @saved_cs_client;
-
---
--- Table structure for table `vspawnlocs`
---
-
-DROP TABLE IF EXISTS `vspawnlocs`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `vspawnlocs` (
-  `name` text CHARACTER SET utf8mb3 COLLATE utf8mb3_uca1400_ai_ci NOT NULL,
+-- Dumping structure for table proxeeus_db.vspawnlocs
+CREATE TABLE IF NOT EXISTS `vspawnlocs` (
+  `name` text CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL,
   `npc_faction_id` int(11) NOT NULL,
-  `zone` varchar(32) CHARACTER SET utf8mb3 COLLATE utf8mb3_uca1400_ai_ci DEFAULT NULL,
+  `zone` varchar(32) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci DEFAULT NULL,
   `Spawn2X` float(14,6) NOT NULL,
   `Spawn2Y` float(14,6) NOT NULL,
   `Spawn2Z` float(14,6) NOT NULL,
-  `spawngroup_name` varchar(30) CHARACTER SET utf8mb3 COLLATE utf8mb3_uca1400_ai_ci NOT NULL,
+  `spawngroup_name` varchar(30) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL,
   `Spawngroup_id` int(11) NOT NULL,
   `Spawngroup_minX` float NOT NULL,
   `Spawngroup_maxX` float NOT NULL,
@@ -8090,110 +6513,87 @@ CREATE TABLE `vspawnlocs` (
   `Spawngroup_mindelay` int(11) NOT NULL,
   `Spawngroup_delay` int(11) NOT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Temporary table structure for view `vspawnlocs2`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `vspawnlocs2`;
-/*!50001 DROP VIEW IF EXISTS `vspawnlocs2`*/;
-SET @saved_cs_client     = @@character_set_client;
-SET character_set_client = utf8mb4;
-/*!50001 CREATE VIEW `vspawnlocs2` AS SELECT
- 1 AS `id`,
-  1 AS `name`,
-  1 AS `CanAggro`,
-  1 AS `_condition`,
-  1 AS `zone`,
-  1 AS `pathgrid`,
-  1 AS `Spawn2X`,
-  1 AS `Spawn2Y`,
-  1 AS `Spawn2Z`,
-  1 AS `Spawn2H`,
-  1 AS `Respawn`,
-  1 AS `spawngroup_name`,
-  1 AS `Spawngroup_id`,
-  1 AS `Spawngroup_minX`,
-  1 AS `Spawngroup_maxX`,
-  1 AS `Spawngroup_minY`,
-  1 AS `Spawngroup_maxY`,
-  1 AS `Spawngroup_dist` */;
-SET character_set_client = @saved_cs_client;
+-- Dumping structure for view proxeeus_db.vspawnlocs2
+-- Creating temporary table to overcome VIEW dependency errors
+CREATE TABLE `vspawnlocs2` (
+	`id` INT(11) NOT NULL,
+	`name` TEXT NOT NULL COLLATE 'utf8mb3_general_ci',
+	`CanAggro` TINYINT(4) NOT NULL,
+	`_condition` MEDIUMINT(8) UNSIGNED NOT NULL,
+	`zone` VARCHAR(32) NULL COLLATE 'utf8mb3_general_ci',
+	`pathgrid` INT(10) NOT NULL,
+	`Spawn2X` FLOAT(14,6) NOT NULL,
+	`Spawn2Y` FLOAT(14,6) NOT NULL,
+	`Spawn2Z` FLOAT(14,6) NOT NULL,
+	`Spawn2H` FLOAT(14,6) NOT NULL,
+	`Respawn` INT(11) NOT NULL,
+	`spawngroup_name` VARCHAR(30) NOT NULL COLLATE 'utf8mb3_general_ci',
+	`Spawngroup_id` INT(11) NOT NULL,
+	`Spawngroup_minX` FLOAT NOT NULL,
+	`Spawngroup_maxX` FLOAT NOT NULL,
+	`Spawngroup_minY` FLOAT NOT NULL,
+	`Spawngroup_maxY` FLOAT NOT NULL,
+	`Spawngroup_dist` FLOAT NOT NULL
+) ENGINE=MyISAM;
 
---
--- Temporary table structure for view `vspecialattacks`
---
+-- Dumping structure for view proxeeus_db.vspecialattacks
+-- Creating temporary table to overcome VIEW dependency errors
+CREATE TABLE `vspecialattacks` (
+	`id` INT(11) NOT NULL,
+	`name` TEXT NOT NULL COLLATE 'utf8mb3_general_ci',
+	`level` TINYINT(2) UNSIGNED NOT NULL,
+	`hp` BIGINT(20) NOT NULL,
+	`special_abilities` TEXT NULL COLLATE 'latin1_swedish_ci',
+	`hp_regen_rate` BIGINT(20) NOT NULL,
+	`mana_regen_rate` BIGINT(20) NOT NULL,
+	`aggroradius` INT(10) UNSIGNED NOT NULL,
+	`assistradius` INT(10) UNSIGNED NOT NULL,
+	`see_invis` SMALLINT(4) NOT NULL,
+	`see_invis_undead` SMALLINT(4) NOT NULL,
+	`see_hide` TINYINT(4) NOT NULL,
+	`emoteid` INT(10) UNSIGNED NOT NULL,
+	`attack_count` SMALLINT(6) NOT NULL,
+	`Spawn2X` FLOAT(14,6) NOT NULL,
+	`Spawn2Y` FLOAT(14,6) NOT NULL,
+	`Spawn2Z` FLOAT(14,6) NOT NULL,
+	`spawngroup_name` VARCHAR(30) NOT NULL COLLATE 'utf8mb3_general_ci',
+	`Spawngroup_id` INT(11) NOT NULL,
+	`Spawngroup_minX` FLOAT NOT NULL,
+	`Spawngroup_maxX` FLOAT NOT NULL,
+	`Spawngroup_minY` FLOAT NOT NULL,
+	`Spawngroup_maxY` FLOAT NOT NULL,
+	`Spawngroup_dist` FLOAT NOT NULL,
+	`Spawngroup_mindelay` INT(11) NOT NULL,
+	`Spawngroup_delay` INT(11) NOT NULL
+) ENGINE=MyISAM;
 
-DROP TABLE IF EXISTS `vspecialattacks`;
-/*!50001 DROP VIEW IF EXISTS `vspecialattacks`*/;
-SET @saved_cs_client     = @@character_set_client;
-SET character_set_client = utf8mb4;
-/*!50001 CREATE VIEW `vspecialattacks` AS SELECT
- 1 AS `id`,
-  1 AS `name`,
-  1 AS `level`,
-  1 AS `hp`,
-  1 AS `special_abilities`,
-  1 AS `hp_regen_rate`,
-  1 AS `mana_regen_rate`,
-  1 AS `aggroradius`,
-  1 AS `assistradius`,
-  1 AS `see_invis`,
-  1 AS `see_invis_undead`,
-  1 AS `see_hide`,
-  1 AS `emoteid`,
-  1 AS `attack_count`,
-  1 AS `Spawn2X`,
-  1 AS `Spawn2Y`,
-  1 AS `Spawn2Z`,
-  1 AS `spawngroup_name`,
-  1 AS `Spawngroup_id`,
-  1 AS `Spawngroup_minX`,
-  1 AS `Spawngroup_maxX`,
-  1 AS `Spawngroup_minY`,
-  1 AS `Spawngroup_maxY`,
-  1 AS `Spawngroup_dist`,
-  1 AS `Spawngroup_mindelay`,
-  1 AS `Spawngroup_delay` */;
-SET character_set_client = @saved_cs_client;
+-- Dumping structure for view proxeeus_db.vspellsets
+-- Creating temporary table to overcome VIEW dependency errors
+CREATE TABLE `vspellsets` (
+	`id` INT(11) NOT NULL,
+	`name` TEXT NOT NULL COLLATE 'utf8mb3_general_ci',
+	`class` TINYINT(2) UNSIGNED NOT NULL,
+	`npc_spells_id` INT(11) UNSIGNED NOT NULL,
+	`level` TINYINT(2) UNSIGNED NOT NULL,
+	`Spawn2X` FLOAT(14,6) NOT NULL,
+	`Spawn2Y` FLOAT(14,6) NOT NULL,
+	`Spawn2Z` FLOAT(14,6) NOT NULL,
+	`spawngroup_name` VARCHAR(30) NOT NULL COLLATE 'utf8mb3_general_ci',
+	`Spawngroup_id` INT(11) NOT NULL,
+	`Spawngroup_minX` FLOAT NOT NULL,
+	`Spawngroup_maxX` FLOAT NOT NULL,
+	`Spawngroup_minY` FLOAT NOT NULL,
+	`Spawngroup_maxY` FLOAT NOT NULL,
+	`Spawngroup_dist` FLOAT NOT NULL,
+	`Spawngroup_mindelay` INT(11) NOT NULL,
+	`Spawngroup_delay` INT(11) NOT NULL
+) ENGINE=MyISAM;
 
---
--- Temporary table structure for view `vspellsets`
---
-
-DROP TABLE IF EXISTS `vspellsets`;
-/*!50001 DROP VIEW IF EXISTS `vspellsets`*/;
-SET @saved_cs_client     = @@character_set_client;
-SET character_set_client = utf8mb4;
-/*!50001 CREATE VIEW `vspellsets` AS SELECT
- 1 AS `id`,
-  1 AS `name`,
-  1 AS `class`,
-  1 AS `npc_spells_id`,
-  1 AS `level`,
-  1 AS `Spawn2X`,
-  1 AS `Spawn2Y`,
-  1 AS `Spawn2Z`,
-  1 AS `spawngroup_name`,
-  1 AS `Spawngroup_id`,
-  1 AS `Spawngroup_minX`,
-  1 AS `Spawngroup_maxX`,
-  1 AS `Spawngroup_minY`,
-  1 AS `Spawngroup_maxY`,
-  1 AS `Spawngroup_dist`,
-  1 AS `Spawngroup_mindelay`,
-  1 AS `Spawngroup_delay` */;
-SET character_set_client = @saved_cs_client;
-
---
--- Table structure for table `zone`
---
-
-DROP TABLE IF EXISTS `zone`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `zone` (
+-- Dumping structure for table proxeeus_db.zone
+CREATE TABLE IF NOT EXISTS `zone` (
   `id` int(10) NOT NULL AUTO_INCREMENT,
   `zoneidnumber` int(4) NOT NULL DEFAULT 0,
   `version` tinyint(3) unsigned NOT NULL DEFAULT 0,
@@ -8296,16 +6696,92 @@ CREATE TABLE `zone` (
   KEY `zoneidnumber` (`zoneidnumber`),
   KEY `zonename` (`short_name`)
 ) ENGINE=InnoDB AUTO_INCREMENT=5895 DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 
---
--- Table structure for table `zone___`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `zone___`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `zone___` (
+-- Dumping structure for table proxeeus_db.zoneserver_auth
+CREATE TABLE IF NOT EXISTS `zoneserver_auth` (
+  `host` varchar(30) NOT NULL DEFAULT '',
+  `note` text DEFAULT NULL,
+  PRIMARY KEY (`host`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.zone_flags
+CREATE TABLE IF NOT EXISTS `zone_flags` (
+  `charID` int(11) NOT NULL DEFAULT 0,
+  `zoneID` int(11) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`charID`,`zoneID`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.zone_points
+CREATE TABLE IF NOT EXISTS `zone_points` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `zone` varchar(32) DEFAULT NULL,
+  `version` int(11) NOT NULL DEFAULT 0,
+  `number` smallint(4) unsigned NOT NULL DEFAULT 1,
+  `y` float NOT NULL DEFAULT 0,
+  `x` float NOT NULL DEFAULT 0,
+  `z` float NOT NULL DEFAULT 0,
+  `heading` float NOT NULL DEFAULT 0,
+  `target_y` float NOT NULL DEFAULT 0,
+  `target_x` float NOT NULL DEFAULT 0,
+  `target_z` float NOT NULL DEFAULT 0,
+  `target_heading` float NOT NULL DEFAULT 0,
+  `zoneinst` smallint(5) unsigned DEFAULT 0,
+  `target_zone_id` int(10) unsigned NOT NULL DEFAULT 0,
+  `target_instance` int(10) unsigned NOT NULL DEFAULT 0,
+  `buffer` float DEFAULT 0,
+  `client_version_mask` int(10) unsigned NOT NULL DEFAULT 4294967295,
+  `min_expansion` tinyint(4) NOT NULL DEFAULT -1,
+  `max_expansion` tinyint(4) NOT NULL DEFAULT -1,
+  `content_flags` varchar(100) DEFAULT NULL,
+  `content_flags_disabled` varchar(100) DEFAULT NULL,
+  `is_virtual` tinyint(4) NOT NULL DEFAULT 0,
+  `height` int(11) NOT NULL DEFAULT 0,
+  `width` int(11) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  KEY `NewIndex` (`number`,`zone`),
+  KEY `zone_points_target_idx` (`target_zone_id`) USING BTREE
+) ENGINE=MyISAM AUTO_INCREMENT=876 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.zone_server
+CREATE TABLE IF NOT EXISTS `zone_server` (
+  `name` varchar(16) NOT NULL DEFAULT '',
+  `address` text NOT NULL,
+  `port` int(11) NOT NULL DEFAULT 0,
+  `player_count` int(11) NOT NULL DEFAULT 0,
+  `last_alive` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `rain` char(1) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`name`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.zone_state_dump
+CREATE TABLE IF NOT EXISTS `zone_state_dump` (
+  `zonename` varchar(16) NOT NULL DEFAULT '',
+  `spawn2_count` int(10) unsigned NOT NULL DEFAULT 0,
+  `npc_count` int(10) unsigned NOT NULL DEFAULT 0,
+  `npcloot_count` int(10) unsigned NOT NULL DEFAULT 0,
+  `gmspawntype_count` int(10) unsigned NOT NULL DEFAULT 0,
+  `spawn2` mediumblob DEFAULT NULL,
+  `npcs` mediumblob DEFAULT NULL,
+  `npc_loot` mediumblob DEFAULT NULL,
+  `gmspawntype` mediumblob DEFAULT NULL,
+  `time` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`zonename`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
+
+-- Data exporting was unselected.
+
+-- Dumping structure for table proxeeus_db.zone___
+CREATE TABLE IF NOT EXISTS `zone___` (
   `short_name` varchar(32) NOT NULL,
   `file_name` varchar(16) DEFAULT NULL,
   `long_name` text NOT NULL,
@@ -8388,356 +6864,293 @@ CREATE TABLE `zone___` (
   `skylock` tinyint(4) NOT NULL DEFAULT 0,
   PRIMARY KEY (`short_name`),
   UNIQUE KEY `zoneidnumber` (`zoneidnumber`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
---
--- Table structure for table `zone_flags`
---
+-- Data exporting was unselected.
 
-DROP TABLE IF EXISTS `zone_flags`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `zone_flags` (
-  `charID` int(11) NOT NULL DEFAULT 0,
-  `zoneID` int(11) NOT NULL DEFAULT 0,
-  PRIMARY KEY (`charID`,`zoneID`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+-- Dumping structure for view proxeeus_db.vaggroradius
+-- Removing temporary table and create final VIEW structure
+DROP TABLE IF EXISTS `vaggroradius`;
+CREATE ALGORITHM=UNDEFINED SQL SECURITY DEFINER VIEW `vaggroradius` AS SELECT nt.id, nt.name, nt.aggroradius, nt.assistradius, s2.x as Spawn2X, s2.y as Spawn2Y, s2.z as Spawn2Z, sg.name as spawngroup_name,sg.id as Spawngroup_id, sg.min_x as Spawngroup_minX, sg.max_x as Spawngroup_maxX, sg.min_y as Spawngroup_minY, sg.max_y as Spawngroup_maxY, sg.dist as Spawngroup_dist, sg.mindelay as Spawngroup_mindelay, sg.delay as Spawngroup_delay
+FROM spawn2 s2 
+JOIN spawngroup sg ON sg.id = s2.spawngroupid 
 
---
--- Table structure for table `zone_points`
---
+JOIN spawnentry se
+ON se.spawngroupid = sg.id 
+JOIN npc_types nt 
+ON nt.id = se.npcid 
+WHERE s2.zone = 'airplane' ;
 
-DROP TABLE IF EXISTS `zone_points`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `zone_points` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `zone` varchar(32) DEFAULT NULL,
-  `version` int(11) NOT NULL DEFAULT 0,
-  `number` smallint(4) unsigned NOT NULL DEFAULT 1,
-  `y` float NOT NULL DEFAULT 0,
-  `x` float NOT NULL DEFAULT 0,
-  `z` float NOT NULL DEFAULT 0,
-  `heading` float NOT NULL DEFAULT 0,
-  `target_y` float NOT NULL DEFAULT 0,
-  `target_x` float NOT NULL DEFAULT 0,
-  `target_z` float NOT NULL DEFAULT 0,
-  `target_heading` float NOT NULL DEFAULT 0,
-  `zoneinst` smallint(5) unsigned DEFAULT 0,
-  `target_zone_id` int(10) unsigned NOT NULL DEFAULT 0,
-  `target_instance` int(10) unsigned NOT NULL DEFAULT 0,
-  `buffer` float DEFAULT 0,
-  `client_version_mask` int(10) unsigned NOT NULL DEFAULT 4294967295,
-  `min_expansion` tinyint(4) NOT NULL DEFAULT -1,
-  `max_expansion` tinyint(4) NOT NULL DEFAULT -1,
-  `content_flags` varchar(100) DEFAULT NULL,
-  `content_flags_disabled` varchar(100) DEFAULT NULL,
-  `is_virtual` tinyint(4) NOT NULL DEFAULT 0,
-  `height` int(11) NOT NULL DEFAULT 0,
-  `width` int(11) NOT NULL DEFAULT 0,
-  PRIMARY KEY (`id`),
-  KEY `NewIndex` (`number`,`zone`),
-  KEY `zone_points_target_idx` (`target_zone_id`) USING BTREE
-) ENGINE=MyISAM AUTO_INCREMENT=876 DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+-- Dumping structure for view proxeeus_db.vatkdelayzero
+-- Removing temporary table and create final VIEW structure
+DROP TABLE IF EXISTS `vatkdelayzero`;
+CREATE ALGORITHM=UNDEFINED SQL SECURITY DEFINER VIEW `vatkdelayzero` AS SELECT nt.id, nt.name ,nt.`level`,nt.attack_delay, s2.zone
+FROM spawn2 s2 
+JOIN spawngroup sg ON sg.id = s2.spawngroupid 
 
---
--- Table structure for table `zone_server`
---
+JOIN spawnentry se
+ON se.spawngroupid = sg.id 
+JOIN npc_types nt 
+ON nt.id = se.npcid 
+WHERE nt.attack_delay = 0 ;
 
-DROP TABLE IF EXISTS `zone_server`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `zone_server` (
-  `name` varchar(16) NOT NULL DEFAULT '',
-  `address` text NOT NULL,
-  `port` int(11) NOT NULL DEFAULT 0,
-  `player_count` int(11) NOT NULL DEFAULT 0,
-  `last_alive` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  `rain` char(1) NOT NULL DEFAULT '0',
-  PRIMARY KEY (`name`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+-- Dumping structure for view proxeeus_db.vbotsnpcspells
+-- Removing temporary table and create final VIEW structure
+DROP TABLE IF EXISTS `vbotsnpcspells`;
+CREATE ALGORITHM=UNDEFINED SQL SECURITY DEFINER VIEW `vbotsnpcspells` AS SELECT bse.id as bse_spellid, bse.npc_spells_id, sn.name, bse.spellid, bse.`type`, bse.minlevel, bse.maxlevel, bse.manacost, bse.recast_delay, bse.priority, bse.resist_adjust
+FROM bot_spells_entries bse
+JOIN spells_new sn ON sn.id = bse.spellid
 
---
--- Table structure for table `zone_state_dump`
---
+WHERE bse.npc_spells_id = "3011"
 
-DROP TABLE IF EXISTS `zone_state_dump`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `zone_state_dump` (
-  `zonename` varchar(16) NOT NULL DEFAULT '',
-  `spawn2_count` int(10) unsigned NOT NULL DEFAULT 0,
-  `npc_count` int(10) unsigned NOT NULL DEFAULT 0,
-  `npcloot_count` int(10) unsigned NOT NULL DEFAULT 0,
-  `gmspawntype_count` int(10) unsigned NOT NULL DEFAULT 0,
-  `spawn2` mediumblob DEFAULT NULL,
-  `npcs` mediumblob DEFAULT NULL,
-  `npc_loot` mediumblob DEFAULT NULL,
-  `gmspawntype` mediumblob DEFAULT NULL,
-  `time` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  PRIMARY KEY (`zonename`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+ORDER BY bse.minlevel ;
 
---
--- Table structure for table `zoneserver_auth`
---
+-- Dumping structure for view proxeeus_db.vbotspellsentries
+-- Removing temporary table and create final VIEW structure
+DROP TABLE IF EXISTS `vbotspellsentries`;
+CREATE ALGORITHM=UNDEFINED SQL SECURITY DEFINER VIEW `vbotspellsentries` AS SELECT 
+    bse.npc_spells_id AS class_id,
+    CASE 
+        WHEN bse.npc_spells_id = 3001 THEN 'Warrior'
+        WHEN bse.npc_spells_id = 3002 THEN 'Cleric'
+        WHEN bse.npc_spells_id = 3003 THEN 'Paladin'
+        WHEN bse.npc_spells_id = 3004 THEN 'Ranger'
+        WHEN bse.npc_spells_id = 3005 THEN 'Shadow Knight'
+        WHEN bse.npc_spells_id = 3006 THEN 'Druid'
+        WHEN bse.npc_spells_id = 3007 THEN 'Monk'
+        WHEN bse.npc_spells_id = 3008 THEN 'Bard'
+        WHEN bse.npc_spells_id = 3009 THEN 'Rogue'
+        WHEN bse.npc_spells_id = 3010 THEN 'Shaman'
+        WHEN bse.npc_spells_id = 3011 THEN 'Necromancer'
+        WHEN bse.npc_spells_id = 3012 THEN 'Wizard'
+        WHEN bse.npc_spells_id = 3013 THEN 'Magician'
+        WHEN bse.npc_spells_id = 3014 THEN 'Enchanter'
+        WHEN bse.npc_spells_id = 3015 THEN 'Beastlord'
+        WHEN bse.npc_spells_id = 3016 THEN 'Berserker'
+        ELSE 'Unknown'
+    END AS class_name,
+    bse.spell_id,
+    s.name AS spell_name,
+    bse.type AS bot_spell_type,
+    CASE 
+        WHEN bse.type = 0 THEN 'Nuke'
+        WHEN bse.type = 1 THEN 'RegularHeal'
+        WHEN bse.type = 2 THEN 'Root'
+        WHEN bse.type = 3 THEN 'Buff'
+        WHEN bse.type = 4 THEN 'Escape'
+        WHEN bse.type = 5 THEN 'Pet'
+        WHEN bse.type = 6 THEN 'Lifetap'
+        WHEN bse.type = 7 THEN 'Snare'
+        WHEN bse.type = 8 THEN 'DOT'
+        WHEN bse.type = 9 THEN 'Dispel'
+        WHEN bse.type = 10 THEN 'InCombatBuff'
+        WHEN bse.type = 11 THEN 'Mez'
+        WHEN bse.type = 12 THEN 'Charm'
+        WHEN bse.type = 13 THEN 'Slow'
+        WHEN bse.type = 14 THEN 'Debuff'
+        WHEN bse.type = 15 THEN 'Cure'
+        WHEN bse.type = 16 THEN 'Resurrect'
+        WHEN bse.type = 17 THEN 'HateRedux'
+        WHEN bse.type = 18 THEN 'InCombatBuffSong'
+        WHEN bse.type = 19 THEN 'OutOfCombatBuffSong'
+        WHEN bse.type = 20 THEN 'PreCombatBuff'
+        WHEN bse.type = 21 THEN 'PreCombatBuffSong'
+        WHEN bse.type = 22 THEN 'Fear'
+        WHEN bse.type = 23 THEN 'Stun'
+        WHEN bse.type = 24 THEN 'HateLine'
+        WHEN bse.type = 25 THEN 'GroupCures'
+        WHEN bse.type = 26 THEN 'CompleteHeal'
+        WHEN bse.type = 27 THEN 'FastHeals'
+        WHEN bse.type = 28 THEN 'VeryFastHeals'
+        WHEN bse.type = 29 THEN 'GroupHeals'
+        WHEN bse.type = 30 THEN 'GroupCompleteHeals'
+        WHEN bse.type = 31 THEN 'GroupHoTHeals'
+        WHEN bse.type = 32 THEN 'HoTHeals'
+        WHEN bse.type = 33 THEN 'AENukes'
+        WHEN bse.type = 34 THEN 'AERains'
+        WHEN bse.type = 35 THEN 'AEMez'
+        WHEN bse.type = 36 THEN 'AEStun'
+        WHEN bse.type = 37 THEN 'AEDebuff'
+        WHEN bse.type = 38 THEN 'AESlow'
+        WHEN bse.type = 39 THEN 'AESnare'
+        WHEN bse.type = 40 THEN 'AEFear'
+        WHEN bse.type = 41 THEN 'AEDispel'
+        WHEN bse.type = 42 THEN 'AERoot'
+        WHEN bse.type = 43 THEN 'AEDoT'
+        WHEN bse.type = 44 THEN 'AELifetap'
+        WHEN bse.type = 45 THEN 'AEHateLine'
+        WHEN bse.type = 46 THEN 'PBAENuke'
+        WHEN bse.type = 47 THEN 'PetBuffs'
+        WHEN bse.type = 48 THEN 'PetRegularHeals'
+        WHEN bse.type = 49 THEN 'PetCompleteHeals'
+        WHEN bse.type = 50 THEN 'PetFastHeals'
+        WHEN bse.type = 51 THEN 'PetVeryFastHeals'
+        WHEN bse.type = 52 THEN 'PetHoTHeals'
+        WHEN bse.type = 53 THEN 'PetCures'
+        WHEN bse.type = 54 THEN 'DamageShields'
+        WHEN bse.type = 55 THEN 'ResistBuffs'
+        WHEN bse.type = 56 THEN 'PetDamageShields'
+        WHEN bse.type = 57 THEN 'PetResistBuffs'
+        WHEN bse.type = 101 THEN 'Lull'
+        WHEN bse.type = 102 THEN 'Succor'
+        WHEN bse.type = 103 THEN 'BindAffinity'
+        WHEN bse.type = 104 THEN 'Identify'
+        WHEN bse.type = 105 THEN 'Levitate'
+        WHEN bse.type = 106 THEN 'Rune'
+        WHEN bse.type = 107 THEN 'WaterBreathing'
+        WHEN bse.type = 108 THEN 'Size'
+        WHEN bse.type = 109 THEN 'Invisibility'
+        WHEN bse.type = 110 THEN 'MovementSpeed'
+        WHEN bse.type = 111 THEN 'SendHome'
+        WHEN bse.type = 112 THEN 'SummonCorpse'
+        WHEN bse.type = 113 THEN 'AELull'
+        WHEN bse.type = 200 THEN 'Discipline'
+        WHEN bse.type = 201 THEN 'DiscAggressive'
+        WHEN bse.type = 202 THEN 'DiscDefensive'
+        WHEN bse.type = 203 THEN 'DiscUtility'
+        ELSE 'Unknown'
+    END AS bot_spell_type_desc,
+    bse.minlevel,
+    bse.maxlevel
+FROM bot_spells_entries bse
+JOIN spells_new s ON bse.spell_id = s.id
+ORDER BY bse.npc_spells_id, bse.minlevel ;
 
-DROP TABLE IF EXISTS `zoneserver_auth`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `zoneserver_auth` (
-  `host` varchar(30) NOT NULL DEFAULT '',
-  `note` text DEFAULT NULL,
-  PRIMARY KEY (`host`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_uca1400_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+-- Dumping structure for view proxeeus_db.vbot_spells
+-- Removing temporary table and create final VIEW structure
+DROP TABLE IF EXISTS `vbot_spells`;
+CREATE ALGORITHM=UNDEFINED SQL SECURITY DEFINER VIEW `vbot_spells` AS select   nse.name as spell_set_name, s.name as spell_name, bse.spellid, bse.type, bse.minlevel, bse.maxlevel, bse.manacost, bse.recast_delay, bse.priority, bse.resist_adjust, 
+			bse.min_hp, bse.max_hp, bse.bucket_name, bse.bucket_value, bse.bucket_comparison
+			from bot_spells_entries bse
+		   inner join spells s on bse.spellid = s.spellid
+		   inner join npc_spells nse on bse.npc_spells_id = nse.id
+		   where bse.npc_spells_id >= 3000 
+		   and nse.name like '%druid%'
+		   order by bse.minlevel ;
 
---
--- Final view structure for view `vaggroradius`
---
+-- Dumping structure for view proxeeus_db.vemotes
+-- Removing temporary table and create final VIEW structure
+DROP TABLE IF EXISTS `vemotes`;
+CREATE ALGORITHM=UNDEFINED SQL SECURITY DEFINER VIEW `vemotes` AS SELECT nt.id, nt.name, nt.emoteid, ne.event_ as Emote_Event, ne.type as Event_Type, ne.text, s2.x as Spawn2X, s2.y as Spawn2Y, s2.z as Spawn2Z, sg.name as spawngroup_name,sg.id as Spawngroup_id, sg.min_x as Spawngroup_minX, sg.max_x as Spawngroup_maxX, sg.min_y as Spawngroup_minY, sg.max_y as Spawngroup_maxY, sg.dist as Spawngroup_dist, sg.mindelay as Spawngroup_mindelay, sg.delay as Spawngroup_delay
+FROM spawn2 s2 
+JOIN spawngroup sg ON sg.id = s2.spawngroupid 
 
-/*!50001 DROP VIEW IF EXISTS `vaggroradius`*/;
-/*!50001 SET @saved_cs_client          = @@character_set_client */;
-/*!50001 SET @saved_cs_results         = @@character_set_results */;
-/*!50001 SET @saved_col_connection     = @@collation_connection */;
-/*!50001 SET character_set_client      = utf8mb4 */;
-/*!50001 SET character_set_results     = utf8mb4 */;
-/*!50001 SET collation_connection      = utf8mb4_uca1400_ai_ci */;
-/*!50001 CREATE ALGORITHM=UNDEFINED */
-/*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */
-/*!50001 VIEW `vaggroradius` AS select `nt`.`id` AS `id`,`nt`.`name` AS `name`,`nt`.`aggroradius` AS `aggroradius`,`nt`.`assistradius` AS `assistradius`,`s2`.`x` AS `Spawn2X`,`s2`.`y` AS `Spawn2Y`,`s2`.`z` AS `Spawn2Z`,`sg`.`name` AS `spawngroup_name`,`sg`.`id` AS `Spawngroup_id`,`sg`.`min_x` AS `Spawngroup_minX`,`sg`.`max_x` AS `Spawngroup_maxX`,`sg`.`min_y` AS `Spawngroup_minY`,`sg`.`max_y` AS `Spawngroup_maxY`,`sg`.`dist` AS `Spawngroup_dist`,`sg`.`mindelay` AS `Spawngroup_mindelay`,`sg`.`delay` AS `Spawngroup_delay` from (((`spawn2` `s2` join `spawngroup` `sg` on(`sg`.`id` = `s2`.`spawngroupID`)) join `spawnentry` `se` on(`se`.`spawngroupID` = `sg`.`id`)) join `npc_types` `nt` on(`nt`.`id` = `se`.`npcID`)) where `s2`.`zone` = 'airplane' */;
-/*!50001 SET character_set_client      = @saved_cs_client */;
-/*!50001 SET character_set_results     = @saved_cs_results */;
-/*!50001 SET collation_connection      = @saved_col_connection */;
+JOIN spawnentry se
+ON se.spawngroupid = sg.id 
+JOIN npc_types nt 
+ON nt.id = se.npcid 
 
---
--- Final view structure for view `vatkdelayzero`
---
+JOIN npc_emotes ne
+ON ne.emoteid = nt.emoteid
 
-/*!50001 DROP VIEW IF EXISTS `vatkdelayzero`*/;
-/*!50001 SET @saved_cs_client          = @@character_set_client */;
-/*!50001 SET @saved_cs_results         = @@character_set_results */;
-/*!50001 SET @saved_col_connection     = @@collation_connection */;
-/*!50001 SET character_set_client      = utf8mb4 */;
-/*!50001 SET character_set_results     = utf8mb4 */;
-/*!50001 SET collation_connection      = utf8mb4_uca1400_ai_ci */;
-/*!50001 CREATE ALGORITHM=UNDEFINED */
-/*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */
-/*!50001 VIEW `vatkdelayzero` AS select `nt`.`id` AS `id`,`nt`.`name` AS `name`,`nt`.`level` AS `level`,`nt`.`attack_delay` AS `attack_delay`,`s2`.`zone` AS `zone` from (((`spawn2` `s2` join `spawngroup` `sg` on(`sg`.`id` = `s2`.`spawngroupID`)) join `spawnentry` `se` on(`se`.`spawngroupID` = `sg`.`id`)) join `npc_types` `nt` on(`nt`.`id` = `se`.`npcID`)) where `nt`.`attack_delay` = 0 */;
-/*!50001 SET character_set_client      = @saved_cs_client */;
-/*!50001 SET character_set_results     = @saved_cs_results */;
-/*!50001 SET collation_connection      = @saved_col_connection */;
+WHERE s2.zone = 'commons' ;
 
---
--- Final view structure for view `vbot_spells`
---
+-- Dumping structure for view proxeeus_db.vfaction
+-- Removing temporary table and create final VIEW structure
+DROP TABLE IF EXISTS `vfaction`;
+CREATE ALGORITHM=UNDEFINED SQL SECURITY DEFINER VIEW `vfaction` AS SELECT nt.id,sg.id as sgID, nt.name, nt.npc_faction_id
+FROM spawn2 s2 
+JOIN spawngroup sg ON sg.id = s2.spawngroupid 
 
-/*!50001 DROP VIEW IF EXISTS `vbot_spells`*/;
-/*!50001 SET @saved_cs_client          = @@character_set_client */;
-/*!50001 SET @saved_cs_results         = @@character_set_results */;
-/*!50001 SET @saved_col_connection     = @@collation_connection */;
-/*!50001 SET character_set_client      = utf8mb4 */;
-/*!50001 SET character_set_results     = utf8mb4 */;
-/*!50001 SET collation_connection      = utf8mb4_uca1400_ai_ci */;
-/*!50001 CREATE ALGORITHM=UNDEFINED */
-/*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */
-/*!50001 VIEW `vbot_spells` AS select `nse`.`name` AS `spell_set_name`,`s`.`name` AS `spell_name`,`bse`.`spellid` AS `spellid`,`bse`.`type` AS `type`,`bse`.`minlevel` AS `minlevel`,`bse`.`maxlevel` AS `maxlevel`,`bse`.`manacost` AS `manacost`,`bse`.`recast_delay` AS `recast_delay`,`bse`.`priority` AS `priority`,`bse`.`resist_adjust` AS `resist_adjust`,`bse`.`min_hp` AS `min_hp`,`bse`.`max_hp` AS `max_hp`,`bse`.`bucket_name` AS `bucket_name`,`bse`.`bucket_value` AS `bucket_value`,`bse`.`bucket_comparison` AS `bucket_comparison` from ((`bot_spells_entries` `bse` join `spells` `s` on(`bse`.`spellid` = `s`.`spellid`)) join `npc_spells` `nse` on(`bse`.`npc_spells_id` = `nse`.`id`)) where `bse`.`npc_spells_id` >= 3000 and `nse`.`name` like '%druid%' order by `bse`.`minlevel` */;
-/*!50001 SET character_set_client      = @saved_cs_client */;
-/*!50001 SET character_set_results     = @saved_cs_results */;
-/*!50001 SET collation_connection      = @saved_col_connection */;
+JOIN spawnentry se
+ON se.spawngroupid = sg.id 
+JOIN npc_types nt 
+ON nt.id = se.npcid 
+WHERE s2.zone = 'greatdivide' ;
 
---
--- Final view structure for view `vbotsnpcspells`
---
+-- Dumping structure for view proxeeus_db.vhp
+-- Removing temporary table and create final VIEW structure
+DROP TABLE IF EXISTS `vhp`;
+CREATE ALGORITHM=UNDEFINED SQL SECURITY DEFINER VIEW `vhp` AS SELECT nt.id, nt.name, nt.`level`, nt.hp, nt.hp_regen_rate
+FROM spawn2 s2 
+JOIN spawngroup sg ON sg.id = s2.spawngroupid 
 
-/*!50001 DROP VIEW IF EXISTS `vbotsnpcspells`*/;
-/*!50001 SET @saved_cs_client          = @@character_set_client */;
-/*!50001 SET @saved_cs_results         = @@character_set_results */;
-/*!50001 SET @saved_col_connection     = @@collation_connection */;
-/*!50001 SET character_set_client      = utf8mb4 */;
-/*!50001 SET character_set_results     = utf8mb4 */;
-/*!50001 SET collation_connection      = utf8mb4_uca1400_ai_ci */;
-/*!50001 CREATE ALGORITHM=UNDEFINED */
-/*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */
-/*!50001 VIEW `vbotsnpcspells` AS select `bse`.`id` AS `bse_spellid`,`bse`.`npc_spells_id` AS `npc_spells_id`,`sn`.`name` AS `name`,`bse`.`spellid` AS `spellid`,`bse`.`type` AS `type`,`bse`.`minlevel` AS `minlevel`,`bse`.`maxlevel` AS `maxlevel`,`bse`.`manacost` AS `manacost`,`bse`.`recast_delay` AS `recast_delay`,`bse`.`priority` AS `priority`,`bse`.`resist_adjust` AS `resist_adjust` from (`bot_spells_entries` `bse` join `spells_new` `sn` on(`sn`.`id` = `bse`.`spellid`)) where `bse`.`npc_spells_id` = '3011' order by `bse`.`minlevel` */;
-/*!50001 SET character_set_client      = @saved_cs_client */;
-/*!50001 SET character_set_results     = @saved_cs_results */;
-/*!50001 SET collation_connection      = @saved_col_connection */;
+JOIN spawnentry se
+ON se.spawngroupid = sg.id 
+JOIN npc_types nt 
+ON nt.id = se.npcid 
+WHERE s2.zone = 'westwastes' ;
 
---
--- Final view structure for view `vemotes`
---
+-- Dumping structure for view proxeeus_db.vloottables
+-- Removing temporary table and create final VIEW structure
+DROP TABLE IF EXISTS `vloottables`;
+CREATE ALGORITHM=UNDEFINED SQL SECURITY DEFINER VIEW `vloottables` AS SELECT nt.id, nt.name,nt.`level`, nt.loottable_id
+FROM spawn2 s2 
+JOIN spawngroup sg ON sg.id = s2.spawngroupid 
 
-/*!50001 DROP VIEW IF EXISTS `vemotes`*/;
-/*!50001 SET @saved_cs_client          = @@character_set_client */;
-/*!50001 SET @saved_cs_results         = @@character_set_results */;
-/*!50001 SET @saved_col_connection     = @@collation_connection */;
-/*!50001 SET character_set_client      = utf8mb4 */;
-/*!50001 SET character_set_results     = utf8mb4 */;
-/*!50001 SET collation_connection      = utf8mb4_uca1400_ai_ci */;
-/*!50001 CREATE ALGORITHM=UNDEFINED */
-/*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */
-/*!50001 VIEW `vemotes` AS select `nt`.`id` AS `id`,`nt`.`name` AS `name`,`nt`.`emoteid` AS `emoteid`,`ne`.`event_` AS `Emote_Event`,`ne`.`type` AS `Event_Type`,`ne`.`text` AS `text`,`s2`.`x` AS `Spawn2X`,`s2`.`y` AS `Spawn2Y`,`s2`.`z` AS `Spawn2Z`,`sg`.`name` AS `spawngroup_name`,`sg`.`id` AS `Spawngroup_id`,`sg`.`min_x` AS `Spawngroup_minX`,`sg`.`max_x` AS `Spawngroup_maxX`,`sg`.`min_y` AS `Spawngroup_minY`,`sg`.`max_y` AS `Spawngroup_maxY`,`sg`.`dist` AS `Spawngroup_dist`,`sg`.`mindelay` AS `Spawngroup_mindelay`,`sg`.`delay` AS `Spawngroup_delay` from ((((`spawn2` `s2` join `spawngroup` `sg` on(`sg`.`id` = `s2`.`spawngroupID`)) join `spawnentry` `se` on(`se`.`spawngroupID` = `sg`.`id`)) join `npc_types` `nt` on(`nt`.`id` = `se`.`npcID`)) join `npc_emotes` `ne` on(`ne`.`emoteid` = `nt`.`emoteid`)) where `s2`.`zone` = 'commons' */;
-/*!50001 SET character_set_client      = @saved_cs_client */;
-/*!50001 SET character_set_results     = @saved_cs_results */;
-/*!50001 SET collation_connection      = @saved_col_connection */;
+JOIN spawnentry se
+ON se.spawngroupid = sg.id 
+JOIN npc_types nt 
+ON nt.id = se.npcid 
+WHERE s2.zone = 'skyshrine' ;
 
---
--- Final view structure for view `vfaction`
---
+-- Dumping structure for view proxeeus_db.vrespawn
+-- Removing temporary table and create final VIEW structure
+DROP TABLE IF EXISTS `vrespawn`;
+CREATE ALGORITHM=UNDEFINED SQL SECURITY DEFINER VIEW `vrespawn` AS SELECT nt.id, nt.name, nt.`level`, s2.respawntime, s2.x as Spawn2X, s2.y as Spawn2Y, s2.z as Spawn2Z, sg.name as spawngroup_name,sg.id as Spawngroup_id, sg.min_x as Spawngroup_minX, sg.max_x as Spawngroup_maxX, sg.min_y as Spawngroup_minY, sg.max_y as Spawngroup_maxY, sg.dist as Spawngroup_dist, sg.mindelay as Spawngroup_mindelay, sg.delay as Spawngroup_delay
+FROM spawn2 s2 
+JOIN spawngroup sg ON sg.id = s2.spawngroupid 
 
-/*!50001 DROP VIEW IF EXISTS `vfaction`*/;
-/*!50001 SET @saved_cs_client          = @@character_set_client */;
-/*!50001 SET @saved_cs_results         = @@character_set_results */;
-/*!50001 SET @saved_col_connection     = @@collation_connection */;
-/*!50001 SET character_set_client      = utf8mb4 */;
-/*!50001 SET character_set_results     = utf8mb4 */;
-/*!50001 SET collation_connection      = utf8mb4_uca1400_ai_ci */;
-/*!50001 CREATE ALGORITHM=UNDEFINED */
-/*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */
-/*!50001 VIEW `vfaction` AS select `nt`.`id` AS `id`,`sg`.`id` AS `sgID`,`nt`.`name` AS `name`,`nt`.`npc_faction_id` AS `npc_faction_id` from (((`spawn2` `s2` join `spawngroup` `sg` on(`sg`.`id` = `s2`.`spawngroupID`)) join `spawnentry` `se` on(`se`.`spawngroupID` = `sg`.`id`)) join `npc_types` `nt` on(`nt`.`id` = `se`.`npcID`)) where `s2`.`zone` = 'greatdivide' */;
-/*!50001 SET character_set_client      = @saved_cs_client */;
-/*!50001 SET character_set_results     = @saved_cs_results */;
-/*!50001 SET collation_connection      = @saved_col_connection */;
+JOIN spawnentry se
+ON se.spawngroupid = sg.id 
+JOIN npc_types nt 
+ON nt.id = se.npcid 
+WHERE s2.zone = 'soldungb' ;
 
---
--- Final view structure for view `vhp`
---
+-- Dumping structure for view proxeeus_db.vspawncondi
+-- Removing temporary table and create final VIEW structure
+DROP TABLE IF EXISTS `vspawncondi`;
+CREATE ALGORITHM=UNDEFINED SQL SECURITY DEFINER VIEW `vspawncondi` AS SELECT nt.id, nt.name, nt.`level`, s2.zone, sg.name as spawngroup_name,sg.id as Spawngroup_id, s2._condition
+FROM spawn2 s2 
+JOIN spawngroup sg ON sg.id = s2.spawngroupid 
 
-/*!50001 DROP VIEW IF EXISTS `vhp`*/;
-/*!50001 SET @saved_cs_client          = @@character_set_client */;
-/*!50001 SET @saved_cs_results         = @@character_set_results */;
-/*!50001 SET @saved_col_connection     = @@collation_connection */;
-/*!50001 SET character_set_client      = utf8mb4 */;
-/*!50001 SET character_set_results     = utf8mb4 */;
-/*!50001 SET collation_connection      = utf8mb4_uca1400_ai_ci */;
-/*!50001 CREATE ALGORITHM=UNDEFINED */
-/*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */
-/*!50001 VIEW `vhp` AS select `nt`.`id` AS `id`,`nt`.`name` AS `name`,`nt`.`level` AS `level`,`nt`.`hp` AS `hp`,`nt`.`hp_regen_rate` AS `hp_regen_rate` from (((`spawn2` `s2` join `spawngroup` `sg` on(`sg`.`id` = `s2`.`spawngroupID`)) join `spawnentry` `se` on(`se`.`spawngroupID` = `sg`.`id`)) join `npc_types` `nt` on(`nt`.`id` = `se`.`npcID`)) where `s2`.`zone` = 'westwastes' */;
-/*!50001 SET character_set_client      = @saved_cs_client */;
-/*!50001 SET character_set_results     = @saved_cs_results */;
-/*!50001 SET collation_connection      = @saved_col_connection */;
+JOIN spawnentry se
+ON se.spawngroupid = sg.id 
+JOIN npc_types nt 
+ON nt.id = se.npcid 
+where s2._condition = 1 and s2.zone="thurgadina" ;
 
---
--- Final view structure for view `vloottables`
---
+-- Dumping structure for view proxeeus_db.vspawnlocs2
+-- Removing temporary table and create final VIEW structure
+DROP TABLE IF EXISTS `vspawnlocs2`;
+CREATE ALGORITHM=UNDEFINED SQL SECURITY DEFINER VIEW `vspawnlocs2` AS SELECT nt.id, nt.name, nt.npc_aggro as CanAggro, s2._condition, s2.zone,s2.pathgrid, s2.x as Spawn2X, s2.y as Spawn2Y, s2.z as Spawn2Z, s2.heading as Spawn2H, s2.respawntime as Respawn, sg.name as spawngroup_name,sg.id as Spawngroup_id, sg.min_x as Spawngroup_minX, sg.max_x as Spawngroup_maxX, sg.min_y as Spawngroup_minY, sg.max_y as Spawngroup_maxY, sg.dist as Spawngroup_dist
+FROM spawn2 s2 
+JOIN spawngroup sg ON sg.id = s2.spawngroupid 
 
-/*!50001 DROP VIEW IF EXISTS `vloottables`*/;
-/*!50001 SET @saved_cs_client          = @@character_set_client */;
-/*!50001 SET @saved_cs_results         = @@character_set_results */;
-/*!50001 SET @saved_col_connection     = @@collation_connection */;
-/*!50001 SET character_set_client      = utf8mb4 */;
-/*!50001 SET character_set_results     = utf8mb4 */;
-/*!50001 SET collation_connection      = utf8mb4_uca1400_ai_ci */;
-/*!50001 CREATE ALGORITHM=UNDEFINED */
-/*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */
-/*!50001 VIEW `vloottables` AS select `nt`.`id` AS `id`,`nt`.`name` AS `name`,`nt`.`level` AS `level`,`nt`.`loottable_id` AS `loottable_id` from (((`spawn2` `s2` join `spawngroup` `sg` on(`sg`.`id` = `s2`.`spawngroupID`)) join `spawnentry` `se` on(`se`.`spawngroupID` = `sg`.`id`)) join `npc_types` `nt` on(`nt`.`id` = `se`.`npcID`)) where `s2`.`zone` = 'skyshrine' */;
-/*!50001 SET character_set_client      = @saved_cs_client */;
-/*!50001 SET character_set_results     = @saved_cs_results */;
-/*!50001 SET collation_connection      = @saved_col_connection */;
+JOIN spawnentry se
+ON se.spawngroupid = sg.id 
+JOIN npc_types nt 
+ON nt.id = se.npcid 
+WHERE s2.zone = 'growthplane' ;
 
---
--- Final view structure for view `vrespawn`
---
+-- Dumping structure for view proxeeus_db.vspecialattacks
+-- Removing temporary table and create final VIEW structure
+DROP TABLE IF EXISTS `vspecialattacks`;
+CREATE ALGORITHM=UNDEFINED SQL SECURITY DEFINER VIEW `vspecialattacks` AS SELECT nt.id, nt.name,nt.`level`,nt.hp, nt.special_abilities, nt.hp_regen_rate,nt.mana_regen_rate,nt.aggroradius, nt.assistradius, nt.see_invis, nt.see_invis_undead, nt.see_hide,nt.emoteid, nt.attack_count, s2.x as Spawn2X, s2.y as Spawn2Y, s2.z as Spawn2Z, sg.name as spawngroup_name,sg.id as Spawngroup_id, sg.min_x as Spawngroup_minX, sg.max_x as Spawngroup_maxX, sg.min_y as Spawngroup_minY, sg.max_y as Spawngroup_maxY, sg.dist as Spawngroup_dist, sg.mindelay as Spawngroup_mindelay, sg.delay as Spawngroup_delay
+FROM spawn2 s2 
+JOIN spawngroup sg ON sg.id = s2.spawngroupid 
 
-/*!50001 DROP VIEW IF EXISTS `vrespawn`*/;
-/*!50001 SET @saved_cs_client          = @@character_set_client */;
-/*!50001 SET @saved_cs_results         = @@character_set_results */;
-/*!50001 SET @saved_col_connection     = @@collation_connection */;
-/*!50001 SET character_set_client      = utf8mb4 */;
-/*!50001 SET character_set_results     = utf8mb4 */;
-/*!50001 SET collation_connection      = utf8mb4_uca1400_ai_ci */;
-/*!50001 CREATE ALGORITHM=UNDEFINED */
-/*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */
-/*!50001 VIEW `vrespawn` AS select `nt`.`id` AS `id`,`nt`.`name` AS `name`,`nt`.`level` AS `level`,`s2`.`respawntime` AS `respawntime`,`s2`.`x` AS `Spawn2X`,`s2`.`y` AS `Spawn2Y`,`s2`.`z` AS `Spawn2Z`,`sg`.`name` AS `spawngroup_name`,`sg`.`id` AS `Spawngroup_id`,`sg`.`min_x` AS `Spawngroup_minX`,`sg`.`max_x` AS `Spawngroup_maxX`,`sg`.`min_y` AS `Spawngroup_minY`,`sg`.`max_y` AS `Spawngroup_maxY`,`sg`.`dist` AS `Spawngroup_dist`,`sg`.`mindelay` AS `Spawngroup_mindelay`,`sg`.`delay` AS `Spawngroup_delay` from (((`spawn2` `s2` join `spawngroup` `sg` on(`sg`.`id` = `s2`.`spawngroupID`)) join `spawnentry` `se` on(`se`.`spawngroupID` = `sg`.`id`)) join `npc_types` `nt` on(`nt`.`id` = `se`.`npcID`)) where `s2`.`zone` = 'soldungb' */;
-/*!50001 SET character_set_client      = @saved_cs_client */;
-/*!50001 SET character_set_results     = @saved_cs_results */;
-/*!50001 SET collation_connection      = @saved_col_connection */;
+JOIN spawnentry se
+ON se.spawngroupid = sg.id 
+JOIN npc_types nt 
+ON nt.id = se.npcid 
+WHERE s2.zone = 'veeshan' ;
 
---
--- Final view structure for view `vspawncondi`
---
+-- Dumping structure for view proxeeus_db.vspellsets
+-- Removing temporary table and create final VIEW structure
+DROP TABLE IF EXISTS `vspellsets`;
+CREATE ALGORITHM=UNDEFINED SQL SECURITY DEFINER VIEW `vspellsets` AS SELECT  nt.id, nt.name,nt.class, nt.npc_spells_id,nt.`level`, s2.x as Spawn2X, s2.y as Spawn2Y, s2.z as Spawn2Z, sg.name as spawngroup_name,sg.id as Spawngroup_id, sg.min_x as Spawngroup_minX, sg.max_x as Spawngroup_maxX, sg.min_y as Spawngroup_minY, sg.max_y as Spawngroup_maxY, sg.dist as Spawngroup_dist, sg.mindelay as Spawngroup_mindelay, sg.delay as Spawngroup_delay
+FROM spawn2 s2 
+JOIN spawngroup sg ON sg.id = s2.spawngroupid 
 
-/*!50001 DROP VIEW IF EXISTS `vspawncondi`*/;
-/*!50001 SET @saved_cs_client          = @@character_set_client */;
-/*!50001 SET @saved_cs_results         = @@character_set_results */;
-/*!50001 SET @saved_col_connection     = @@collation_connection */;
-/*!50001 SET character_set_client      = utf8mb4 */;
-/*!50001 SET character_set_results     = utf8mb4 */;
-/*!50001 SET collation_connection      = utf8mb4_uca1400_ai_ci */;
-/*!50001 CREATE ALGORITHM=UNDEFINED */
-/*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */
-/*!50001 VIEW `vspawncondi` AS select `nt`.`id` AS `id`,`nt`.`name` AS `name`,`nt`.`level` AS `level`,`s2`.`zone` AS `zone`,`sg`.`name` AS `spawngroup_name`,`sg`.`id` AS `Spawngroup_id`,`s2`.`_condition` AS `_condition` from (((`spawn2` `s2` join `spawngroup` `sg` on(`sg`.`id` = `s2`.`spawngroupID`)) join `spawnentry` `se` on(`se`.`spawngroupID` = `sg`.`id`)) join `npc_types` `nt` on(`nt`.`id` = `se`.`npcID`)) where `s2`.`_condition` = 1 and `s2`.`zone` = 'thurgadina' */;
-/*!50001 SET character_set_client      = @saved_cs_client */;
-/*!50001 SET character_set_results     = @saved_cs_results */;
-/*!50001 SET collation_connection      = @saved_col_connection */;
+JOIN spawnentry se
+ON se.spawngroupid = sg.id 
+JOIN npc_types nt 
+ON nt.id = se.npcid 
+WHERE s2.zone = 'qrg' ;
 
---
--- Final view structure for view `vspawnlocs2`
---
-
-/*!50001 DROP VIEW IF EXISTS `vspawnlocs2`*/;
-/*!50001 SET @saved_cs_client          = @@character_set_client */;
-/*!50001 SET @saved_cs_results         = @@character_set_results */;
-/*!50001 SET @saved_col_connection     = @@collation_connection */;
-/*!50001 SET character_set_client      = utf8mb4 */;
-/*!50001 SET character_set_results     = utf8mb4 */;
-/*!50001 SET collation_connection      = utf8mb4_uca1400_ai_ci */;
-/*!50001 CREATE ALGORITHM=UNDEFINED */
-/*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */
-/*!50001 VIEW `vspawnlocs2` AS select `nt`.`id` AS `id`,`nt`.`name` AS `name`,`nt`.`npc_aggro` AS `CanAggro`,`s2`.`_condition` AS `_condition`,`s2`.`zone` AS `zone`,`s2`.`pathgrid` AS `pathgrid`,`s2`.`x` AS `Spawn2X`,`s2`.`y` AS `Spawn2Y`,`s2`.`z` AS `Spawn2Z`,`s2`.`heading` AS `Spawn2H`,`s2`.`respawntime` AS `Respawn`,`sg`.`name` AS `spawngroup_name`,`sg`.`id` AS `Spawngroup_id`,`sg`.`min_x` AS `Spawngroup_minX`,`sg`.`max_x` AS `Spawngroup_maxX`,`sg`.`min_y` AS `Spawngroup_minY`,`sg`.`max_y` AS `Spawngroup_maxY`,`sg`.`dist` AS `Spawngroup_dist` from (((`spawn2` `s2` join `spawngroup` `sg` on(`sg`.`id` = `s2`.`spawngroupID`)) join `spawnentry` `se` on(`se`.`spawngroupID` = `sg`.`id`)) join `npc_types` `nt` on(`nt`.`id` = `se`.`npcID`)) where `s2`.`zone` = 'growthplane' */;
-/*!50001 SET character_set_client      = @saved_cs_client */;
-/*!50001 SET character_set_results     = @saved_cs_results */;
-/*!50001 SET collation_connection      = @saved_col_connection */;
-
---
--- Final view structure for view `vspecialattacks`
---
-
-/*!50001 DROP VIEW IF EXISTS `vspecialattacks`*/;
-/*!50001 SET @saved_cs_client          = @@character_set_client */;
-/*!50001 SET @saved_cs_results         = @@character_set_results */;
-/*!50001 SET @saved_col_connection     = @@collation_connection */;
-/*!50001 SET character_set_client      = utf8mb4 */;
-/*!50001 SET character_set_results     = utf8mb4 */;
-/*!50001 SET collation_connection      = utf8mb4_uca1400_ai_ci */;
-/*!50001 CREATE ALGORITHM=UNDEFINED */
-/*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */
-/*!50001 VIEW `vspecialattacks` AS select `nt`.`id` AS `id`,`nt`.`name` AS `name`,`nt`.`level` AS `level`,`nt`.`hp` AS `hp`,`nt`.`special_abilities` AS `special_abilities`,`nt`.`hp_regen_rate` AS `hp_regen_rate`,`nt`.`mana_regen_rate` AS `mana_regen_rate`,`nt`.`aggroradius` AS `aggroradius`,`nt`.`assistradius` AS `assistradius`,`nt`.`see_invis` AS `see_invis`,`nt`.`see_invis_undead` AS `see_invis_undead`,`nt`.`see_hide` AS `see_hide`,`nt`.`emoteid` AS `emoteid`,`nt`.`attack_count` AS `attack_count`,`s2`.`x` AS `Spawn2X`,`s2`.`y` AS `Spawn2Y`,`s2`.`z` AS `Spawn2Z`,`sg`.`name` AS `spawngroup_name`,`sg`.`id` AS `Spawngroup_id`,`sg`.`min_x` AS `Spawngroup_minX`,`sg`.`max_x` AS `Spawngroup_maxX`,`sg`.`min_y` AS `Spawngroup_minY`,`sg`.`max_y` AS `Spawngroup_maxY`,`sg`.`dist` AS `Spawngroup_dist`,`sg`.`mindelay` AS `Spawngroup_mindelay`,`sg`.`delay` AS `Spawngroup_delay` from (((`spawn2` `s2` join `spawngroup` `sg` on(`sg`.`id` = `s2`.`spawngroupID`)) join `spawnentry` `se` on(`se`.`spawngroupID` = `sg`.`id`)) join `npc_types` `nt` on(`nt`.`id` = `se`.`npcID`)) where `s2`.`zone` = 'veeshan' */;
-/*!50001 SET character_set_client      = @saved_cs_client */;
-/*!50001 SET character_set_results     = @saved_cs_results */;
-/*!50001 SET collation_connection      = @saved_col_connection */;
-
---
--- Final view structure for view `vspellsets`
---
-
-/*!50001 DROP VIEW IF EXISTS `vspellsets`*/;
-/*!50001 SET @saved_cs_client          = @@character_set_client */;
-/*!50001 SET @saved_cs_results         = @@character_set_results */;
-/*!50001 SET @saved_col_connection     = @@collation_connection */;
-/*!50001 SET character_set_client      = utf8mb4 */;
-/*!50001 SET character_set_results     = utf8mb4 */;
-/*!50001 SET collation_connection      = utf8mb4_uca1400_ai_ci */;
-/*!50001 CREATE ALGORITHM=UNDEFINED */
-/*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */
-/*!50001 VIEW `vspellsets` AS select `nt`.`id` AS `id`,`nt`.`name` AS `name`,`nt`.`class` AS `class`,`nt`.`npc_spells_id` AS `npc_spells_id`,`nt`.`level` AS `level`,`s2`.`x` AS `Spawn2X`,`s2`.`y` AS `Spawn2Y`,`s2`.`z` AS `Spawn2Z`,`sg`.`name` AS `spawngroup_name`,`sg`.`id` AS `Spawngroup_id`,`sg`.`min_x` AS `Spawngroup_minX`,`sg`.`max_x` AS `Spawngroup_maxX`,`sg`.`min_y` AS `Spawngroup_minY`,`sg`.`max_y` AS `Spawngroup_maxY`,`sg`.`dist` AS `Spawngroup_dist`,`sg`.`mindelay` AS `Spawngroup_mindelay`,`sg`.`delay` AS `Spawngroup_delay` from (((`spawn2` `s2` join `spawngroup` `sg` on(`sg`.`id` = `s2`.`spawngroupID`)) join `spawnentry` `se` on(`se`.`spawngroupID` = `sg`.`id`)) join `npc_types` `nt` on(`nt`.`id` = `se`.`npcID`)) where `s2`.`zone` = 'qrg' */;
-/*!50001 SET character_set_client      = @saved_cs_client */;
-/*!50001 SET character_set_results     = @saved_cs_results */;
-/*!50001 SET collation_connection      = @saved_col_connection */;
-/*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
-
-/*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
-/*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
-/*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;
+/*!40103 SET TIME_ZONE=IFNULL(@OLD_TIME_ZONE, 'system') */;
+/*!40101 SET SQL_MODE=IFNULL(@OLD_SQL_MODE, '') */;
+/*!40014 SET FOREIGN_KEY_CHECKS=IFNULL(@OLD_FOREIGN_KEY_CHECKS, 1) */;
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
-/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
-/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
-/*M!100616 SET NOTE_VERBOSITY=@OLD_NOTE_VERBOSITY */;
-
--- Dump completed on 2025-03-16 12:44:29
+/*!40111 SET SQL_NOTES=IFNULL(@OLD_SQL_NOTES, 1) */;
