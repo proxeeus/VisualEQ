@@ -1,0 +1,21 @@
+# Build artifacts
+**/obj/
+**/bin/
+
+# Generated runtime state
+**/imgui.ini
+
+# Visual Studio user files
+**/*.user
+**/*.suo
+**/.vs/
+
+# Generated AssemblyInfo (created by MSBuild)
+**/*.AssemblyInfo.cs
+**/*.AssemblyAttributes.cs
+
+# Converted zone/character data — large binary zip files, not source code
+../ConverterApp/*.zip
+
+# Native runtime blobs copied into bin (cimgui.dll etc.)
+**/runtimes/
