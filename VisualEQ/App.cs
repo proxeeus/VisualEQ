@@ -52,15 +52,13 @@ namespace VisualEQ
                 // List or load character models
                 if (listModelsOnly)
                 {
-                    // Just list available models without loading any
                     ListAvailableModels(zoneName);
-                    // Exit after listing models
                     return;
                 }
                 else
                 {
-                    // Regular loading with selected or default model
                     LoadCharacters(controller, zoneName, modelName);
+                    controller.LoadZoneSpawnsAsync(zoneName).GetAwaiter().GetResult();
                 }
 
                 // Add views

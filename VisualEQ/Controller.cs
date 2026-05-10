@@ -1,7 +1,11 @@
+using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using VisualEQ.Database.Configuration;
+using VisualEQ.Database.Repositories;
 using VisualEQ.Engine;
 using VisualEQ.Settings;
+using VisualEQ.SpawnSystem;
 using VisualEQ.Views;
 using static VisualEQ.Engine.Globals;
 
@@ -14,23 +18,29 @@ namespace VisualEQ
         readonly List<BaseView> Views = new List<BaseView>();
         readonly List<AniModelInstance> CharacterModels = new List<AniModelInstance>();
 
+        // Shared model cache so the same AniModel is never loaded twice across spawns.
+        readonly Dictionary<string, AniModel> _modelCache = new Dictionary<string, AniModel>();
+
         public AniModel LastModelLoaded;
 
         private ModelSelector modelSelector;
         object IController.ModelSelector => modelSelector;
         public ModelSelector ModelSelector => modelSelector;
 
-        // Settings loaded at startup and persisted on change.
         public AppSettings Settings { get; }
 
         // Non-null once the user has saved a valid DB connection.
         public MySqlConnectionFactory DbFactory { get; private set; }
 
+        public SpawnManager SpawnManager { get; } = new SpawnManager();
+
+        // Zone name set when LoadZone is called; triggers spawn load on later DB connect.
+        private string _currentZoneName;
+
         public Controller(AppSettings settings)
         {
             Settings = settings;
 
-            // Restore a saved connection if credentials are present.
             if (!string.IsNullOrEmpty(settings.Database?.Server) &&
                 !string.IsNullOrEmpty(settings.Database?.Database))
             {
@@ -40,6 +50,9 @@ namespace VisualEQ
             Engine.UpdateFrame += (s, e) => Views.ForEach(view => view.Update(Engine.Gui));
             modelSelector = new ModelSelector(Engine, CharacterModels);
             Engine.Controller = this;
+
+            // Forward model selection to SpawnManager.
+            modelSelector.OnSelectionChanged += SpawnManager.Select;
         }
 
         public void AddView(BaseView view)
@@ -56,7 +69,7 @@ namespace VisualEQ
 
         public void LoadZone(string name)
         {
-            // TODO: Unload old contents
+            _currentZoneName = name;
             Loader.LoadZoneFile($"../ConverterApp/{name}_oes.zip", Engine);
         }
 
@@ -68,12 +81,49 @@ namespace VisualEQ
             CharacterModels.Add(instance);
         }
 
+        // Fetches all spawn data for zoneName and places model instances in the scene.
+        public async Task LoadZoneSpawnsAsync(string zoneName)
+        {
+            if (DbFactory == null)
+            {
+                Console.WriteLine("[Controller] Spawn load skipped — no DB connection.");
+                return;
+            }
+
+            if (SpawnManager.SpawnPoints.Count > 0)
+            {
+                Console.WriteLine("[Controller] Spawns already loaded — skipping.");
+                return;
+            }
+
+            try
+            {
+                var repo = new SpawnRepository(DbFactory);
+                var records = await repo.GetZoneSpawnsFullAsync(zoneName);
+
+                var availableModels = SpawnManager.BuildAvailableModels(zoneName);
+                SpawnManager.LoadFromRecords(records, Engine, _modelCache, availableModels, LastModelLoaded);
+
+                // Register spawn instances with the model selector so they are clickable.
+                foreach (var sp in SpawnManager.SpawnPoints)
+                    CharacterModels.Add(sp.Model);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Controller] Spawn load error: {ex}");
+            }
+        }
+
         // Called by DatabaseConnectionView after the user saves valid credentials.
         public void SetDbConnection(DatabaseSettings db)
         {
             Settings.Database = db;
             DbFactory = new MySqlConnectionFactory(db);
-            System.Console.WriteLine($"[DB] Connection configured: {db.Server}:{db.Port}/{db.Database}");
+            Console.WriteLine($"[DB] Connection configured: {db.Server}:{db.Port}/{db.Database}");
+
+            // If a zone is already loaded, kick off spawn loading immediately.
+            if (_currentZoneName != null)
+                _ = LoadZoneSpawnsAsync(_currentZoneName);
         }
 
         public void Start()

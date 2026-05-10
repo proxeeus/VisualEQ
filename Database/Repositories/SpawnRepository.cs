@@ -10,6 +10,7 @@ using VisualEQ.Database.Models;
 using VisualEQ.Database.ViewModels;
 using VisualEQ.Database.Repositories.Base;
 using VisualEQ.Database.Repositories.Interfaces;
+using System.Data;
 
 namespace VisualEQ.Database.Repositories
 {
@@ -26,6 +27,75 @@ namespace VisualEQ.Database.Repositories
             {
                 var spawns = await connection.QueryAsync<Spawn2>(SqlQueries.GetZoneSpawns, new { ZoneName = zoneName });
                 return spawns.Select(ToViewModel);
+            }
+        }
+
+        public async Task<IEnumerable<SpawnRecord>> GetZoneSpawnsFullAsync(string zoneName)
+        {
+            using (var connection = CreateConnection())
+            {
+                connection.Open();
+
+                // 1. All spawn2 rows + spawngroup name for this zone.
+                var spawns = (await connection.QueryAsync<Spawn2>(
+                    SqlQueries.GetZoneSpawns, new { ZoneName = zoneName })).ToList();
+
+                if (!spawns.Any())
+                    return Enumerable.Empty<SpawnRecord>();
+
+                Console.WriteLine($"[DB] {spawns.Count} spawn2 rows for zone '{zoneName}'");
+
+                // 2. Numeric zone ID (needed for grid_entries zone filter).
+                var zoneId = await connection.QueryFirstOrDefaultAsync<int>(
+                    SqlQueries.GetZoneId, new { ZoneName = zoneName });
+
+                // 3. Batch spawnentry for all spawn groups.
+                var groupIds = spawns.Select(s => s.SpawnGroupId).Distinct().ToArray();
+                var entries = (await connection.QueryAsync<SpawnEntry>(
+                    SqlQueries.GetSpawnEntriesBatch, new { GroupIds = groupIds })).ToList();
+
+                // 4. Batch npc_types for all NPC IDs referenced by those entries.
+                var npcIds = entries.Select(e => e.NpcId).Distinct().ToArray();
+                var npcs = npcIds.Length > 0
+                    ? (await connection.QueryAsync<NpcType>(
+                        SqlQueries.GetNpcTypesBatch, new { NpcIds = npcIds })).ToList()
+                    : new List<NpcType>();
+                var npcById = npcs.ToDictionary(n => n.Id);
+
+                // 5. Batch grid_entries for all non-zero pathgrid values.
+                var gridIds = spawns.Where(s => s.PathGrid > 0)
+                                    .Select(s => s.PathGrid).Distinct().ToArray();
+                var gridEntries = gridIds.Length > 0
+                    ? (await connection.QueryAsync<GridEntry>(
+                        SqlQueries.GetGridEntriesBatch, new { GridIds = gridIds, ZoneId = zoneId })).ToList()
+                    : new List<GridEntry>();
+
+                // 6. Index for O(1) assembly.
+                var entriesByGroup = entries
+                    .GroupBy(e => e.SpawnGroupId)
+                    .ToDictionary(g => g.Key, g => g.ToList());
+                var waypointsByGrid = gridEntries
+                    .GroupBy(ge => ge.GridId)
+                    .ToDictionary(g => g.Key, g => g.OrderBy(ge => ge.Number).ToList());
+
+                // 7. Assemble SpawnRecord objects.
+                return spawns.Select(s => new SpawnRecord
+                {
+                    Spawn = s,
+                    Entries = entriesByGroup.TryGetValue(s.SpawnGroupId, out var groupEntries)
+                        ? groupEntries
+                            .Select(e => new SpawnEntryWithNpc
+                            {
+                                Entry = e,
+                                Npc = npcById.TryGetValue(e.NpcId, out var npc) ? npc : null
+                            })
+                            .Where(en => en.Npc != null)
+                            .ToList()
+                        : new List<SpawnEntryWithNpc>(),
+                    Waypoints = s.PathGrid > 0 && waypointsByGrid.TryGetValue(s.PathGrid, out var wps)
+                        ? wps
+                        : new List<GridEntry>()
+                }).ToList();
             }
         }
 

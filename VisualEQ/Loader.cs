@@ -85,6 +85,30 @@ namespace VisualEQ
             return model;
         }
 
+        // Returns all character model names available in a chr zip, or an empty set on failure.
+        internal static HashSet<string> GetAvailableCharacterModels(string path)
+        {
+            try
+            {
+                using (var zip = ZipFile.OpenRead(path))
+                using (var ms = new MemoryStream())
+                {
+                    using (var temp = zip.GetEntry("main.oes")?.Open())
+                        temp?.CopyTo(ms);
+                    ms.Position = 0;
+                    var root = OESFile.Read<OESRoot>(ms);
+                    return new HashSet<string>(
+                        root.Find<OESCharacter>().Select(c => c.Name),
+                        StringComparer.OrdinalIgnoreCase);
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteLine($"[Loader] Could not enumerate models in '{path}': {ex.Message}");
+                return new HashSet<string>();
+            }
+        }
+
         internal static AniModel LoadCharacter(string path, string name)
         {
             using (var zip = ZipFile.OpenRead(path))
