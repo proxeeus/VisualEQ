@@ -33,20 +33,24 @@ namespace VisualEQ.Engine
                     return vao;
                 }).ToList();
                 return (kv.Key, ((IReadOnlyList<Vao>)vaos, (IReadOnlyList<Buffer<float>>)buffers));
-            }).ToDictionary();
+            }).ToDictionary(x => x.Item1, x => x.Item2);
         }
 
         public void Draw(Matrix4x4 projView, Matrix4x4 modelMat, string animation, float aniTime, bool forward)
         {
             if (!Enabled) return;
             if (forward && Material.Deferred || !forward && !Material.Deferred) return;
+
+            if (!Animations.TryGetValue(animation, out var aniData) && !Animations.TryGetValue("", out aniData))
+                return;
+
             Material.Use(projView, MaterialUse.Animated);
             Material.SetModelMatrix(modelMat);
             const float fps = 1f / 10;
             var frameCount = (int)(aniTime / fps);
             Material.SetInterpolation(aniTime % fps / fps);
 
-            Animations[animation].Vaos[frameCount % Animations[animation].Vaos.Count].Bind(() => GL.DrawElements(PrimitiveType.Triangles, IndexBuffer.Length, DrawElementsType.UnsignedInt, IntPtr.Zero));
+            aniData.Vaos[frameCount % aniData.Vaos.Count].Bind(() => GL.DrawElements(PrimitiveType.Triangles, IndexBuffer.Length, DrawElementsType.UnsignedInt, IntPtr.Zero));
         }
     }
 }

@@ -64,7 +64,7 @@ namespace VisualEQ.ConverterCore
                     .Select(x =>
                         x.GetFragments<Fragment03>().Select(y => y.Fragment.Filenames.Select(z => (x.S3D, z))))
                     .SelectMany(x => x).SelectMany(x => x).Distinct();
-                TextureMap = texs.AsParallel().Select(x => ((x.Item1.Filename, x.Item2), ConvertTexture(x.Item1, zip, x.Item2))).ToDictionary();
+                TextureMap = texs.AsParallel().Select(x => ((x.Item1.Filename, x.Item2), ConvertTexture(x.Item1, zip, x.Item2))).ToDictionary(t => t.Item1, t => t.Item2);
 
                 var zone = new OESZone(name);
 
@@ -223,7 +223,7 @@ namespace VisualEQ.ConverterCore
                 return GetMaxFrames(pc).Times(i => BuildFrame(pc, i)).ToArray();
             }
 
-            var trees = prefixes.Select(x => (x, BuildFrameTree(BuildAniTreePrecursor(x, 0)))).ToDictionary();
+            var trees = prefixes.Select(x => (x, BuildFrameTree(BuildAniTreePrecursor(x, 0)))).ToDictionary(t => t.Item1, t => t.Item2);
 
             var animationBuffers = new Dictionary<string, List<List<List<float>>>>();
             foreach (var (name, frames) in trees)
@@ -285,10 +285,10 @@ namespace VisualEQ.ConverterCore
                     oinds[i + 2] = temp;
                 }
 
-                return (oinds, vertices.Select(kv => (kv.Key, new OESAnimationBuffer(kv.Value.Select(Remap).ToList()))).ToDictionary());
+                return (oinds, vertices.Select(kv => (kv.Key, new OESAnimationBuffer(kv.Value.Select(Remap).ToList()))).ToDictionary(t => t.Key, t => t.Item2));
             }
 
-            var asets = prefixes.Where(x => x != "").Select(x => (x, new OESAnimationSet(x, 0f))).ToDictionary();
+            var asets = prefixes.Where(x => x != "").Select(x => (x, new OESAnimationSet(x, 0f))).ToDictionary(t => t.Item1, t => t.Item2);
             f10.Meshes.Length.Times(i =>
             {
                 var meshf = f10.Meshes[i].Value.Reference.Value;
@@ -307,7 +307,7 @@ namespace VisualEQ.ConverterCore
                     skin.Add(omats[(int)v.Index]);
                     var (ibuffer, vbuffers) = RewriteBuffers(
                         polys,
-                        animationBuffers.Select(kv => (kv.Key, kv.Value[i])).ToDictionary()
+                        animationBuffers.Select(kv => (kv.Key, kv.Value[i])).ToDictionary(t => t.Key, t => t.Item2)
                     );
                     var amesh = new OESAnimatedMesh(true, ibuffer, (uint)vbuffers[""].VertexBuffers[0].Count);
                     model.Add(amesh);
@@ -346,7 +346,7 @@ namespace VisualEQ.ConverterCore
                     y.Properties.Values.Where(z => z is string w && w.ToLower().EndsWith(".dds")).Select(z =>
                         (string)z)).SelectMany(y => y)).SelectMany(x => x).OrderBy(x => x).Distinct();
                 TextureMap = texs.AsParallel()
-                    .Select(x => ((ename, x), ConvertTexture(eqg, zip, x))).ToDictionary();
+                    .Select(x => ((ename, x), ConvertTexture(eqg, zip, x))).ToDictionary(t => t.Item1, t => t.Item2);
 
                 var zone = new OESZone(name);
                 var objs = zon.Objects.Select((obj, i) =>

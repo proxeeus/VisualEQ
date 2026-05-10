@@ -59,8 +59,8 @@ namespace VisualEQ.LegacyFileReader
                             case uint v: throw new NotImplementedException($"Unknown .ter material property type {v}");
                         }
                         return (name, value);
-                    }).ToDictionary()));
-            }).ToDictionary();
+                    }).ToDictionary(p => p.name, p => p.value)));
+            }).ToDictionary(x => x.index, x => x.Item2);
 
             if (isTer)
                 Materials.Values.ForEach(mat => WriteLine($"{mat.Name} {mat.Shader} ({string.Join(", ", mat.Properties.Select(x => $"{x.Key}={x.Value}"))})"));

@@ -289,6 +289,8 @@ namespace VisualEQ.Engine
             base.OnUpdateFrame(e);
         }
 
+        int _diagFrameCount = 0;
+
         protected override void OnRenderFrame(FrameEventArgs e)
         {
             FrameTime = Time;
@@ -296,7 +298,26 @@ namespace VisualEQ.Engine
                 FrameTimes.RemoveAt(0);
             FrameTimes.Add(e.Time);
 
+            bool diag = _diagFrameCount++ == 0;
+
+            if (diag)
+            {
+                Console.WriteLine($"[DIAG] Models={Models.Count} AniModels={AniModels.Count} DeferredEnabled={DeferredEnabled}");
+                Console.WriteLine($"[DIAG] Width={Width} Height={Height}");
+                Console.WriteLine($"[DIAG] GL_VERSION={GL.GetString(StringName.Version)}");
+                Console.WriteLine($"[DIAG] GL_RENDERER={GL.GetString(StringName.Renderer)}");
+            }
+
             ProjectionView = FpsCamera.Matrix * ProjectionMat;
+
+            if (diag)
+            {
+                // Log view matrix to verify camera is set up (all zeros = Update not called yet)
+                Console.WriteLine($"[DIAG] ProjView[0]={ProjectionView.M11:F4},{ProjectionView.M12:F4},{ProjectionView.M13:F4},{ProjectionView.M14:F4}");
+                Console.WriteLine($"[DIAG] ProjView[3]={ProjectionView.M41:F4},{ProjectionView.M42:F4},{ProjectionView.M43:F4},{ProjectionView.M44:F4}");
+                Console.WriteLine($"[DIAG] CamPos={Camera.Position.X:F1},{Camera.Position.Y:F1},{Camera.Position.Z:F1}");
+                GL.GetError(); // flush any pre-existing errors
+            }
 
             if (DeferredEnabled)
             {
@@ -312,11 +333,13 @@ namespace VisualEQ.Engine
                     GL.ClearColor(0, 0, 0, 1);
                     GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
-                    GL.Enable(EnableCap.CullFace);
+                    GL.Disable(EnableCap.CullFace); // disabled to rule out winding-order issues
                     GL.Disable(EnableCap.Blend);
                     GL.Enable(EnableCap.DepthTest);
                     Models.ForEach(model => model.Draw(ProjectionView, forward: false));
                     AniModels.ForEach(model => model.Draw(ProjectionView, forward: false));
+                    if (diag)
+                        Console.WriteLine($"[DIAG] GL error after deferred-pass draw={GL.GetError()}");
                 }
                 GL.Enable(EnableCap.Blend);
                 GL.BlendFunc(BlendingFactorSrc.SrcAlpha, BlendingFactorDest.OneMinusSrcAlpha);
@@ -326,6 +349,8 @@ namespace VisualEQ.Engine
                 Models.ForEach(model => model.Draw(ProjectionView, forward: true));
                 AniModels.ForEach(model => model.Draw(ProjectionView, forward: true));
                 GL.DepthMask(true);
+                if (diag)
+                    Console.WriteLine($"[DIAG] GL error after forward-pass draw={GL.GetError()}");
                 GL.Finish();
             });
 

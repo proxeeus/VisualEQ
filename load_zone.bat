@@ -5,6 +5,10 @@ REM VisualEQ Zone Loader Helper Script
 REM Usage: load_zone.bat [path_to_everquest] [zone_name]
 REM If no arguments are provided, it will show a menu of available zones
 
+REM On Windows ARM64 (Parallels/M-series Mac) the default dotnet is ARM64 but cimgui.dll is x64.
+REM Use the x64 dotnet runtime (exec, not run) to launch VisualEQ so native DLLs load correctly.
+set "DOTNET_X64=C:\Program Files\dotnet\x64\dotnet.exe"
+
 REM Config file for storing EQ path
 set "CONFIG_FILE=%~dp0eq_config.txt"
 
@@ -190,8 +194,12 @@ popd
 :launch_zone
 echo === Launching VisualEQ with Zone: %ZONE_NAME% ===
 pushd VisualEQ
-REM Pass only the zone name - the application will append _oes.zip itself
-dotnet run -c Debug --no-build %ZONE_NAME%
+REM Use x64 dotnet exec (runtime-only, no SDK needed) so cimgui.dll loads correctly on ARM64 Windows
+if exist "%DOTNET_X64%" (
+    "%DOTNET_X64%" exec "bin\Debug\net8.0\VisualEQ.dll" %ZONE_NAME%
+) else (
+    dotnet run -c Debug --no-build %ZONE_NAME%
+)
 popd
 
 echo Done.

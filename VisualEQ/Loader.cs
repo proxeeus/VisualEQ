@@ -100,15 +100,15 @@ namespace VisualEQ
 
                     var materials = FromSkin(model.Find<OESSkin>().First(), zip);
 
-                    var anisets = model.Find<OESAnimationSet>().Select(x => (x.Name, x.Find<OESAnimationBuffer>().ToList())).ToDictionary();
+                    var anisets = model.Find<OESAnimationSet>().Select(x => (x.Name, x.Find<OESAnimationBuffer>().ToList())).ToDictionary(t => t.Name, t => t.Item2);
 
                     var animodel = new AniModel();
 
                     model.Find<OESAnimatedMesh>().ForEach((oam, i) =>
                     {
-                        var animations = anisets.Select(kv => (kv.Key, kv.Value[i])).ToDictionary();
+                        var animations = anisets.Select(kv => (kv.Key, kv.Value[i])).ToDictionary(t => t.Key, t => t.Item2);
                         animations[""] = oam.Find<OESAnimationBuffer>().First();
-                        animodel.Add(new AnimatedMesh(materials[i], animations.Select(kv => (kv.Key, kv.Value.VertexBuffers)).ToDictionary(), oam.IndexBuffer.ToArray()));
+                        animodel.Add(new AnimatedMesh(materials[i], animations.Select(kv => (kv.Key, kv.Value.VertexBuffers)).ToDictionary(t => t.Key, t => t.VertexBuffers), oam.IndexBuffer.ToArray()));
                     });
 
                     return animodel;

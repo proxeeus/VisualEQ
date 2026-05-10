@@ -26,7 +26,7 @@ namespace VisualEQ.Engine
             }
         }
 
-        string _Animation = "C05";
+        string _Animation = "";
         float AnimationStartTime = FrameTime;
         public string Animation
         {
