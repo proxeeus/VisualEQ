@@ -120,8 +120,9 @@ namespace VisualEQ
             LoadZoneSpawnsSync(name);
         }
 
-        // Picks a sensible default character model for the zone (used as the placeholder fallback).
-        // Loads from the zone-specific chr zip if present, otherwise the shared gfaydark chr zip.
+        // Preloads the placeholder-fallback model for the zone. Sets LastModelLoaded so
+        // SpawnManager has something to instance for spawns whose race can't be resolved.
+        // Does NOT add a visible character to the scene — that was the "phantom orc" bug.
         void LoadDefaultCharacterForZone(string zoneName)
         {
             var candidates = new[] { $"{zoneName}_chr", "gfaydark_chr" };
@@ -134,7 +135,9 @@ namespace VisualEQ
                 if (models.Count == 0) continue;
 
                 var pick = models.Contains("ORC") ? "ORC" : System.Linq.Enumerable.First(models);
-                LoadCharacter(prefix, pick);
+                // Same idle-animation treatment as SpawnManager (see SpawnAnimations there).
+                LastModelLoaded = Loader.LoadCharacter(path, pick, new System.Collections.Generic.HashSet<string> { "P01" }, singleFrame: true);
+                _modelCache[pick] = LastModelLoaded;
                 return;
             }
         }

@@ -109,7 +109,14 @@ namespace VisualEQ
             }
         }
 
-        internal static AniModel LoadCharacter(string path, string name)
+        // Loads a character model. `animationWhitelist` (if non-null) restricts which named
+        // animation sets get uploaded to GL — massive win for spawn rendering, where we only
+        // need one idle animation per model. `""` (the mesh's built-in bind pose) is always
+        // included regardless of the whitelist.
+        //
+        // `singleFrame`: if true, keep only frame 0 of every animation. Draw becomes static
+        // (frameCount % 1 == 0), interpolation lerps between identical buffers → no motion.
+        internal static AniModel LoadCharacter(string path, string name, HashSet<string> animationWhitelist = null, bool singleFrame = false)
         {
             using (var zip = ZipFile.OpenRead(path))
             {
@@ -120,19 +127,31 @@ namespace VisualEQ
                     ms.Position = 0;
                     var root = OESFile.Read<OESRoot>(ms);
                     var model = root.Find<OESCharacter>().First(x => x.Name == name);
-                    WriteLine($"Loading {model.Name}");
 
                     var materials = FromSkin(model.Find<OESSkin>().First(), zip);
 
-                    var anisets = model.Find<OESAnimationSet>().Select(x => (x.Name, x.Find<OESAnimationBuffer>().ToList())).ToDictionary(t => t.Name, t => t.Item2);
+                    var allAniSets = model.Find<OESAnimationSet>().ToList();
+                    var anisets = allAniSets
+                        .Where(x => animationWhitelist == null || animationWhitelist.Contains(x.Name))
+                        .Select(x => (x.Name, x.Find<OESAnimationBuffer>().ToList()))
+                        .ToDictionary(t => t.Name, t => t.Item2);
+
+                    WriteLine($"Loading {model.Name}: kept [{string.Join(",", anisets.Keys)}] " +
+                              $"of {allAniSets.Count} → [{string.Join(",", allAniSets.Select(a => a.Name))}]" +
+                              (singleFrame ? " (single-frame)" : ""));
 
                     var animodel = new AniModel();
+                    foreach (var setName in anisets.Keys) animodel.AvailableAnimations.Add(setName);
+
+                    // Truncates an animation's frame list to just frame 0.
+                    IReadOnlyList<IReadOnlyList<float>> TruncateToFirst(IReadOnlyList<IReadOnlyList<float>> vbs) =>
+                        singleFrame && vbs.Count > 1 ? new[] { vbs[0] } : vbs;
 
                     model.Find<OESAnimatedMesh>().ForEach((oam, i) =>
                     {
                         var animations = anisets.Select(kv => (kv.Key, kv.Value[i])).ToDictionary(t => t.Key, t => t.Item2);
                         animations[""] = oam.Find<OESAnimationBuffer>().First();
-                        animodel.Add(new AnimatedMesh(materials[i], animations.Select(kv => (kv.Key, kv.Value.VertexBuffers)).ToDictionary(t => t.Key, t => t.VertexBuffers), oam.IndexBuffer.ToArray()));
+                        animodel.Add(new AnimatedMesh(materials[i], animations.ToDictionary(kv => kv.Key, kv => TruncateToFirst(kv.Value.VertexBuffers)), oam.IndexBuffer.ToArray()));
                     });
 
                     return animodel;

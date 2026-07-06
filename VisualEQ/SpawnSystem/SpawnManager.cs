@@ -10,6 +10,15 @@ namespace VisualEQ.SpawnSystem
 {
     public class SpawnManager
     {
+        // Candidate idle-stance animation names, tried in order per-model. Classic EQ:
+        //   P01/P02/P03 — pose/passive (primary idle)
+        //   L01/L02/L03 — locomotion (walk/run) — falls through here so shared models like
+        //                 HOM/GNM (only L03) don't T-pose
+        //   O01         — idle emote (wave etc.) — some models have only this
+        //   STA/POS     — theoretical fallbacks, rarely present in classic
+        static readonly string[] SpawnAnimationCandidates = { "P01", "P02", "P03", "L01", "L02", "L03", "O01", "STA", "POS" };
+        static readonly HashSet<string> SpawnAnimations = new HashSet<string>(SpawnAnimationCandidates);
+
         public List<SpawnPoint> SpawnPoints { get; } = new List<SpawnPoint>();
         public SpawnPoint Selected { get; private set; }
         public int DirtyCount => SpawnPoints.Count(sp => sp.IsDirty);
@@ -32,6 +41,8 @@ namespace VisualEQ.SpawnSystem
             Selected = null;
 
             int modelled = 0, placeholders = 0, skipped = 0;
+            // Per-race placeholder telemetry: race → (count, first example NPC, unmapped, tried codes).
+            var placeholderByRace = new Dictionary<int, (int Count, string ExampleName, bool Unmapped, string TriedCodes)>();
 
             foreach (var record in records)
             {
@@ -42,18 +53,20 @@ namespace VisualEQ.SpawnSystem
 
                 AniModel aniModel = null;
                 bool isPlaceholder = false;
+                string chosenCode = null;
+                List<string> triedCodes = null;
 
                 if (npc != null)
                 {
-                    // Try gender-specific name first, then base code.
-                    string genderCode = RaceModelMapper.ResolveWithGender(npc.Race, npc.Gender);
-                    string baseCode   = RaceModelMapper.Resolve(npc.Race);
-
-                    string chosenCode = null;
-                    if (genderCode != null && availableModels.ContainsKey(genderCode))
-                        chosenCode = genderCode;
-                    else if (baseCode != null && availableModels.ContainsKey(baseCode))
-                        chosenCode = baseCode;
+                    triedCodes = RaceModelMapper.ResolveCandidates(npc.Race, npc.Gender).ToList();
+                    foreach (var candidate in triedCodes)
+                    {
+                        if (availableModels.ContainsKey(candidate))
+                        {
+                            chosenCode = candidate;
+                            break;
+                        }
+                    }
 
                     if (chosenCode != null)
                     {
@@ -61,7 +74,7 @@ namespace VisualEQ.SpawnSystem
                         {
                             try
                             {
-                                aniModel = Loader.LoadCharacter(availableModels[chosenCode], chosenCode);
+                                aniModel = Loader.LoadCharacter(availableModels[chosenCode], chosenCode, SpawnAnimations, singleFrame: true);
                                 modelCache[chosenCode] = aniModel;
                             }
                             catch (Exception ex)
@@ -76,6 +89,14 @@ namespace VisualEQ.SpawnSystem
                 {
                     aniModel = fallback;
                     isPlaceholder = true;
+
+                    if (npc != null)
+                    {
+                        var key = npc.Race;
+                        if (!placeholderByRace.TryGetValue(key, out var stat))
+                            stat = (0, npc.Name ?? "?", triedCodes == null || triedCodes.Count == 0, string.Join(",", triedCodes ?? new List<string>()));
+                        placeholderByRace[key] = (stat.Count + 1, stat.ExampleName, stat.Unmapped, stat.TriedCodes);
+                    }
                 }
 
                 if (aniModel == null)
@@ -87,9 +108,12 @@ namespace VisualEQ.SpawnSystem
                 // EQ DB stores (x=east, y=north, z=up); engine expects (x=east, y=forward, z=up)
                 // but the axes are transposed relative to the scene — swap X and Y.
                 var pos = new Vector3(record.Spawn.Y, record.Spawn.X, record.Spawn.Z);
+                // Pick the first candidate this specific model actually has; empty string is
+                // the bind-pose fallback and always resolves in AnimatedMesh.Draw.
+                var idle = SpawnAnimationCandidates.FirstOrDefault(a => aniModel.AvailableAnimations.Contains(a)) ?? "";
                 var instance = new AniModelInstance(aniModel)
                 {
-                    Animation = "C05",
+                    Animation = idle,
                     Position  = pos
                 };
 
@@ -100,6 +124,18 @@ namespace VisualEQ.SpawnSystem
             }
 
             Console.WriteLine($"[SpawnManager] {modelled} modelled, {placeholders} placeholders, {skipped} skipped");
+
+            if (placeholderByRace.Count > 0)
+            {
+                Console.WriteLine("[SpawnManager] Placeholder breakdown by race (count | race | reason | example):");
+                foreach (var kv in placeholderByRace.OrderByDescending(kv => kv.Value.Count))
+                {
+                    var reason = kv.Value.Unmapped
+                        ? "unmapped race"
+                        : $"no chr zip has any of [{kv.Value.TriedCodes}]";
+                    Console.WriteLine($"  {kv.Value.Count,3}× race={kv.Key,-4} — {reason} (e.g. '{kv.Value.ExampleName}')");
+                }
+            }
         }
 
         // Called by ModelSelector.OnSelectionChanged — maps the raw instance to a SpawnPoint.
@@ -126,28 +162,62 @@ namespace VisualEQ.SpawnSystem
             }
         }
 
-        // Builds name → chr zip path map for a zone. Tries zone-specific chr first, then gfaydark fallback.
+        // Builds name → chr zip path map for a zone. Search order (higher priority wins on collision):
+        //   1. `{zone}_chr_oes.zip`             — zone-specific art
+        //   2. `global*_chr_oes.zip`            — canonical playable races + shared monsters
+        //   3. any other `*_chr_oes.zip`        — best-effort fallback (previously-decoded zones)
         internal static Dictionary<string, string> BuildAvailableModels(string zoneName)
         {
+            const string dir = "../ConverterApp";
             var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-            var candidatePaths = new[]
+            if (!Directory.Exists(dir))
             {
-                $"../ConverterApp/{zoneName}_chr_oes.zip",
-                "../ConverterApp/gfaydark_chr_oes.zip"
-            };
-
-            foreach (var path in candidatePaths)
-            {
-                if (!File.Exists(path)) continue;
-                foreach (var name in Loader.GetAvailableCharacterModels(path))
-                {
-                    if (!result.ContainsKey(name))
-                        result[name] = path;
-                }
+                Console.WriteLine($"[SpawnManager] Directory '{dir}' does not exist.");
+                return result;
             }
 
-            Console.WriteLine($"[SpawnManager] {result.Count} character models available for '{zoneName}'");
+            var allChrZips = Directory.EnumerateFiles(dir, "*_chr_oes.zip").ToList();
+
+            string ZonePath()
+            {
+                var target = $"{zoneName}_chr_oes.zip";
+                return allChrZips.FirstOrDefault(p =>
+                    string.Equals(Path.GetFileName(p), target, StringComparison.OrdinalIgnoreCase));
+            }
+
+            bool IsGlobal(string p) => Path.GetFileName(p)
+                .StartsWith("global", StringComparison.OrdinalIgnoreCase);
+
+            var ordered = new List<string>();
+            var zonePath = ZonePath();
+            if (zonePath != null) ordered.Add(zonePath);
+            ordered.AddRange(allChrZips.Where(IsGlobal).OrderBy(p => p, StringComparer.OrdinalIgnoreCase));
+            ordered.AddRange(allChrZips
+                .Where(p => p != zonePath && !IsGlobal(p))
+                .OrderBy(p => p, StringComparer.OrdinalIgnoreCase));
+
+            int zoneModels = 0, globalModels = 0, otherModels = 0;
+
+            foreach (var path in ordered)
+            {
+                var models = Loader.GetAvailableCharacterModels(path);
+                int added = 0;
+                foreach (var name in models)
+                {
+                    if (result.ContainsKey(name)) continue;
+                    result[name] = path;
+                    added++;
+                }
+
+                if (path == zonePath) zoneModels += added;
+                else if (IsGlobal(path)) globalModels += added;
+                else otherModels += added;
+            }
+
+            Console.WriteLine(
+                $"[SpawnManager] '{zoneName}' models: {result.Count} total " +
+                $"(zone={zoneModels}, global={globalModels}, other={otherModels})");
             return result;
         }
     }

@@ -59,6 +59,18 @@ namespace VisualEQ.Views
         private Task<DecodeResult> _decodeTask;
         private string _decodeLabel;
 
+        // Batch decoder state for "Decode common globals". _batchProgress is updated by the
+        // background task and read by the render thread — a simple lock keeps it consistent.
+        private Task _batchTask;
+        private readonly object _batchLock = new object();
+        private string _batchProgress = "";
+        private int _batchDone;
+        private int _batchTotal;
+        private int _batchSucceeded;
+
+        // Two-click confirmation state for the destructive "delete decoded globals" action.
+        private bool _deleteGlobalsPending;
+
         public MainMenuWidget(Controller controller)
         {
             _controller = controller;
@@ -72,6 +84,7 @@ namespace VisualEQ.Views
             if (_controller.CurrentZoneName != null && _loadingZone == null) return;
 
             ReapDecodeResult();
+            ReapBatchResult();
             EnsureZoneList();
 
             ImGui.SetNextWindowSize(new Vector2(520, 560), Condition.FirstUseEver);
@@ -179,8 +192,75 @@ namespace VisualEQ.Views
                 return;
             }
 
+            if (_batchTask != null)
+            {
+                string current;
+                int done, total, ok;
+                lock (_batchLock)
+                {
+                    current = _batchProgress;
+                    done = _batchDone;
+                    total = _batchTotal;
+                    ok = _batchSucceeded;
+                }
+                ImGui.Text($"Batch decoding globals: {done}/{total} ({ok} succeeded)");
+                if (current != "") ImGui.Text($"Current: {current}");
+                ImGui.Text("(This can take several minutes. Progress in the console window.)");
+                return;
+            }
+
             if (ImGui.Button($"Decode###{Id}dgo", new Vector2(180, 28)))
                 BeginDecode();
+
+            ImGui.SameLine();
+
+            if (ImGui.Button($"Decode common globals###{Id}dgb", new Vector2(220, 28)))
+                BeginBatchDecodeGlobals();
+
+            ImGui.Text("Batch: decodes global*_chr.s3d (playable races + monsters).");
+
+            RenderDeleteGlobalsControls();
+        }
+
+        void RenderDeleteGlobalsControls()
+        {
+            var globalZips = Directory.Exists(ConvertedZoneDir)
+                ? Directory.EnumerateFiles(ConvertedZoneDir, "global*_chr_oes.zip").ToList()
+                : new List<string>();
+
+            if (globalZips.Count == 0)
+            {
+                _deleteGlobalsPending = false;
+                return;
+            }
+
+            ImGui.Separator();
+
+            if (!_deleteGlobalsPending)
+            {
+                if (ImGui.Button($"Delete decoded globals ({globalZips.Count})###{Id}dgd", new Vector2(260, 26)))
+                    _deleteGlobalsPending = true;
+                ImGui.Text("Removes global*_chr_oes.zip so you can regenerate from a different EQ source.");
+                return;
+            }
+
+            ImGui.Text($"Delete {globalZips.Count} global chr zips?");
+            if (ImGui.Button($"Confirm delete###{Id}dgc", new Vector2(160, 28)))
+            {
+                int deleted = 0;
+                foreach (var path in globalZips)
+                {
+                    try { File.Delete(path); deleted++; }
+                    catch (Exception ex) { Console.WriteLine($"[DeleteGlobals] '{path}' failed: {ex.Message}"); }
+                }
+                _deleteGlobalsPending = false;
+                _lastScan = DateTime.MinValue;
+                _status = $"Deleted {deleted}/{globalZips.Count} global chr zips.";
+                _statusOk = deleted == globalZips.Count;
+            }
+            ImGui.SameLine();
+            if (ImGui.Button($"Cancel###{Id}dgx", new Vector2(120, 28)))
+                _deleteGlobalsPending = false;
         }
 
         void BeginDecode()
@@ -266,6 +346,86 @@ namespace VisualEQ.Views
             public ConvertedType ZoneStatus;
             public ConvertedType CharacterStatus;
             public string Error;
+        }
+
+        void BeginBatchDecodeGlobals()
+        {
+            var eqPath = Read(_eqPath).Trim();
+            if (string.IsNullOrEmpty(eqPath) || !Directory.Exists(eqPath))
+            {
+                _status   = "EverQuest install path is missing or does not exist.";
+                _statusOk = false;
+                return;
+            }
+
+            // Collect unique global chr roots by stripping trailing digits from `global*_chr*.s3d`.
+            var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var file in Directory.EnumerateFiles(eqPath, "global*_chr*.s3d"))
+            {
+                var name = Path.GetFileNameWithoutExtension(file);
+                while (name.Length > 0 && char.IsDigit(name[name.Length - 1]))
+                    name = name.Substring(0, name.Length - 1);
+                if (name.EndsWith("_chr", StringComparison.OrdinalIgnoreCase))
+                    roots.Add(name);
+            }
+
+            if (roots.Count == 0)
+            {
+                _status   = "No global*_chr*.s3d files found in the EQ install path.";
+                _statusOk = false;
+                return;
+            }
+
+            var ordered = roots.OrderBy(s => s, StringComparer.OrdinalIgnoreCase).ToList();
+
+            lock (_batchLock)
+            {
+                _batchTotal = ordered.Count;
+                _batchDone = 0;
+                _batchSucceeded = 0;
+                _batchProgress = "";
+            }
+            _status = "";
+            _batchTask = Task.Run(() => RunBatchDecode(eqPath, ordered));
+        }
+
+        void RunBatchDecode(string eqPath, List<string> roots)
+        {
+            var converter = new Converter(eqPath, ConvertedZoneDir);
+            foreach (var root in roots)
+            {
+                lock (_batchLock) _batchProgress = root;
+                try
+                {
+                    var status = converter.Convert(root);
+                    if (status != ConvertedType.None)
+                        lock (_batchLock) _batchSucceeded++;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[BatchDecode] '{root}' failed: {ex.Message}");
+                }
+                lock (_batchLock) _batchDone++;
+            }
+            lock (_batchLock) _batchProgress = "";
+        }
+
+        void ReapBatchResult()
+        {
+            if (_batchTask == null || !_batchTask.IsCompleted) return;
+
+            int done, total, ok;
+            lock (_batchLock)
+            {
+                done = _batchDone;
+                total = _batchTotal;
+                ok = _batchSucceeded;
+            }
+
+            _batchTask = null;
+            _status   = $"Global batch decode: {ok}/{total} succeeded.";
+            _statusOk = ok > 0;
+            _lastScan = DateTime.MinValue; // refresh zone list
         }
 
         void RenderSettingsSection()

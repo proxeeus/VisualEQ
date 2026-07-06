@@ -257,7 +257,16 @@ namespace VisualEQ.ConverterCore
                     f10.Meshes.ForEach((mr, i) =>
                     {
                         var curBuffer = new List<float>();
-                        var mesh = mr.Value.Reference.Value;
+                        // Some WLDs (notably classic Trilogy global_chr.s3d) have Fragment2D→Fragment36
+                        // references that don't resolve. Skip those meshes so one bad reference doesn't
+                        // sink the whole model; an empty buffer keeps `frameBuffers[i]` index-aligned
+                        // with the sibling loop below (which also null-checks).
+                        var mesh = mr.Value?.Reference.Value;
+                        if (mesh == null)
+                        {
+                            frameBuffers[i].Add(curBuffer);
+                            return;
+                        }
                         var offset = 0U;
                         foreach (var (count, index) in mesh.VertBones)
                         {
@@ -303,7 +312,8 @@ namespace VisualEQ.ConverterCore
             var asets = prefixes.Where(x => x != "").Select(x => (x, new OESAnimationSet(x, 0f))).ToDictionary(t => t.Item1, t => t.Item2);
             f10.Meshes.Length.Times(i =>
             {
-                var meshf = f10.Meshes[i].Value.Reference.Value;
+                var meshf = f10.Meshes[i].Value?.Reference.Value;
+                if (meshf == null) return; // Skip unresolved mesh — matches the null-guard in the animationBuffers loop above.
                 var omats = meshf.TextureListReference.Value.References.Select(matref =>
                 {
                     var tfn = matref.Value.Reference.Value.Reference.Value.References[0].Value.Filenames[0];
