@@ -52,7 +52,11 @@ namespace VisualEQ
                 DbFactory = new MySqlConnectionFactory(settings.Database);
             }
 
-            Engine.UpdateFrame += (s, e) => Views.ForEach(view => view.Update(Engine.Gui));
+            Engine.UpdateFrame += (s, e) =>
+            {
+                Views.ForEach(view => view.Update(Engine.Gui));
+                UpdateSpawnMarkers();
+            };
             modelSelector = new ModelSelector(Engine, CharacterModels);
             Engine.Controller = this;
 
@@ -235,5 +239,52 @@ namespace VisualEQ
         }
 
         public IReadOnlyList<AniModelInstance> GetCharacterModels() => CharacterModels;
+
+        // Builds the per-frame list of spawn marker lines (vertical spikes above spawns in
+        // non-normal states). Colors:
+        //   selected  → bright cyan, taller line
+        //   dirty     → orange
+        //   placeholder → yellow
+        // Normal (modelled, in-DB spawns) get no marker to keep the scene readable.
+        void UpdateSpawnMarkers()
+        {
+            var lines = new List<(Vector3 A, Vector3 B, Vector4 Color)>();
+            var selected = SpawnManager.Selected;
+
+            var showSelected    = Settings.ShowSelectedMarker;
+            var showDirty       = Settings.ShowDirtyMarkers;
+            var showPlaceholder = Settings.ShowPlaceholderMarkers;
+
+            foreach (var sp in SpawnManager.SpawnPoints)
+            {
+                bool isSelected = sp == selected;
+                bool isDirty = sp.IsDirty;
+                bool isPlaceholder = sp.IsPlaceholder;
+
+                Vector4 color;
+                float height;
+                if (isSelected && showSelected)
+                {
+                    color = new Vector4(0.3f, 1f, 1f, 1f);   // cyan
+                    height = 60f;
+                }
+                else if (isDirty && showDirty)
+                {
+                    color = new Vector4(1f, 0.55f, 0.15f, 0.9f); // orange
+                    height = 40f;
+                }
+                else if (isPlaceholder && showPlaceholder)
+                {
+                    color = new Vector4(1f, 0.9f, 0.2f, 0.75f);  // yellow
+                    height = 40f;
+                }
+                else continue;
+
+                var basePos = sp.Model.Position;
+                lines.Add((basePos, basePos + new Vector3(0, 0, height), color));
+            }
+
+            Engine.SetSpawnMarkerLines(lines);
+        }
     }
 }

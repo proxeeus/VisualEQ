@@ -7,6 +7,7 @@ using NsimGui;
 using NsimGui.Widgets;
 using VisualEQ.Engine;
 using VisualEQ.Settings;
+using VisualEQ.SpawnSystem;
 using static VisualEQ.Engine.Globals;
 
 namespace VisualEQ.Views
@@ -23,6 +24,7 @@ namespace VisualEQ.Views
 
         // State migrated from ModelEditorView — updated by ModelSelector event handlers.
         internal AniModelInstance SelectedModel;
+        internal SpawnPoint SelectedSpawn;
         internal string PosX = "0", PosY = "0", PosZ = "0";
 
         // State migrated from TeleportView — status message with a 3-second decay.
@@ -35,6 +37,7 @@ namespace VisualEQ.Views
         {
             controller.ModelSelector.OnSelectionChanged += OnModelSelectionChanged;
             controller.ModelSelector.OnPositionChanged += OnModelPositionChanged;
+            controller.SpawnManager.SpawnSelected += sp => SelectedSpawn = sp;
             controller.ZoneChanged += OnZoneChanged;
         }
 
@@ -119,10 +122,11 @@ namespace VisualEQ.Views
         // Section IDs — stable strings used in the saved order list. Adding a new section?
         // Append its ID to DefaultOrder and add a switch case in RenderSectionById.
         public const string SectionStatus      = "status";
+        public const string SectionSpawnInfo   = "spawn_info";
         public const string SectionTeleport    = "teleport";
         public const string SectionModelEditor = "model_editor";
 
-        static readonly string[] DefaultOrder = { SectionStatus, SectionTeleport, SectionModelEditor };
+        static readonly string[] DefaultOrder = { SectionStatus, SectionSpawnInfo, SectionModelEditor, SectionTeleport };
 
         private readonly SidebarView _view;
 
@@ -198,6 +202,7 @@ namespace VisualEQ.Views
             switch (id)
             {
                 case SectionStatus:      RenderStatusSection(index); break;
+                case SectionSpawnInfo:   RenderSpawnInfoSection(index); break;
                 case SectionTeleport:    RenderTeleportSection(index); break;
                 case SectionModelEditor: RenderModelEditorSection(index); break;
             }
@@ -278,6 +283,75 @@ namespace VisualEQ.Views
             ImGui.Text($"Current position:\n{Camera.Position}");
             if (_view.StatusMessage != "")
                 ImGui.Text(_view.StatusMessage);
+        }
+
+        void RenderSpawnInfoSection(int index)
+        {
+            RenderReorderHandles(index, "si");
+            if (!ImGui.CollapsingHeader($"Spawn Info###{Id}si", TreeNodeFlags.DefaultOpen))
+                return;
+
+            var sp = _view.SelectedSpawn;
+            if (sp == null)
+            {
+                ImGui.Text("Click a spawn to view its DB details.");
+                return;
+            }
+
+            var record = sp.Record;
+            var primary = record.Entries
+                .OrderByDescending(e => e.Entry.Chance)
+                .FirstOrDefault();
+            var npc = primary?.Npc;
+
+            if (npc != null)
+            {
+                ImGui.Text($"{npc.Name ?? "?"}");
+                if (!string.IsNullOrEmpty(npc.LastName))
+                    ImGui.Text($"  \"{npc.LastName}\"");
+                ImGui.Separator();
+
+                ImGui.Text($"Level: {npc.Level}");
+                ImGui.Text($"Race: {SpawnInfoLookups.RaceName(npc.Race)} ({npc.Race})");
+                ImGui.Text($"Class: {SpawnInfoLookups.ClassName(npc.Class)} ({npc.Class})");
+                ImGui.Text($"Body: {SpawnInfoLookups.BodyTypeName(npc.BodyType)} ({npc.BodyType})");
+                ImGui.Text($"Gender: {SpawnInfoLookups.GenderName(npc.Gender)}");
+                ImGui.Text($"Size: {npc.Size:F2}");
+                ImGui.Text($"Textures: body={npc.Texture}, helm={npc.HelmTexture}, face={npc.Face}");
+                ImGui.Text($"NPC id: {npc.Id}");
+                ImGui.Separator();
+            }
+            else
+            {
+                ImGui.Text("(no primary NPC in spawngroup)");
+                ImGui.Separator();
+            }
+
+            // Spawn2 row info
+            ImGui.Text($"Spawn id: {record.Spawn.Id}");
+            ImGui.Text($"Group: {record.Spawn.SpawnGroupName} (id {record.Spawn.SpawnGroupId})");
+            ImGui.Text($"Respawn: {record.Spawn.RespawnTime}s ± {record.Spawn.Variance}s");
+            ImGui.Text($"Pos: X={record.Spawn.X:F1} Y={record.Spawn.Y:F1} Z={record.Spawn.Z:F1}");
+            ImGui.Text($"Heading: {record.Spawn.Heading:F0}");
+            if (record.Spawn.PathGrid > 0)
+                ImGui.Text($"Path grid: {record.Spawn.PathGrid} ({record.Waypoints.Count} waypoints)");
+
+            if (sp.IsPlaceholder)
+                ImGui.Text("(placeholder model)");
+            if (sp.IsDirty)
+                ImGui.Text("(unsaved position changes)");
+
+            // Other entries in the spawngroup, if any.
+            if (record.Entries.Count > 1)
+            {
+                ImGui.Separator();
+                ImGui.Text($"Spawngroup entries ({record.Entries.Count}):");
+                foreach (var e in record.Entries.OrderByDescending(x => x.Entry.Chance))
+                {
+                    var eNpc = e.Npc;
+                    ImGui.Text($"  {e.Entry.Chance,3}%: {eNpc?.Name ?? "?"} (race {eNpc?.Race}, lvl {eNpc?.Level})");
+                }
+            }
         }
 
         void RenderModelEditorSection(int index)

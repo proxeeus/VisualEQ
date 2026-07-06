@@ -25,5 +25,10 @@ namespace VisualEQ.Settings
         // (see SidebarWidget.Section* constants) — empty list means "use default order".
         public float SidebarWidth { get; set; } = 380f;
         public List<string> SidebarSectionOrder { get; set; } = new List<string>();
+
+        // Spawn state markers — vertical colored lines above spawns (see SpawnMarkers).
+        public bool ShowPlaceholderMarkers { get; set; } = true;
+        public bool ShowDirtyMarkers { get; set; } = true;
+        public bool ShowSelectedMarker { get; set; } = true;
     }
 }

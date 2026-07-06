@@ -10,6 +10,17 @@ namespace VisualEQ.SpawnSystem
 {
     public class SpawnManager
     {
+        // EQEmu heading: full circle = 512. Values outside 0..512 wrap naturally through the
+        // trig conversion. Direction convention (CCW/CW, meshes' default facing) is a best-
+        // guess for the user's schema — expect to negate or add π/2 if things face wrong.
+        const float HeadingFullCircle = 512f;
+
+        public static Quaternion HeadingToRotation(float heading)
+        {
+            var angle = heading * ((float)Math.PI * 2f / HeadingFullCircle);
+            return Quaternion.CreateFromAxisAngle(new Vector3(0, 0, 1), angle);
+        }
+
         // Candidate idle-stance animation names, tried in order per-model. Classic EQ:
         //   P01/P02/P03 — pose/passive (primary idle)
         //   L01/L02/L03 — locomotion (walk/run) — falls through here so shared models like
@@ -114,6 +125,7 @@ namespace VisualEQ.SpawnSystem
                 var instance = new AniModelInstance(aniModel)
                 {
                     Animation = idle,
+                    Rotation  = HeadingToRotation(record.Spawn.Heading),
                     Position  = pos
                 };
 

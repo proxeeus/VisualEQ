@@ -445,6 +445,23 @@ namespace VisualEQ.Views
             }
 
             ImGui.Separator();
+            ImGui.Text("Spawn state markers (vertical lines above spawns):");
+
+            var s = _controller.Settings;
+            bool sel = s.ShowSelectedMarker;
+            bool dirty = s.ShowDirtyMarkers;
+            bool ph = s.ShowPlaceholderMarkers;
+
+            bool changed = false;
+            if (ImGui.Checkbox($"Selected spawn (cyan)###{Id}sSel", ref sel))
+            { s.ShowSelectedMarker = sel; changed = true; }
+            if (ImGui.Checkbox($"Dirty spawns (orange)###{Id}sDirty", ref dirty))
+            { s.ShowDirtyMarkers = dirty; changed = true; }
+            if (ImGui.Checkbox($"Placeholder spawns (yellow)###{Id}sPh", ref ph))
+            { s.ShowPlaceholderMarkers = ph; changed = true; }
+            if (changed) SettingsManager.Save(s);
+
+            ImGui.Separator();
             _dbForm.RenderInline();
         }
 

@@ -59,6 +59,15 @@ namespace VisualEQ.Engine
         // Reference to the controller that owns this engine
         public IController Controller { get; set; }
 
+        // Spawn state indicators drawn after the forward pass. Lazily instantiated on the
+        // first render frame (GL context guaranteed). Controller pushes lines via
+        // SetSpawnMarkerLines; last-set data is reused if a frame doesn't provide new lines.
+        SpawnMarkers _spawnMarkers;
+        System.Collections.Generic.IReadOnlyList<(System.Numerics.Vector3 A, System.Numerics.Vector3 B, System.Numerics.Vector4 Color)> _pendingMarkerLines;
+
+        public void SetSpawnMarkerLines(System.Collections.Generic.IReadOnlyList<(System.Numerics.Vector3, System.Numerics.Vector3, System.Numerics.Vector4)> lines) =>
+            _pendingMarkerLines = lines;
+
         // Whether we're currently dragging a model
         private bool ModelDragging = false;
 
@@ -414,6 +423,16 @@ namespace VisualEQ.Engine
                     Console.WriteLine($"[DIAG] GL error after forward-pass draw={GL.GetError()}");
                 GL.Finish();
             });
+
+            // Spawn state indicators (colored vertical lines above placeholder / dirty /
+            // selected spawns). Lazily created on first render frame — GL context safe here.
+            if (_spawnMarkers == null) _spawnMarkers = new SpawnMarkers();
+            if (_pendingMarkerLines != null)
+            {
+                _spawnMarkers.SetLines(_pendingMarkerLines);
+                _pendingMarkerLines = null;
+            }
+            _spawnMarkers.Draw(ProjectionView);
 
             Debugging.Draw(ProjectionView);
 

@@ -66,5 +66,23 @@ namespace VisualEQ.Engine
             Debug.Assert(!Destroyed);
             GL.BindBuffer(Target, Object);
         }
+
+        // Overwrite the initial portion of the buffer with new data. Cheaper than reallocating
+        // when a caller streams into a persistent VBO (e.g. SpawnMarkers, ~200 lines/frame).
+        // Only supports the types actually used for streaming — extend as needed.
+        public unsafe void Update(T[] data)
+        {
+            Debug.Assert(!Destroyed);
+            Bind();
+            switch (data)
+            {
+                case float[] vdata:
+                    fixed (float* p = vdata)
+                        GL.BufferSubData(Target, IntPtr.Zero, vdata.Length * 4, (IntPtr)p);
+                    break;
+                default:
+                    throw new NotImplementedException($"Buffer.Update not implemented for {typeof(T)}");
+            }
+        }
     }
 }

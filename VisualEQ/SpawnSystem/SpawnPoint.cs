@@ -28,6 +28,7 @@ namespace VisualEQ.SpawnSystem
 
         public void MarkMoved(Vector3 newPos, float heading)
         {
+            Model.Rotation = SpawnManager.HeadingToRotation(heading);
             Model.Position = newPos;
             CurrentHeading = heading;
             IsDirty = true;
@@ -35,6 +36,7 @@ namespace VisualEQ.SpawnSystem
 
         public void Revert()
         {
+            Model.Rotation = SpawnManager.HeadingToRotation(OriginalHeading);
             Model.Position = OriginalPosition;
             CurrentHeading = OriginalHeading;
             IsDirty = false;
