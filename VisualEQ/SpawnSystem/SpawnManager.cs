@@ -37,110 +37,125 @@ namespace VisualEQ.SpawnSystem
         public event Action<SpawnPoint> SpawnSelected;
         public event Action<SpawnPoint> SpawnMoved;
 
-        // Clears any existing spawn points and builds new ones from the fetched records.
-        // availableModels: name → chr zip path (built by BuildAvailableModels).
-        // modelCache: shared across calls so the same AniModel is not loaded twice.
-        // fallback: used when no model can be resolved; if null, the spawn is skipped.
-        public void LoadFromRecords(
+        // Running counters + telemetry for a step-based load (see PrepareForLoad / LoadBatch /
+        // FinishLoad). LoadFromRecords is now a thin wrapper that calls all three.
+        private int _loadModelled, _loadPlaceholders, _loadSkipped;
+        private Dictionary<int, (int Count, string ExampleName, bool Unmapped, string TriedCodes)> _loadPlaceholderByRace;
+
+        // Clears prior state so a fresh incremental load can begin. Call once before batches.
+        public void PrepareForLoad()
+        {
+            SpawnPoints.Clear();
+            Selected = null;
+            _loadModelled = _loadPlaceholders = _loadSkipped = 0;
+            _loadPlaceholderByRace = new Dictionary<int, (int, string, bool, string)>();
+        }
+
+        // Processes a slice of records. Call between PrepareForLoad and FinishLoad. Safe to
+        // call repeatedly — counters accumulate across batches so FinishLoad's log reflects
+        // the total.
+        public void LoadBatch(
             IEnumerable<SpawnRecord> records,
             EngineCore engine,
             Dictionary<string, AniModel> modelCache,
             Dictionary<string, string> availableModels,
             AniModel fallback)
         {
-            SpawnPoints.Clear();
-            Selected = null;
-
-            int modelled = 0, placeholders = 0, skipped = 0;
-            // Per-race placeholder telemetry: race → (count, first example NPC, unmapped, tried codes).
-            var placeholderByRace = new Dictionary<int, (int Count, string ExampleName, bool Unmapped, string TriedCodes)>();
-
             foreach (var record in records)
-            {
-                var primaryEntry = record.Entries
-                    .OrderByDescending(e => e.Entry.Chance)
-                    .FirstOrDefault();
-                var npc = primaryEntry?.Npc;
+                LoadOne(record, engine, modelCache, availableModels, fallback);
+        }
 
-                AniModel aniModel = null;
-                bool isPlaceholder = false;
-                string chosenCode = null;
-                List<string> triedCodes = null;
+        void LoadOne(
+            SpawnRecord record,
+            EngineCore engine,
+            Dictionary<string, AniModel> modelCache,
+            Dictionary<string, string> availableModels,
+            AniModel fallback)
+        {
+            var primaryEntry = record.Entries
+                .OrderByDescending(e => e.Entry.Chance)
+                .FirstOrDefault();
+            var npc = primaryEntry?.Npc;
+
+            AniModel aniModel = null;
+            bool isPlaceholder = false;
+            string chosenCode = null;
+            List<string> triedCodes = null;
+
+            if (npc != null)
+            {
+                triedCodes = RaceModelMapper.ResolveCandidates(npc.Race, npc.Gender).ToList();
+                foreach (var candidate in triedCodes)
+                {
+                    if (availableModels.ContainsKey(candidate))
+                    {
+                        chosenCode = candidate;
+                        break;
+                    }
+                }
+
+                if (chosenCode != null)
+                {
+                    if (!modelCache.TryGetValue(chosenCode, out aniModel))
+                    {
+                        try
+                        {
+                            aniModel = Loader.LoadCharacter(availableModels[chosenCode], chosenCode, SpawnAnimations, singleFrame: true);
+                            modelCache[chosenCode] = aniModel;
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[SpawnManager] Failed to load '{chosenCode}': {ex.Message}");
+                        }
+                    }
+                }
+            }
+
+            if (aniModel == null)
+            {
+                aniModel = fallback;
+                isPlaceholder = true;
 
                 if (npc != null)
                 {
-                    triedCodes = RaceModelMapper.ResolveCandidates(npc.Race, npc.Gender).ToList();
-                    foreach (var candidate in triedCodes)
-                    {
-                        if (availableModels.ContainsKey(candidate))
-                        {
-                            chosenCode = candidate;
-                            break;
-                        }
-                    }
-
-                    if (chosenCode != null)
-                    {
-                        if (!modelCache.TryGetValue(chosenCode, out aniModel))
-                        {
-                            try
-                            {
-                                aniModel = Loader.LoadCharacter(availableModels[chosenCode], chosenCode, SpawnAnimations, singleFrame: true);
-                                modelCache[chosenCode] = aniModel;
-                            }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine($"[SpawnManager] Failed to load '{chosenCode}': {ex.Message}");
-                            }
-                        }
-                    }
+                    var key = npc.Race;
+                    if (!_loadPlaceholderByRace.TryGetValue(key, out var stat))
+                        stat = (0, npc.Name ?? "?", triedCodes == null || triedCodes.Count == 0, string.Join(",", triedCodes ?? new List<string>()));
+                    _loadPlaceholderByRace[key] = (stat.Count + 1, stat.ExampleName, stat.Unmapped, stat.TriedCodes);
                 }
-
-                if (aniModel == null)
-                {
-                    aniModel = fallback;
-                    isPlaceholder = true;
-
-                    if (npc != null)
-                    {
-                        var key = npc.Race;
-                        if (!placeholderByRace.TryGetValue(key, out var stat))
-                            stat = (0, npc.Name ?? "?", triedCodes == null || triedCodes.Count == 0, string.Join(",", triedCodes ?? new List<string>()));
-                        placeholderByRace[key] = (stat.Count + 1, stat.ExampleName, stat.Unmapped, stat.TriedCodes);
-                    }
-                }
-
-                if (aniModel == null)
-                {
-                    skipped++;
-                    continue;
-                }
-
-                // EQ DB stores (x=east, y=north, z=up); engine expects (x=east, y=forward, z=up)
-                // but the axes are transposed relative to the scene — swap X and Y.
-                var pos = new Vector3(record.Spawn.Y, record.Spawn.X, record.Spawn.Z);
-                // Pick the first candidate this specific model actually has; empty string is
-                // the bind-pose fallback and always resolves in AnimatedMesh.Draw.
-                var idle = SpawnAnimationCandidates.FirstOrDefault(a => aniModel.AvailableAnimations.Contains(a)) ?? "";
-                var instance = new AniModelInstance(aniModel)
-                {
-                    Animation = idle,
-                    Rotation  = HeadingToRotation(record.Spawn.Heading),
-                    Position  = pos
-                };
-
-                engine.Add(instance);
-
-                SpawnPoints.Add(new SpawnPoint(record, instance, isPlaceholder));
-                if (isPlaceholder) placeholders++; else modelled++;
             }
 
-            Console.WriteLine($"[SpawnManager] {modelled} modelled, {placeholders} placeholders, {skipped} skipped");
+            if (aniModel == null)
+            {
+                _loadSkipped++;
+                return;
+            }
 
-            if (placeholderByRace.Count > 0)
+            // EQ DB stores (x=east, y=north, z=up); engine expects (x=east, y=forward, z=up)
+            // but the axes are transposed relative to the scene — swap X and Y.
+            var pos = new Vector3(record.Spawn.Y, record.Spawn.X, record.Spawn.Z);
+            var idle = SpawnAnimationCandidates.FirstOrDefault(a => aniModel.AvailableAnimations.Contains(a)) ?? "";
+            var instance = new AniModelInstance(aniModel)
+            {
+                Animation = idle,
+                Rotation  = HeadingToRotation(record.Spawn.Heading),
+                Position  = pos
+            };
+
+            engine.Add(instance);
+            SpawnPoints.Add(new SpawnPoint(record, instance, isPlaceholder));
+            if (isPlaceholder) _loadPlaceholders++; else _loadModelled++;
+        }
+
+        // Emits the summary + placeholder breakdown log. Call once after all batches.
+        public void FinishLoad()
+        {
+            Console.WriteLine($"[SpawnManager] {_loadModelled} modelled, {_loadPlaceholders} placeholders, {_loadSkipped} skipped");
+
+            if (_loadPlaceholderByRace != null && _loadPlaceholderByRace.Count > 0)
             {
                 Console.WriteLine("[SpawnManager] Placeholder breakdown by race (count | race | reason | example):");
-                foreach (var kv in placeholderByRace.OrderByDescending(kv => kv.Value.Count))
+                foreach (var kv in _loadPlaceholderByRace.OrderByDescending(kv => kv.Value.Count))
                 {
                     var reason = kv.Value.Unmapped
                         ? "unmapped race"
@@ -148,6 +163,19 @@ namespace VisualEQ.SpawnSystem
                     Console.WriteLine($"  {kv.Value.Count,3}× race={kv.Key,-4} — {reason} (e.g. '{kv.Value.ExampleName}')");
                 }
             }
+        }
+
+        // Backwards-compatible: one-shot load of every record + telemetry log.
+        public void LoadFromRecords(
+            IEnumerable<SpawnRecord> records,
+            EngineCore engine,
+            Dictionary<string, AniModel> modelCache,
+            Dictionary<string, string> availableModels,
+            AniModel fallback)
+        {
+            PrepareForLoad();
+            LoadBatch(records, engine, modelCache, availableModels, fallback);
+            FinishLoad();
         }
 
         // Called by ModelSelector.OnSelectionChanged — maps the raw instance to a SpawnPoint.

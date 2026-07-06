@@ -123,10 +123,11 @@ namespace VisualEQ.Views
         // Append its ID to DefaultOrder and add a switch case in RenderSectionById.
         public const string SectionStatus      = "status";
         public const string SectionSpawnInfo   = "spawn_info";
+        public const string SectionSpawnList   = "spawn_list";
         public const string SectionTeleport    = "teleport";
         public const string SectionModelEditor = "model_editor";
 
-        static readonly string[] DefaultOrder = { SectionStatus, SectionSpawnInfo, SectionModelEditor, SectionTeleport };
+        static readonly string[] DefaultOrder = { SectionStatus, SectionSpawnInfo, SectionSpawnList, SectionModelEditor, SectionTeleport };
 
         private readonly SidebarView _view;
 
@@ -144,6 +145,9 @@ namespace VisualEQ.Views
 
         private float _width;
         private readonly List<string> _order;
+
+        // Spawn list filter — persists across frames (widget lives for the whole session).
+        private readonly byte[] _spawnListFilter = new byte[128];
 
         // Debounced settings save — flush when width has been stable for a moment.
         private bool _widthDirty;
@@ -203,6 +207,7 @@ namespace VisualEQ.Views
             {
                 case SectionStatus:      RenderStatusSection(index); break;
                 case SectionSpawnInfo:   RenderSpawnInfoSection(index); break;
+                case SectionSpawnList:   RenderSpawnListSection(index); break;
                 case SectionTeleport:    RenderTeleportSection(index); break;
                 case SectionModelEditor: RenderModelEditorSection(index); break;
             }
@@ -353,6 +358,81 @@ namespace VisualEQ.Views
                 }
             }
         }
+
+        void RenderSpawnListSection(int index)
+        {
+            RenderReorderHandles(index, "sl");
+            if (!ImGui.CollapsingHeader($"Spawn List###{Id}sl", 0))
+                return;
+
+            ImGui.Text("Filter (name substring):");
+            ImGui.InputText($"###{Id}slF", _spawnListFilter, (uint)_spawnListFilter.Length, InputTextFlags.Default, null);
+            var filter = ReadBuffer(_spawnListFilter).Trim();
+
+            var ctrl = _view.Controller;
+            var spawns = ctrl.SpawnManager.SpawnPoints;
+
+            var matches = spawns
+                .Select(sp => new { Point = sp, Name = PrimaryName(sp) })
+                .Where(x => filter.Length == 0 || x.Name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0)
+                .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            ImGui.Text($"{matches.Count} of {spawns.Count} spawns");
+
+            ImGui.BeginChild($"###{Id}slList", new Vector2(0, 300), true, WindowFlags.Default);
+            var selected = ctrl.SpawnManager.Selected;
+            foreach (var m in matches)
+            {
+                var sp = m.Point;
+                var primary = sp.Record.Entries.OrderByDescending(e => e.Entry.Chance).FirstOrDefault();
+                var lvl = primary?.Npc?.Level ?? 0;
+                var label = $"{m.Name} [L{lvl}]###{Id}sl{sp.Record.Spawn.Id}";
+                if (ImGui.Selectable(label, sp == selected))
+                    FlyToAndSelect(sp);
+            }
+            ImGui.EndChild();
+        }
+
+        void FlyToAndSelect(SpawnPoint sp)
+        {
+            _view.Controller.SpawnManager.Select(sp.Model);
+
+            // Face-to-face vantage. Pull the camera in if the octree finds a wall between
+            // the spawn and the preferred distance so we don't end up looking at a building.
+            const float PreferredDistance = 20f;
+            const float MinDistance = 5f;
+            const float HeadHeight = 6f;
+            const float CastHeight = 3f;
+            const float WallPadding = 2f;
+
+            var basePos = sp.Model.Position;
+            var forward = Vector3.Normalize(Vector3.Transform(new Vector3(0, 1, 0), sp.Model.Rotation));
+
+            var distance = PreferredDistance;
+            if (Collider != null)
+            {
+                var castOrigin = basePos + new Vector3(0, 0, CastHeight);
+                var hit = Collider.FindIntersection(castOrigin, forward);
+                if (hit.HasValue)
+                {
+                    var hitDist = (hit.Value.Item2 - castOrigin).Length();
+                    if (hitDist < PreferredDistance)
+                        distance = Math.Max(hitDist - WallPadding, MinDistance);
+                }
+            }
+
+            Camera.Position = basePos + forward * distance;
+            Camera.LookAt(basePos + new Vector3(0, 0, HeadHeight));
+        }
+
+        static string PrimaryName(SpawnPoint sp) =>
+            sp.Record.Entries
+                .OrderByDescending(e => e.Entry.Chance)
+                .FirstOrDefault()?.Npc?.Name ?? "?";
+
+        static string ReadBuffer(byte[] buf) =>
+            System.Text.Encoding.UTF8.GetString(buf).TrimEnd('\0');
 
         void RenderModelEditorSection(int index)
         {

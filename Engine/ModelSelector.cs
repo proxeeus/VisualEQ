@@ -18,6 +18,13 @@ namespace VisualEQ.Engine
         private float dragPlaneDistance = 0f;
         private float dragDepthOffset = 0f;
 
+        // Click-vs-drag threshold. Between MouseDown and this many pixels of movement,
+        // the click is treated as "select only". Past the threshold, the drag actually
+        // begins (with the anchor recomputed at the current mouse pos so there's no jump).
+        private bool _dragPending = false;
+        private int _dragStartMouseX, _dragStartMouseY;
+        private const int DragThresholdPixels = 8;
+
         // Surface constraint data
         private Vector3 lastValidPosition = Vector3.Zero;
         private float currentSurfaceHeight = float.MinValue;
@@ -99,33 +106,35 @@ namespace VisualEQ.Engine
             return false;
         }
 
-        // Start dragging the selected model
+        // Record intent to drag. The actual drag setup is deferred to the first UpdateDrag
+        // call that reports mouse movement past DragThresholdPixels, so a click without
+        // meaningful movement is a pure "select" gesture.
         public bool StartDrag(int mouseX, int mouseY)
         {
             if (selectedModel == null) return false;
 
-            // Store initial position as last valid position
-            lastValidPosition = selectedModel.Position;
+            _dragPending = true;
+            _dragStartMouseX = mouseX;
+            _dragStartMouseY = mouseY;
+            return true;
+        }
 
-            // Detect the current surface height under the model
+        // Sets up drag anchor at the current mouse position. Called by UpdateDrag once the
+        // threshold is crossed. Setting the anchor at the *current* pos (not the click pos)
+        // avoids the model snapping to the mouse when drag activates.
+        private bool BeginActualDrag(int mouseX, int mouseY)
+        {
+            lastValidPosition = selectedModel.Position;
             FindSurfaceHeight(selectedModel.Position);
 
-            // Set up a drag plane perpendicular to camera view direction
             Vector3 eye = Camera.Position + new Vector3(0, 0, FpsCamera.CameraHeight);
             Vector3 modelPos = selectedModel.Position;
-
-            // Use a plane perpendicular to the camera direction at the model's position
             Vector3 cameraForward = Vector3.Normalize(Vector3.Transform(FpsCamera.Forward, Camera.LookRotation));
             dragPlaneNormal = cameraForward;
             dragPlaneDistance = Vector3.Dot(dragPlaneNormal, modelPos);
-
-            // Reset depth offset
             dragDepthOffset = 0f;
 
-            // Calculate initial position on drag plane
             Vector3 rayDirection = ScreenToWorldRay(mouseX, mouseY);
-
-            // Find intersection with drag plane
             float t = IntersectRayPlane(eye, rayDirection, dragPlaneNormal, dragPlaneDistance);
             if (t <= 0) return false;
 
@@ -139,7 +148,21 @@ namespace VisualEQ.Engine
         // Update dragging based on current mouse position
         public bool UpdateDrag(int mouseX, int mouseY)
         {
-            if (!isDragging || selectedModel == null) return false;
+            if (selectedModel == null) return false;
+
+            // Below threshold? Still a click, not a drag — do nothing.
+            if (_dragPending)
+            {
+                int dx = mouseX - _dragStartMouseX;
+                int dy = mouseY - _dragStartMouseY;
+                if (dx * dx + dy * dy < DragThresholdPixels * DragThresholdPixels)
+                    return false;
+
+                _dragPending = false;
+                if (!BeginActualDrag(mouseX, mouseY)) return false;
+            }
+
+            if (!isDragging) return false;
 
             // Calculate current position on drag plane
             Vector3 eye = Camera.Position + new Vector3(0, 0, FpsCamera.CameraHeight);
@@ -182,13 +205,15 @@ namespace VisualEQ.Engine
         // Stop dragging
         public void StopDrag()
         {
+            // Only stick to surface if we actually dragged past the threshold — a bare click
+            // shouldn't move the model at all.
             if (isDragging && selectedModel != null)
             {
-                // Make sure the model is properly aligned with the surface when drag ends
                 StickModelToSurface();
             }
 
             isDragging = false;
+            _dragPending = false;
             dragDepthOffset = 0f;
             currentSurfaceHeight = float.MinValue;
         }

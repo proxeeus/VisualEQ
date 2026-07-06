@@ -77,6 +77,26 @@ namespace VisualEQ.Engine
                 LookRotation *= Matrix4x4.CreateFromAxisAngle(Up, Yaw);
         }
 
+        // Orient the camera to point at a world-space target. Used by the sidebar's
+        // "click a spawn in the list → fly to it" flow. Pitch is clamped to the same
+        // near-±π/2 range as Look() so gimbal-lock cases behave.
+        public void LookAt(Vector3 target)
+        {
+            // Same eye-height offset as Update() applies before the LookAt matrix.
+            var eye = Position + new Vector3(0, 0, CameraHeight);
+            var dir = target - eye;
+            if (dir.LengthSquared() < 0.0001f) return;
+            dir = Vector3.Normalize(dir);
+
+            var eps = 0.01f;
+            Pitch = clamp(Asin(clamp(dir.Z, -1f, 1f)), -PI / 2 + eps, PI / 2 - eps);
+            Yaw   = Atan2(-dir.X, dir.Y);
+
+            LookRotation = Matrix4x4.CreateFromAxisAngle(Right, Pitch);
+            if (Yaw != 0)
+                LookRotation *= Matrix4x4.CreateFromAxisAngle(Up, Yaw);
+        }
+
         public void Update(float timestep)
         {
             if (PhysicsEnabled)

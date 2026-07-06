@@ -48,12 +48,31 @@ namespace VisualEQ.Views
         private string _status = "";
         private bool   _statusOk;
 
-        // Zone-load handshake. Mesh/AnimatedMesh constructors upload to GL immediately,
-        // so the load must happen on the GL thread (inside Render). To also let the
-        // "Loading…" message paint before we block the frame, we defer the actual load
-        // by one frame: frame A paints the message, frame B runs the load.
+        // Zone-load state machine. Mesh/AnimatedMesh constructors upload to GL immediately,
+        // so the load must happen on the GL thread. To animate a progress bar between the
+        // stages, we run one phase per frame — each frame paints the current progress, then
+        // executes that phase's blocking work before returning.
+        //
+        // LoadGeometry and LoadDefault still block their whole frame (single monolithic
+        // calls), but SpawnLoadChunk is repeated across many frames with a small chunk of
+        // records per frame → the bar sweeps smoothly from ~68% to 98% for that phase.
+        private enum LoadPhase
+        {
+            None,
+            PaintMessage,
+            ClearScene,
+            LoadGeometry,
+            LoadDefault,
+            FetchSpawns,
+            SpawnLoadChunk,
+            FinishSpawns,
+            Done
+        }
+        private const int SpawnLoadChunkSize = 10;
+        private LoadPhase _loadPhase = LoadPhase.None;
         private string _loadingZone;
-        private bool   _loadingMessagePainted;
+        private float _loadProgress;
+        private string _loadLabel = "";
 
         // Decoder state. Converter is pure file I/O + CPU — safe to run on ThreadPool.
         private Task<DecodeResult> _decodeTask;
@@ -81,11 +100,19 @@ namespace VisualEQ.Views
         public override void Render(Gui gui)
         {
             // Menu is hidden once a zone is loaded (unless a load is in flight).
-            if (_controller.CurrentZoneName != null && _loadingZone == null) return;
+            if (_controller.CurrentZoneName != null && _loadPhase == LoadPhase.None) return;
 
             ReapDecodeResult();
             ReapBatchResult();
             EnsureZoneList();
+
+            // During load: only render the centered loading dialog. The main menu is hidden.
+            if (_loadPhase != LoadPhase.None)
+            {
+                RenderLoadingDialog(gui);
+                AdvanceLoadPhase();
+                return;
+            }
 
             ImGui.SetNextWindowSize(new Vector2(520, 560), Condition.FirstUseEver);
             ImGui.SetNextWindowPos(new Vector2(60, 60), Condition.FirstUseEver, Vector2.Zero);
@@ -95,39 +122,6 @@ namespace VisualEQ.Views
             ImGui.Text("VisualEQ — spawn editor for EQEmu");
             ImGui.Text("Tip: press F10 while a zone is loaded to return here.");
             ImGui.Separator();
-
-            // Zone-load handshake — see field comments.
-            if (_loadingZone != null)
-            {
-                ImGui.Text($"Loading zone '{_loadingZone}'…");
-                ImGui.EndWindow();
-
-                if (!_loadingMessagePainted)
-                {
-                    // First frame after click: let ImGui finish this frame so the user
-                    // sees the message before we block the GL thread on the load.
-                    _loadingMessagePainted = true;
-                    return;
-                }
-
-                // Second frame: run the load synchronously on the GL thread.
-                var zoneName = _loadingZone;
-                _loadingZone = null;
-                _loadingMessagePainted = false;
-
-                try
-                {
-                    _controller.LoadZoneFromMenu(zoneName);
-                    // Menu hides itself now that CurrentZoneName is set.
-                }
-                catch (Exception ex)
-                {
-                    _status   = $"Load failed: {ex.Message}";
-                    _statusOk = false;
-                    Console.WriteLine($"[MainMenu] Load '{zoneName}' failed: {ex}");
-                }
-                return;
-            }
 
             RenderZonesSection();
             RenderDecodeSection();
@@ -162,11 +156,7 @@ namespace VisualEQ.Views
             {
                 var label = $"{entry.Name}   ({entry.LastModified:yyyy-MM-dd HH:mm})";
                 if (ImGui.Selectable(label))
-                {
-                    _status = "";
-                    _loadingZone = entry.Name;
-                    _loadingMessagePainted = false;
-                }
+                    BeginLoad(entry.Name);
             }
             ImGui.EndChild();
 
@@ -451,6 +441,7 @@ namespace VisualEQ.Views
             bool sel = s.ShowSelectedMarker;
             bool dirty = s.ShowDirtyMarkers;
             bool ph = s.ShowPlaceholderMarkers;
+            bool grids = s.ShowPathGrids;
 
             bool changed = false;
             if (ImGui.Checkbox($"Selected spawn (cyan)###{Id}sSel", ref sel))
@@ -459,10 +450,145 @@ namespace VisualEQ.Views
             { s.ShowDirtyMarkers = dirty; changed = true; }
             if (ImGui.Checkbox($"Placeholder spawns (yellow)###{Id}sPh", ref ph))
             { s.ShowPlaceholderMarkers = ph; changed = true; }
+            if (ImGui.Checkbox($"Path grid for selected spawn (amber)###{Id}sGrid", ref grids))
+            { s.ShowPathGrids = grids; changed = true; }
             if (changed) SettingsManager.Save(s);
 
             ImGui.Separator();
             _dbForm.RenderInline();
+        }
+
+        void BeginLoad(string zoneName)
+        {
+            _status = "";
+            _loadingZone = zoneName;
+            _loadPhase = LoadPhase.PaintMessage;
+            _loadProgress = 0f;
+            _loadLabel = "Preparing…";
+        }
+
+        void RenderLoadingDialog(Gui gui)
+        {
+            // Centered on the OS window; fixed-size, non-movable, non-resizable modal.
+            const float dlgW = 480f;
+            const float dlgH = 150f;
+            var pos = new Vector2((gui.Dimensions.X - dlgW) / 2, (gui.Dimensions.Y - dlgH) / 2);
+
+            ImGui.SetNextWindowPos(pos, Condition.Always, Vector2.Zero);
+            ImGui.SetNextWindowSize(new Vector2(dlgW, dlgH), Condition.Always);
+
+            const WindowFlags flags = WindowFlags.NoTitleBar | WindowFlags.NoMove
+                                    | WindowFlags.NoResize   | WindowFlags.NoCollapse
+                                    | WindowFlags.NoSavedSettings | WindowFlags.NoBringToFrontOnFocus;
+
+            ImGui.BeginWindow($"###{Id}Loading", flags);
+
+            ImGui.Text($"Loading zone '{_loadingZone}'");
+            ImGui.Text(_loadLabel);
+            ImGui.Separator();
+            ImGui.ProgressBar(_loadProgress, new Vector2(0, 28), $"{(_loadProgress * 100):F0}%");
+
+            ImGui.EndWindow();
+        }
+
+        // Runs one phase of the load per frame. The bar's % shown BEFORE this call is what
+        // the user sees during the phase's blocking work (so the label describes what's
+        // happening while the bar sits at that value).
+        void AdvanceLoadPhase()
+        {
+            try
+            {
+                switch (_loadPhase)
+                {
+                    case LoadPhase.PaintMessage:
+                        _loadPhase = LoadPhase.ClearScene;
+                        _loadLabel = "Clearing previous scene…";
+                        break;
+
+                    case LoadPhase.ClearScene:
+                        _controller.ClearCurrentZone();
+                        _loadProgress = 0.10f;
+                        _loadPhase = LoadPhase.LoadGeometry;
+                        _loadLabel = "Loading zone geometry…";
+                        break;
+
+                    case LoadPhase.LoadGeometry:
+                        _controller.LoadZone(_loadingZone);
+                        _loadProgress = 0.55f;
+                        _loadPhase = LoadPhase.LoadDefault;
+                        _loadLabel = "Loading fallback character…";
+                        break;
+
+                    case LoadPhase.LoadDefault:
+                        _controller.LoadDefaultCharacterForZone(_loadingZone);
+                        VisualEQ.Engine.Globals.Camera.Position = new Vector3(0, 0, 1000);
+                        _loadProgress = 0.65f;
+                        _loadPhase = LoadPhase.FetchSpawns;
+                        _loadLabel = "Fetching spawns from database…";
+                        break;
+
+                    case LoadPhase.FetchSpawns:
+                        if (_controller.BeginSpawnLoad(_loadingZone))
+                        {
+                            _loadProgress = 0.68f;
+                            _loadPhase = LoadPhase.SpawnLoadChunk;
+                            _loadLabel = _controller.SpawnLoadTotal > 0
+                                ? $"Placing spawn 0 of {_controller.SpawnLoadTotal}…"
+                                : "No spawns for this zone.";
+                        }
+                        else
+                        {
+                            // No DB or already loaded — skip straight to done.
+                            _loadProgress = 1.0f;
+                            _loadPhase = LoadPhase.Done;
+                            _loadLabel = "Ready.";
+                        }
+                        break;
+
+                    case LoadPhase.SpawnLoadChunk:
+                        _controller.ContinueSpawnLoad(SpawnLoadChunkSize);
+                        if (_controller.SpawnLoadDone)
+                        {
+                            _loadProgress = 0.98f;
+                            _loadPhase = LoadPhase.FinishSpawns;
+                            _loadLabel = "Finalizing…";
+                        }
+                        else
+                        {
+                            // Progress sweeps 68% → 98% across the chunk phase.
+                            float pct = _controller.SpawnLoadTotal == 0
+                                ? 1f
+                                : (float)_controller.SpawnLoadProcessed / _controller.SpawnLoadTotal;
+                            _loadProgress = 0.68f + pct * 0.30f;
+                            _loadLabel = $"Placing spawn {_controller.SpawnLoadProcessed} of {_controller.SpawnLoadTotal}…";
+                        }
+                        break;
+
+                    case LoadPhase.FinishSpawns:
+                        _controller.FinishSpawnLoad();
+                        _loadProgress = 1.0f;
+                        _loadPhase = LoadPhase.Done;
+                        _loadLabel = "Ready.";
+                        break;
+
+                    case LoadPhase.Done:
+                        _loadPhase = LoadPhase.None;
+                        _loadingZone = null;
+                        _loadProgress = 0f;
+                        _loadLabel = "";
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                _status   = $"Load failed: {ex.Message}";
+                _statusOk = false;
+                Console.WriteLine($"[MainMenu] Load '{_loadingZone}' failed at {_loadPhase}: {ex}");
+                _loadPhase = LoadPhase.None;
+                _loadingZone = null;
+                _loadProgress = 0f;
+                _loadLabel = "";
+            }
         }
 
         void EnsureZoneList()

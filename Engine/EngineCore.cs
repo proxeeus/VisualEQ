@@ -68,6 +68,13 @@ namespace VisualEQ.Engine
         public void SetSpawnMarkerLines(System.Collections.Generic.IReadOnlyList<(System.Numerics.Vector3, System.Numerics.Vector3, System.Numerics.Vector4)> lines) =>
             _pendingMarkerLines = lines;
 
+        // Path grid overlay for the selected spawn. Same lifecycle as _spawnMarkers.
+        PathGridRenderer _pathGrids;
+        System.Collections.Generic.IReadOnlyList<(System.Numerics.Vector3 A, System.Numerics.Vector3 B, System.Numerics.Vector4 Color)> _pendingPathGridLines;
+
+        public void SetPathGridLines(System.Collections.Generic.IReadOnlyList<(System.Numerics.Vector3, System.Numerics.Vector3, System.Numerics.Vector4)> lines) =>
+            _pendingPathGridLines = lines;
+
         // Whether we're currently dragging a model
         private bool ModelDragging = false;
 
@@ -433,6 +440,15 @@ namespace VisualEQ.Engine
                 _pendingMarkerLines = null;
             }
             _spawnMarkers.Draw(ProjectionView);
+
+            // Path grid overlay (waypoints + connecting lines for the selected spawn).
+            if (_pathGrids == null) _pathGrids = new PathGridRenderer();
+            if (_pendingPathGridLines != null)
+            {
+                _pathGrids.SetLines(_pendingPathGridLines);
+                _pendingPathGridLines = null;
+            }
+            _pathGrids.Draw(ProjectionView);
 
             Debugging.Draw(ProjectionView);
 
