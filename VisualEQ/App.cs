@@ -21,52 +21,46 @@ namespace VisualEQ
         {
             try
             {
-                // Get the zone name from arguments
-                if (args.Length < 1)
-                {
-                    throw new Exception("Zone name is required. Usage: dotnet run <zone_name> [model_name]");
-                }
-                string zoneName = args[0];
-                Console.WriteLine($"Loading {zoneName}");
-
-                // Get the model name from arguments if provided
-                string modelName = args.Length >= 2 ? args[1] : null;
-                if (modelName != null)
-                {
-                    Console.WriteLine($"Will try to load character model: {modelName}");
-                }
-
-                // Add a debug flag for listing available models without loading any
-                bool listModelsOnly = args.Length >= 2 && args[1].ToLower() == "--list-models";
-
                 var settings = SettingsManager.Load();
                 Console.WriteLine($"Settings loaded from {SettingsManager.SettingsPath}");
 
-			var controller = new Controller(settings);
-                // Set up circular reference so they can access each other
+                var controller = new Controller(settings);
                 controller.Engine.Controller = controller;
 
-                // Load the zone
-                controller.LoadZone(zoneName);
-
-                // List or load character models
-                if (listModelsOnly)
+                // --list-models is a diagnostic path that never opens the window.
+                if (args.Length >= 2 && args[1].ToLower() == "--list-models")
                 {
-                    ListAvailableModels(zoneName);
+                    ListAvailableModels(args[0]);
                     return;
                 }
-                else
+
+                // With a zone name argument, preserve the legacy load-and-go flow so
+                // load_zone.bat and any existing scripts keep working.
+                if (args.Length >= 1)
                 {
+                    string zoneName = args[0];
+                    string modelName = args.Length >= 2 ? args[1] : null;
+
+                    Console.WriteLine($"Loading {zoneName}");
+                    if (modelName != null)
+                        Console.WriteLine($"Will try to load character model: {modelName}");
+
+                    controller.LoadZone(zoneName);
                     LoadCharacters(controller, zoneName, modelName);
                     controller.LoadZoneSpawnsAsync(zoneName).GetAwaiter().GetResult();
                 }
+                else
+                {
+                    Console.WriteLine("No zone specified — opening main menu.");
+                }
 
-                // Add views
-			controller.AddView(new StatusView(controller));
+                // Views are registered once. StatusView and MainMenuView are always available;
+                // zone-scoped views (ModelEditor, Teleport) only render their windows while a
+                // zone is loaded — see BaseView subclasses for the ZoneChanged wiring.
+                controller.AddView(new MainMenuView(controller));
+                controller.AddView(new StatusView(controller));
                 controller.AddView(new ModelEditorView(controller));
-                controller.AddView(new DatabaseConnectionView(controller));
 
-                // Add TeleportView with exception handling
                 try
                 {
                     controller.AddView(new TeleportView(controller));
@@ -76,7 +70,7 @@ namespace VisualEQ
                     Console.WriteLine($"Warning: Could not add TeleportView: {ex.Message}");
                 }
 
-			controller.Start();
+                controller.Start();
             }
             catch (Exception ex)
             {

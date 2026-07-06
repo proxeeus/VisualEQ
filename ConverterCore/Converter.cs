@@ -26,9 +26,21 @@ namespace VisualEQ.ConverterCore
     {
         public string BasePath;
 
+        // Directory where `{name}_oes.zip` outputs are written. Defaults to the process CWD,
+        // preserving the original behaviour used by ConverterApp/Program.cs.
+        public string OutputPath;
+
         Dictionary<(string, string), string> TextureMap;
 
-        public Converter(string basePath) => BasePath = basePath;
+        public Converter(string basePath) : this(basePath, ".") { }
+
+        public Converter(string basePath, string outputPath)
+        {
+            BasePath = basePath;
+            OutputPath = outputPath ?? ".";
+        }
+
+        string OutputZip(string name) => Path.Combine(OutputPath, $"{name}_oes.zip");
 
         public ConvertedType Convert(string name)
         {
@@ -56,7 +68,7 @@ namespace VisualEQ.ConverterCore
                 WriteLine("</il>");
             }
 
-            var zn = $"{name}_oes.zip";
+            var zn = OutputZip(name);
             if (File.Exists(zn)) File.Delete(zn);
             using (var zip = ZipFile.Open(zn, ZipArchiveMode.Create))
             {
@@ -148,7 +160,7 @@ namespace VisualEQ.ConverterCore
                 WriteLine("</il>");
             }
 
-            var zn = $"{name}_oes.zip";
+            var zn = OutputZip(name);
             if (File.Exists(zn)) File.Delete(zn);
             using (var zip = ZipFile.Open(zn, ZipArchiveMode.Create))
             {
@@ -338,7 +350,7 @@ namespace VisualEQ.ConverterCore
             else
                 return false;
 
-            var zn = $"{name}_oes.zip";
+            var zn = OutputZip(name);
             if (File.Exists(zn)) File.Delete(zn);
             using (var zip = ZipFile.Open(zn, ZipArchiveMode.Create))
             {

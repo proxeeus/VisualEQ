@@ -11,5 +11,8 @@ namespace VisualEQ.Engine
         // Common methods and properties needed by the Engine
         object ModelSelector { get; }
         IReadOnlyList<AniModelInstance> GetCharacterModels();
+
+        // Called by EngineCore when the user hits the "return to menu" hotkey (F10).
+        void ClearCurrentZone();
     }
 }

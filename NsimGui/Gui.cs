@@ -76,6 +76,8 @@ namespace NsimGui
 
         public void Add(BaseWidget widget) => Widgets.Add(widget);
 
+        public void Remove(BaseWidget widget) => Widgets.Remove(widget);
+
         public unsafe Gui(IGuiRenderer renderer)
         {
             if (File.Exists("imgui.ini"))
@@ -97,7 +99,10 @@ namespace NsimGui
 
             ImGui.NewFrame();
 
-            Widgets.ForEach(x => x.Render(this));
+            // Snapshot the list so a widget's Render can safely Add/Remove other widgets
+            // (e.g. zone-scoped views registering their windows when a zone loads mid-frame).
+            var snapshot = Widgets.ToArray();
+            foreach (var w in snapshot) w.Render(this);
 
             ImGui.Render();
             Renderer.Draw((Dimensions.X / Scale.X, Dimensions.Y / Scale.Y), BuildDrawCommandSets());

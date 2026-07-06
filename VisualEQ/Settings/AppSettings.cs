@@ -16,5 +16,8 @@ namespace VisualEQ.Settings
 
         public bool ShowPathGrids { get; set; } = true;
         public bool ShowSpawnList { get; set; } = true;
+
+        // Root of the user's EverQuest install (used by the in-app converter). Replaces eq_config.txt.
+        public string EqInstallPath { get; set; } = @"C:\Program Files (x86)\EverQuest";
     }
 }

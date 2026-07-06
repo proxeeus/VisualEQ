@@ -18,22 +18,45 @@ namespace VisualEQ.Views
         private float messageTimer = 0;
         private float lastFrameTime = 0;
 
-        public TeleportView(Controller controller) : base(controller) { }
+        private Gui _gui;
+        private Window _window;
+        private bool _windowShown;
+
+        public TeleportView(Controller controller) : base(controller)
+        {
+            controller.ZoneChanged += OnZoneChanged;
+        }
 
         public override void Setup(Gui gui)
         {
-            gui.Add(new Window("Teleport") {
+            _gui = gui;
+            _window = new Window("Teleport") {
                 new Size(200, 140),
-                
-                // ORC teleport button
                 new Button("Teleport to ORC", (180, 30)) { _ => TeleportToOrc() },
-                
-                // Current position display
                 new Text(() => $"Current position:\n{Camera.Position}"),
-                
-                // Status message
                 new Text(() => statusMessage)
-            });
+            };
+            if (Controller.CurrentZoneName != null) ShowWindow();
+        }
+
+        void OnZoneChanged(string zone)
+        {
+            if (zone == null) HideWindow();
+            else ShowWindow();
+        }
+
+        void ShowWindow()
+        {
+            if (_windowShown || _gui == null || _window == null) return;
+            _gui.Add(_window);
+            _windowShown = true;
+        }
+
+        void HideWindow()
+        {
+            if (!_windowShown || _gui == null || _window == null) return;
+            _gui.Remove(_window);
+            _windowShown = false;
         }
 
         public override void Update(Gui gui)

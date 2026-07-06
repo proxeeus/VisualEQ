@@ -83,7 +83,24 @@ namespace VisualEQ.Views
 
         // ---- ImGui render ----
 
+        // Standalone window render — kept for legacy use via DatabaseConnectionView.
         public override void Render(Gui gui)
+        {
+            if (!_positioned)
+            {
+                ImGui.SetNextWindowSize(new Vector2(340, 300), Condition.Always);
+                ImGui.SetNextWindowPos(new Vector2(100, 200), Condition.Always, Vector2.Zero);
+                _positioned = true;
+            }
+
+            ImGui.BeginWindow($"Database Connection###{Id}");
+            RenderInline();
+            ImGui.EndWindow();
+        }
+
+        // Renders just the DB form controls without wrapping in a window — for embedding
+        // inside another view (e.g. MainMenuView's Settings section).
+        public void RenderInline()
         {
             // Collect completed async test result.
             if (_pendingTest != null && _pendingTest.IsCompleted)
@@ -93,15 +110,6 @@ namespace VisualEQ.Views
                 _statusOk = r.Success;
                 _pendingTest = null;
             }
-
-            if (!_positioned)
-            {
-                ImGui.SetNextWindowSize(new Vector2(340, 300), Condition.Always);
-                ImGui.SetNextWindowPos(new Vector2(100, 200), Condition.Always, Vector2.Zero);
-                _positioned = true;
-            }
-
-            ImGui.BeginWindow($"Database Connection###{Id}");
 
             ImGui.Text("EQEmu MySQL Connection");
             ImGui.Separator();
@@ -136,8 +144,6 @@ namespace VisualEQ.Views
                     : new Vector4(0.9f, 0.2f, 0.2f, 1f);
                 ImGui.Text(_status, col);
             }
-
-            ImGui.EndWindow();
         }
 
         // ---- actions ----

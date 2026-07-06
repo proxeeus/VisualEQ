@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using System.Threading.Tasks;
 using VisualEQ.Database.Configuration;
 using VisualEQ.Database.Repositories;
@@ -35,7 +36,11 @@ namespace VisualEQ
         public SpawnManager SpawnManager { get; } = new SpawnManager();
 
         // Zone name set when LoadZone is called; triggers spawn load on later DB connect.
-        private string _currentZoneName;
+        public string CurrentZoneName { get; private set; }
+
+        // Fires whenever the loaded zone changes (including cleared → null). Used by views
+        // that need to react to zone swaps (e.g. MainMenuView shows/hides itself).
+        public event Action<string> ZoneChanged;
 
         public Controller(AppSettings settings)
         {
@@ -69,8 +74,69 @@ namespace VisualEQ
 
         public void LoadZone(string name)
         {
-            _currentZoneName = name;
+            CurrentZoneName = name;
             Loader.LoadZoneFile($"../ConverterApp/{name}_oes.zip", Engine);
+            Engine.RebuildCollision();
+            ZoneChanged?.Invoke(name);
+        }
+
+        // Tears down the current zone's scene state so a new zone can be loaded on top.
+        // Safe to call when nothing is loaded.
+        public void ClearCurrentZone()
+        {
+            Engine.ClearScene();
+            CharacterModels.Clear();
+            _modelCache.Clear();
+            LastModelLoaded = null;
+            SpawnManager.SpawnPoints.Clear();
+            CurrentZoneName = null;
+            ZoneChanged?.Invoke(null);
+        }
+
+        // Loads a zone by name after the engine has already started. Clears any previously
+        // loaded zone, loads geometry + default characters + spawns, and repositions the camera.
+        // Fully synchronous — Mesh/AnimatedMesh constructors upload buffers to GL immediately,
+        // so every step here MUST run on the GL thread. Callers block briefly while it runs.
+        public void LoadZoneFromMenu(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return;
+
+            ClearCurrentZone();
+
+            LoadZone(name);
+
+            // Pick a default character model for the fallback slot used by SpawnManager.
+            try
+            {
+                LoadDefaultCharacterForZone(name);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Controller] Default character load failed: {ex.Message}");
+            }
+
+            Camera.Position = new Vector3(0, 0, 1000);
+
+            LoadZoneSpawnsSync(name);
+        }
+
+        // Picks a sensible default character model for the zone (used as the placeholder fallback).
+        // Loads from the zone-specific chr zip if present, otherwise the shared gfaydark chr zip.
+        void LoadDefaultCharacterForZone(string zoneName)
+        {
+            var candidates = new[] { $"{zoneName}_chr", "gfaydark_chr" };
+            foreach (var prefix in candidates)
+            {
+                var path = $"../ConverterApp/{prefix}_oes.zip";
+                if (!System.IO.File.Exists(path)) continue;
+
+                var models = Loader.GetAvailableCharacterModels(path);
+                if (models.Count == 0) continue;
+
+                var pick = models.Contains("ORC") ? "ORC" : System.Linq.Enumerable.First(models);
+                LoadCharacter(prefix, pick);
+                return;
+            }
         }
 
         public void LoadCharacter(string filename, string name)
@@ -114,6 +180,40 @@ namespace VisualEQ
             }
         }
 
+        // Same as LoadZoneSpawnsAsync but blocks the caller. Used by the in-app zone loader
+        // so all GL-touching work (LoadFromRecords → AnimatedMesh ctors) stays on the GL thread.
+        // The DB fetch's internal continuations still run on ThreadPool, but they don't touch GL.
+        public void LoadZoneSpawnsSync(string zoneName)
+        {
+            if (DbFactory == null)
+            {
+                Console.WriteLine("[Controller] Spawn load skipped — no DB connection.");
+                return;
+            }
+
+            if (SpawnManager.SpawnPoints.Count > 0)
+            {
+                Console.WriteLine("[Controller] Spawns already loaded — skipping.");
+                return;
+            }
+
+            try
+            {
+                var repo = new SpawnRepository(DbFactory);
+                var records = repo.GetZoneSpawnsFullAsync(zoneName).GetAwaiter().GetResult();
+
+                var availableModels = SpawnManager.BuildAvailableModels(zoneName);
+                SpawnManager.LoadFromRecords(records, Engine, _modelCache, availableModels, LastModelLoaded);
+
+                foreach (var sp in SpawnManager.SpawnPoints)
+                    CharacterModels.Add(sp.Model);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Controller] Spawn load error: {ex}");
+            }
+        }
+
         // Called by DatabaseConnectionView after the user saves valid credentials.
         public void SetDbConnection(DatabaseSettings db)
         {
@@ -122,8 +222,8 @@ namespace VisualEQ
             Console.WriteLine($"[DB] Connection configured: {db.Server}:{db.Port}/{db.Database}");
 
             // If a zone is already loaded, kick off spawn loading immediately.
-            if (_currentZoneName != null)
-                _ = LoadZoneSpawnsAsync(_currentZoneName);
+            if (CurrentZoneName != null)
+                _ = LoadZoneSpawnsAsync(CurrentZoneName);
         }
 
         public void Start()

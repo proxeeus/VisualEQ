@@ -21,54 +21,58 @@ namespace VisualEQ.Views
         private string posY = "0";
         private string posZ = "0";
 
+        private Gui _gui;
+        private Window _window;
+        private bool _windowShown;
+
         public ModelEditorView(Controller controller) : base(controller)
         {
-            // Register for model selection change events
             controller.ModelSelector.OnSelectionChanged += OnModelSelectionChanged;
             controller.ModelSelector.OnPositionChanged += OnModelPositionChanged;
+            controller.ZoneChanged += OnZoneChanged;
         }
 
         public override void Setup(Gui gui)
         {
-            gui.Add(new Window("Model Editor") {
+            _gui = gui;
+            _window = new Window("Model Editor") {
                 new Size(280, 270),
-                
-                // Selection status
                 new Text(() => selectedModel != null ?
                     "Selected: Character Model" :
                     "No model selected - Click on a model to select"),
-                
-                // Position display
                 new Text(() => "Position:"),
-                
-                // X coordinate
-                new HBox {
-                    new Text("X:"),
-                    new Text(() => posX)
-                },
-                
-                // Y coordinate
-                new HBox {
-                    new Text("Y:"),
-                    new Text(() => posY)
-                },
-                
-                // Z coordinate
-                new HBox {
-                    new Text("Z:"),
-                    new Text(() => posZ)
-                },
-                
-                // Instructions section
+                new HBox { new Text("X:"), new Text(() => posX) },
+                new HBox { new Text("Y:"), new Text(() => posY) },
+                new HBox { new Text("Z:"), new Text(() => posZ) },
                 new Text("=== Controls ==="),
                 new Text("Left click: select model"),
                 new Text("Left drag: move model"),
                 new Text("Mouse wheel while dragging: adjust depth"),
                 new Text("Models will stick to surfaces below them"),
-                
-                // Status message
                 new Text(() => statusMessage)
-            });
+            };
+            // If a zone is already loaded when we register (e.g. legacy CLI boot), show now.
+            if (Controller.CurrentZoneName != null) ShowWindow();
+        }
+
+        void OnZoneChanged(string zone)
+        {
+            if (zone == null) HideWindow();
+            else ShowWindow();
+        }
+
+        void ShowWindow()
+        {
+            if (_windowShown || _gui == null || _window == null) return;
+            _gui.Add(_window);
+            _windowShown = true;
+        }
+
+        void HideWindow()
+        {
+            if (!_windowShown || _gui == null || _window == null) return;
+            _gui.Remove(_window);
+            _windowShown = false;
         }
 
         public override void Update(Gui gui)

@@ -72,6 +72,8 @@ namespace VisualEQ.Engine
         )
         {
             VSync = VSyncMode.Off;
+            // Fill the primary display on launch so the menu and rendered scene get maximum space.
+            WindowState = WindowState.Maximized;
             Stopwatch.Start();
             Gui = new Gui(new GuiRenderer());
 
@@ -178,6 +180,16 @@ namespace VisualEQ.Engine
 
         public void Start()
         {
+            // Boot with an empty collider so the engine can run before a zone is loaded.
+            // Each LoadZone call rebuilds the octree from the newly-loaded meshes.
+            Collider = new CollisionHelper(new Octree(new CollisionManager.Mesh(new List<Triangle>()), 250));
+            Run();
+        }
+
+        // Rebuilds the collision octree from the currently-loaded static, collidable meshes.
+        // Call after loading (or swapping) a zone.
+        public void RebuildCollision()
+        {
             var ot = new List<Triangle>();
             Console.WriteLine("Building mesh for physics");
             foreach (var model in Models)
@@ -193,10 +205,14 @@ namespace VisualEQ.Engine
             Console.WriteLine($"Building octree for {ot.Count} triangles");
             Collider = new CollisionHelper(new Octree(new CollisionManager.Mesh(ot), 250));
             Console.WriteLine("Built octree");
+        }
 
-            //Debugging.Add(new Wireframe(ot));
-
-            Run();
+        // Drops all scene content so a new zone can be loaded on top.
+        public void ClearScene()
+        {
+            Models.Clear();
+            AniModels.Clear();
+            Lights.Clear();
         }
 
         void UpdateMouseButton(MouseButton button, bool state)
@@ -251,6 +267,10 @@ namespace VisualEQ.Engine
                     break;
                 case Key.P:
                     PhysicsEnabled = !PhysicsEnabled;
+                    break;
+                case Key.F10:
+                    // Return to main menu: clear the current zone so MainMenuView shows itself again.
+                    Controller?.ClearCurrentZone();
                     break;
                 default:
                     KeyState[e.Key] = true;

@@ -8,6 +8,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Engine\Engine.csproj" />
     <ProjectReference Include="..\Database\VisualEQ.Database.csproj" />
+    <ProjectReference Include="..\ConverterCore\ConverterCore.csproj" />
   </ItemGroup>
   <Target Name="CopyNativeLibs" AfterTargets="Build">
     <Copy SourceFiles="$(OutputPath)runtimes\win-x64\native\cimgui.dll"
