@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using VisualEQ.Database.Configuration;
 
 namespace VisualEQ.Settings
@@ -19,5 +20,10 @@ namespace VisualEQ.Settings
 
         // Root of the user's EverQuest install (used by the in-app converter). Replaces eq_config.txt.
         public string EqInstallPath { get; set; } = @"C:\Program Files (x86)\EverQuest";
+
+        // Sidebar layout persistence. Width in pixels. Section order is a list of section IDs
+        // (see SidebarWidget.Section* constants) — empty list means "use default order".
+        public float SidebarWidth { get; set; } = 380f;
+        public List<string> SidebarSectionOrder { get; set; } = new List<string>();
     }
 }

@@ -54,21 +54,11 @@ namespace VisualEQ
                     Console.WriteLine("No zone specified — opening main menu.");
                 }
 
-                // Views are registered once. StatusView and MainMenuView are always available;
-                // zone-scoped views (ModelEditor, Teleport) only render their windows while a
-                // zone is loaded — see BaseView subclasses for the ZoneChanged wiring.
+                // MainMenuView renders while no zone is loaded; SidebarView takes over when
+                // a zone loads and consolidates the old Status/Teleport/ModelEditor windows
+                // into a pinned left panel with collapsible sections.
                 controller.AddView(new MainMenuView(controller));
-                controller.AddView(new StatusView(controller));
-                controller.AddView(new ModelEditorView(controller));
-
-                try
-                {
-                    controller.AddView(new TeleportView(controller));
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Warning: Could not add TeleportView: {ex.Message}");
-                }
+                controller.AddView(new SidebarView(controller));
 
                 controller.Start();
             }
