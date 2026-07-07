@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using OpenTK.Input;
 using static VisualEQ.Engine.Globals;
@@ -17,6 +18,15 @@ namespace VisualEQ.Engine
         private Vector3 dragPlaneNormal = Vector3.Zero;
         private float dragPlaneDistance = 0f;
         private float dragDepthOffset = 0f;
+        // Recorded at BeginActualDrag so mid-drag surface-stick knows whether the drag plane
+        // is world XY (default) or camera-perpendicular (Alt-modified).
+        private bool _useCameraPlane;
+
+        // Vertical distance from the ground under the model to the model's origin at the
+        // moment drag started. Preserved during ground-plane drag so the model keeps sitting
+        // on terrain the same way it did at load time — the DB stores hip/center Z, not feet,
+        // so a naïve "snap origin to ground + tiny offset" sinks the model half-height under.
+        private float _dragGroundOffset;
 
         // Click-vs-drag threshold. Between MouseDown and this many pixels of movement,
         // the click is treated as "select only". Past the threshold, the drag actually
@@ -65,6 +75,9 @@ namespace VisualEQ.Engine
         // Get currently selected model
         public AniModelInstance SelectedModel => selectedModel;
 
+        // True once the drag has actually engaged (past the threshold).
+        public bool IsDragging => isDragging;
+
         // Try to select a model at the current mouse position
         public bool TrySelect(int mouseX, int mouseY)
         {
@@ -78,18 +91,19 @@ namespace VisualEQ.Engine
 
             foreach (var model in models)
             {
-                // Simple sphere-based collision detection
-                const float selectionRadius = 10.0f; // Adjust based on model size
                 Vector3 modelPos = model.Position;
 
-                // Calculate closest point on ray to model position
                 Vector3 toModel = modelPos - rayOrigin;
                 float projectionLength = Vector3.Dot(toModel, rayDirection);
 
                 // Model is behind camera
                 if (projectionLength < 0) continue;
 
-                // Calculate closest point on ray to model center
+                // Selection radius scales gently with view distance so distant models don't
+                // require pixel-perfect clicks. Base 15 (was 10) is more forgiving for
+                // typical humanoid sizes (~7 units tall + 2 wide).
+                float selectionRadius = 15f + projectionLength * 0.008f;
+
                 Vector3 closestPoint = rayOrigin + rayDirection * projectionLength;
                 float distanceSquared = Vector3.DistanceSquared(closestPoint, modelPos);
 
@@ -143,11 +157,38 @@ namespace VisualEQ.Engine
             lastValidPosition = selectedModel.Position;
             FindSurfaceHeight(selectedModel.Position);
 
+            // Preserve the model's current elevation relative to ground for the whole drag
+            // so surface-stick doesn't sink it. Fallback to MODEL_GROUND_OFFSET if we can't
+            // find a surface (open sky / floating spawn) — better than teleporting.
+            _dragGroundOffset = MODEL_GROUND_OFFSET;
+            if (Collider != null)
+            {
+                var probe = _dragStartPosition + new Vector3(0, 0, 20f);
+                var hit = Collider.FindIntersection(probe, new Vector3(0, 0, -1), 0.5f);
+                if (hit.HasValue)
+                    _dragGroundOffset = _dragStartPosition.Z - hit.Value.Item2.Z;
+            }
+
             Vector3 eye = Camera.Position + new Vector3(0, 0, FpsCamera.CameraHeight);
             Vector3 modelPos = selectedModel.Position;
-            Vector3 cameraForward = Vector3.Normalize(Vector3.Transform(FpsCamera.Forward, Camera.LookRotation));
-            dragPlaneNormal = cameraForward;
-            dragPlaneDistance = Vector3.Dot(dragPlaneNormal, modelPos);
+
+            // Default drag plane is the world XY plane at the model's Z — mouse translates
+            // the model along the ground. Holding Alt during MouseDown opts into the old
+            // camera-perpendicular plane for close-in / vertical work. See engine.OnKeyDown /
+            // GetPressedKeys().
+            _useCameraPlane = engine.GetPressedKeys().Contains(OpenTK.Input.Key.AltLeft)
+                            || engine.GetPressedKeys().Contains(OpenTK.Input.Key.AltRight);
+            if (_useCameraPlane)
+            {
+                Vector3 cameraForward = Vector3.Normalize(Vector3.Transform(FpsCamera.Forward, Camera.LookRotation));
+                dragPlaneNormal   = cameraForward;
+                dragPlaneDistance = Vector3.Dot(dragPlaneNormal, modelPos);
+            }
+            else
+            {
+                dragPlaneNormal   = new Vector3(0, 0, 1);
+                dragPlaneDistance = modelPos.Z;
+            }
             dragDepthOffset = 0f;
 
             Vector3 rayDirection = ScreenToWorldRay(mouseX, mouseY);
@@ -184,38 +225,64 @@ namespace VisualEQ.Engine
             Vector3 eye = Camera.Position + new Vector3(0, 0, FpsCamera.CameraHeight);
             Vector3 rayDirection = ScreenToWorldRay(mouseX, mouseY);
 
-            // Apply depth offset to drag plane
-            float adjustedDragDistance = dragPlaneDistance + dragDepthOffset;
+            // Apply depth offset to drag plane (only meaningful in camera-perpendicular mode
+            // — in ground-plane mode we always snap Z to terrain below and ignore wheel).
+            float adjustedDragDistance = dragPlaneDistance + (_useCameraPlane ? dragDepthOffset : 0f);
 
-            // Find intersection with drag plane
             float t = IntersectRayPlane(eye, rayDirection, dragPlaneNormal, adjustedDragDistance);
             if (t <= 0) return false;
 
-            // Calculate new model position
             Vector3 hitPoint = eye + rayDirection * t;
             Vector3 newPosition = hitPoint + dragOffset;
 
-            // Check if new position would go below current surface
-            if (currentSurfaceHeight > float.MinValue && newPosition.Z < currentSurfaceHeight)
+            if (!_useCameraPlane)
             {
-                // Constrain Z coordinate to stay above the surface
-                newPosition.Z = currentSurfaceHeight + MODEL_GROUND_OFFSET;
+                // Ground-plane drag: XY comes from the plane hit, Z snaps to (ground below +
+                // the offset captured at drag start). Preserves whatever elevation the model
+                // had relative to terrain — the DB spawn2.z is the model's hip/center, so a
+                // naïve "origin at ground" would sink most of the model under the terrain.
+                if (Collider != null)
+                {
+                    var probeOrigin = new Vector3(newPosition.X, newPosition.Y, newPosition.Z + 20f);
+                    var hit = Collider.FindIntersection(probeOrigin, new Vector3(0, 0, -1), 0.5f);
+                    if (hit.HasValue)
+                    {
+                        newPosition.Z = hit.Value.Item2.Z + _dragGroundOffset;
+                        currentSurfaceHeight = hit.Value.Item2.Z;
+                    }
+                }
+            }
+            else
+            {
+                // Camera-perpendicular drag: keep old "don't fall through the floor" clamp.
+                if (currentSurfaceHeight > float.MinValue && newPosition.Z < currentSurfaceHeight)
+                    newPosition.Z = currentSurfaceHeight + MODEL_GROUND_OFFSET;
+                FindSurfaceHeight(newPosition);
             }
 
-            // Update model position
-            Vector3 oldPosition = selectedModel.Position;
             selectedModel.Position = newPosition;
-
-            // Check if the new position has a different surface underneath
-            FindSurfaceHeight(newPosition);
-
-            // Keep track of last valid position
             lastValidPosition = selectedModel.Position;
 
-            // Notify about position change
             OnPositionChanged?.Invoke(selectedModel, selectedModel.Position);
-
             return true;
+        }
+
+        // Abort an in-flight drag without firing OnDragCompleted, restoring the model to
+        // where it was when the drag anchor was set. Called by Escape hotkey.
+        public void CancelDrag()
+        {
+            if (isDragging && selectedModel != null)
+                selectedModel.Position = _dragStartPosition;
+            isDragging = false;
+            _dragPending = false;
+            dragDepthOffset = 0f;
+            currentSurfaceHeight = float.MinValue;
+        }
+
+        // Public deselect used by Escape and the sidebar's list-click "cleared" state.
+        public void ClearSelection()
+        {
+            SelectModel(null);
         }
 
         // Stop dragging
@@ -273,10 +340,12 @@ namespace VisualEQ.Engine
             OnPositionChanged?.Invoke(selectedModel, selectedModel.Position);
         }
 
-        // Find the height of the surface under a position
+        // Find the height of the surface under a position. Independent of PhysicsEnabled —
+        // the collision octree exists whenever a zone is loaded, and we want models to
+        // snap to terrain during drag whether the user has toggled gravity or not.
         private void FindSurfaceHeight(Vector3 position)
         {
-            if (!PhysicsEnabled || Collider == null) return;
+            if (Collider == null) return;
 
             // Cast a ray downward from the model position
             Vector3 rayOrigin = position;
@@ -324,10 +393,11 @@ namespace VisualEQ.Engine
             }
         }
 
-        // Make the model stick to surfaces by casting a ray downward
+        // Make the model stick to surfaces by casting a ray downward. Same rationale as
+        // FindSurfaceHeight — collision is always available; physics enable is orthogonal.
         private void StickModelToSurface()
         {
-            if (selectedModel == null || !PhysicsEnabled || Collider == null) return;
+            if (selectedModel == null || Collider == null) return;
 
             // Cast a ray downward from the model position
             Vector3 rayOrigin = selectedModel.Position;
@@ -341,11 +411,12 @@ namespace VisualEQ.Engine
                 // Distance to the surface
                 float distance = Math.Abs(rayOrigin.Z - hit.Value.Item2.Z);
 
-                // If the surface is within reasonable distance, snap to it
+                // If the surface is within reasonable distance, snap to it — preserving the
+                // ground-offset we recorded at drag start rather than assuming feet==origin.
                 if (distance <= SURFACE_CHECK_DISTANCE)
                 {
                     Vector3 newPosition = selectedModel.Position;
-                    newPosition.Z = hit.Value.Item2.Z + MODEL_GROUND_OFFSET;
+                    newPosition.Z = hit.Value.Item2.Z + _dragGroundOffset;
                     selectedModel.Position = newPosition;
                     currentSurfaceHeight = hit.Value.Item2.Z;
                 }

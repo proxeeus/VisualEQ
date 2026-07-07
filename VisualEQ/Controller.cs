@@ -240,6 +240,47 @@ namespace VisualEQ
             return a != null;
         }
 
+        // Wired to Escape. Clears model selection (which cascades to SpawnManager via the
+        // OnSelectionChanged event chain) and the waypoint sub-selection.
+        public void ClearSelection()
+        {
+            ModelSelector?.ClearSelection();
+            Engine?.WaypointEditor?.ClearSelection();
+        }
+
+        // Wired to F. Puts the camera face-to-face with the selected spawn using the same
+        // wall-aware logic as the sidebar list's click-to-fly. Called by the F hotkey.
+        public void FrameSelection()
+        {
+            var sp = SpawnManager.Selected;
+            if (sp == null) return;
+
+            const float PreferredDistance = 20f;
+            const float MinDistance = 5f;
+            const float HeadHeight = 6f;
+            const float CastHeight = 3f;
+            const float WallPadding = 2f;
+
+            var basePos = sp.Model.Position;
+            var forward = Vector3.Normalize(Vector3.Transform(new Vector3(0, 1, 0), sp.Model.Rotation));
+
+            var distance = PreferredDistance;
+            if (Collider != null)
+            {
+                var castOrigin = basePos + new Vector3(0, 0, CastHeight);
+                var hit = Collider.FindIntersection(castOrigin, forward);
+                if (hit.HasValue)
+                {
+                    var hitDist = (hit.Value.Item2 - castOrigin).Length();
+                    if (hitDist < PreferredDistance)
+                        distance = Math.Max(hitDist - WallPadding, MinDistance);
+                }
+            }
+
+            Camera.Position = basePos + forward * distance;
+            Camera.LookAt(basePos + new Vector3(0, 0, HeadHeight));
+        }
+
         // Fires a Task that writes the buffer to the DB in a single transaction. The
         // sidebar's commit dialog owns the Task and polls it; this method just returns it
         // so the widget can display progress. Returns null if there's nothing to commit
@@ -585,37 +626,81 @@ namespace VisualEQ
             var sp = SpawnManager.Selected;
             if (sp != null && Settings.ShowPathGrids && sp.Record.Waypoints.Count > 0)
             {
-                var amber = new Vector4(1f, 0.85f, 0.2f, 1f);
-                var green = new Vector4(0.3f, 1f, 0.3f, 1f); // selected-waypoint highlight
+                var amber      = new Vector4(1f, 0.85f, 0.2f, 1f);
+                var green      = new Vector4(0.3f, 1f, 0.3f, 1f);
+                var brightGreen= new Vector4(0.5f, 1f, 0.5f, 1f);
                 var selectedHandle = Engine.WaypointEditor.Selected;
+                var wpEditor   = Engine.WaypointEditor;
+                var isDragging = wpEditor.IsDragging;
 
                 var waypoints = sp.Record.Waypoints.OrderBy(w => w.Number).ToList();
 
                 Vector3 ToScene(Database.Models.GridEntry g) => new Vector3(g.Y, g.X, g.Z);
 
                 for (int i = 0; i + 1 < waypoints.Count; i++)
-                    lines.Add((ToScene(waypoints[i]), ToScene(waypoints[i + 1]), amber));
+                {
+                    var a = ToScene(waypoints[i]);
+                    var b = ToScene(waypoints[i + 1]);
+                    // If either endpoint is the actively-dragged waypoint, pull the live
+                    // ScenePos from the editor so the polyline follows the crosshair.
+                    if (isDragging && selectedHandle.HasValue)
+                    {
+                        if (selectedHandle.Value.GridId == waypoints[i].GridId &&
+                            selectedHandle.Value.Number == waypoints[i].Number)
+                            a = selectedHandle.Value.ScenePos;
+                        if (selectedHandle.Value.GridId == waypoints[i + 1].GridId &&
+                            selectedHandle.Value.Number == waypoints[i + 1].Number)
+                            b = selectedHandle.Value.ScenePos;
+                    }
+                    lines.Add((a, b, amber));
+                }
 
                 const float armLength = 5f;
                 const float selectedArmLength = 9f;
+                const float draggingArmLength = 20f;
                 foreach (var wp in waypoints)
                 {
-                    var scenePos = ToScene(wp);
                     var isSelected = selectedHandle.HasValue
                         && selectedHandle.Value.GridId == wp.GridId
                         && selectedHandle.Value.Number == wp.Number;
-                    var color = isSelected ? green : amber;
-                    var arm = isSelected ? selectedArmLength : armLength;
+
+                    // Live drag position for the selected+dragging waypoint; static for the rest.
+                    var scenePos = (isSelected && isDragging)
+                        ? selectedHandle.Value.ScenePos
+                        : ToScene(wp);
+
+                    Vector4 color;
+                    float arm;
+                    if (isSelected && isDragging) { color = brightGreen; arm = draggingArmLength; }
+                    else if (isSelected)          { color = green;       arm = selectedArmLength; }
+                    else                          { color = amber;       arm = armLength; }
 
                     lines.Add((scenePos - new Vector3(arm, 0, 0), scenePos + new Vector3(arm, 0, 0), color));
                     lines.Add((scenePos - new Vector3(0, arm, 0), scenePos + new Vector3(0, arm, 0), color));
                     lines.Add((scenePos - new Vector3(0, 0, arm), scenePos + new Vector3(0, 0, arm), color));
 
+                    // Vertical pole from ground straight up to a tall marker so the dragged
+                    // waypoint never disappears against textured floors.
+                    if (isSelected && isDragging)
+                    {
+                        var ground = scenePos;
+                        if (Collider != null)
+                        {
+                            var probe = scenePos + new Vector3(0, 0, 20f);
+                            var hit = Collider.FindIntersection(probe, new Vector3(0, 0, -1), 0.5f);
+                            if (hit.HasValue) ground = new Vector3(scenePos.X, scenePos.Y, hit.Value.Item2.Z);
+                        }
+                        var top = scenePos + new Vector3(0, 0, 80f);
+                        lines.Add((ground, top, brightGreen));
+                    }
+
                     candidates.Add(new Engine.WaypointEditor.Handle
                     {
                         GridId   = wp.GridId,
                         Number   = wp.Number,
-                        ScenePos = scenePos,
+                        // Give WaypointEditor the current authoritative position so a fresh
+                        // click hits the crosshair where it's actually drawn.
+                        ScenePos = (isSelected && isDragging) ? selectedHandle.Value.ScenePos : ToScene(wp),
                     });
                 }
             }

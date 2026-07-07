@@ -34,6 +34,9 @@ namespace VisualEQ.Engine
         Handle? _selected;
         public Handle? Selected => _selected;
 
+        // True once the drag has actually engaged (past the threshold).
+        public bool IsDragging => _isDragging;
+
         // Edit-mode gate, mirrors ModelSelector.
         public bool EditModeEnabled = false;
 
@@ -54,7 +57,14 @@ namespace VisualEQ.Engine
         float _dragPlaneDistance;
         Vector3 _dragOffset;
         Vector3 _currentPosition; // The scene position we've dragged the selected waypoint to.
+        bool _useCameraPlane;
+        // Recorded at BeginActualDrag — the waypoint's height above ground at drag start.
+        // Preserved during ground-plane drag for the same reason as ModelSelector: EQ stores
+        // the NPC's hip/center Z at each grid entry, not the terrain Z, so a naïve snap
+        // would drop the waypoint into the floor.
+        float _dragGroundOffset;
         const int DragThresholdPixels = 8;
+        const float DefaultGroundOffset = 0.1f;
 
         public WaypointEditor(EngineCore engine)
         {
@@ -89,13 +99,17 @@ namespace VisualEQ.Engine
 
             Handle? closest = null;
             float bestProj = float.MaxValue;
-            const float radius = 8f; // similar to spawn selection radius
 
             foreach (var wp in _candidates)
             {
                 var toWp = wp.ScenePos - rayOrigin;
                 var proj = Vector3.Dot(toWp, rayDir);
                 if (proj < 0) continue;
+
+                // Same distance-scaled radius formula as ModelSelector so waypoints and
+                // spawns feel consistent to click, plus a smaller floor since waypoints are
+                // small anyway.
+                var radius = 12f + proj * 0.008f;
 
                 var closestPoint = rayOrigin + rayDir * proj;
                 var d2 = Vector3.DistanceSquared(closestPoint, wp.ScenePos);
@@ -148,7 +162,19 @@ namespace VisualEQ.Engine
             if (t <= 0) return false;
 
             var hitPoint = eye + rayDir * t;
-            _currentPosition = hitPoint + _dragOffset;
+            var newPos = hitPoint + _dragOffset;
+
+            // Ground-plane drag: snap Z to (ground below + drag-start ground-offset). Alt
+            // stays on the camera-perpendicular plane for precise vertical adjustments.
+            if (!_useCameraPlane && Collider != null)
+            {
+                var probeOrigin = new Vector3(newPos.X, newPos.Y, newPos.Z + 20f);
+                var hit = Collider.FindIntersection(probeOrigin, new Vector3(0, 0, -1), 0.5f);
+                if (hit.HasValue)
+                    newPos.Z = hit.Value.Item2.Z + _dragGroundOffset;
+            }
+
+            _currentPosition = newPos;
 
             // Push the updated position back into the selected handle so PathGridRenderer
             // draws the waypoint at its dragged spot in real time.
@@ -163,10 +189,31 @@ namespace VisualEQ.Engine
         {
             _dragStartPosition = _selected.Value.ScenePos;
 
+            _useCameraPlane = _engine.GetPressedKeys().Contains(OpenTK.Input.Key.AltLeft)
+                            || _engine.GetPressedKeys().Contains(OpenTK.Input.Key.AltRight);
+
+            // Preserve waypoint height above terrain for the whole drag.
+            _dragGroundOffset = DefaultGroundOffset;
+            if (Collider != null)
+            {
+                var probe = _dragStartPosition + new Vector3(0, 0, 20f);
+                var hit = Collider.FindIntersection(probe, new Vector3(0, 0, -1), 0.5f);
+                if (hit.HasValue)
+                    _dragGroundOffset = _dragStartPosition.Z - hit.Value.Item2.Z;
+            }
+
             var eye = Camera.Position + new Vector3(0, 0, FpsCamera.CameraHeight);
-            var forward = Vector3.Normalize(Vector3.Transform(FpsCamera.Forward, Camera.LookRotation));
-            _dragPlaneNormal = forward;
-            _dragPlaneDistance = Vector3.Dot(_dragPlaneNormal, _dragStartPosition);
+            if (_useCameraPlane)
+            {
+                var forward = Vector3.Normalize(Vector3.Transform(FpsCamera.Forward, Camera.LookRotation));
+                _dragPlaneNormal   = forward;
+                _dragPlaneDistance = Vector3.Dot(_dragPlaneNormal, _dragStartPosition);
+            }
+            else
+            {
+                _dragPlaneNormal   = new Vector3(0, 0, 1);
+                _dragPlaneDistance = _dragStartPosition.Z;
+            }
 
             var rayDir = ScreenToWorldRay(mouseX, mouseY);
             var t = IntersectRayPlane(eye, rayDir, _dragPlaneNormal, _dragPlaneDistance);
@@ -184,6 +231,22 @@ namespace VisualEQ.Engine
             {
                 var sel = _selected.Value;
                 OnDragCompleted?.Invoke(sel.GridId, sel.Number, _dragStartPosition, _currentPosition);
+            }
+            _isDragging = false;
+            _dragPending = false;
+        }
+
+        // Abort an in-flight drag without recording an edit. Restores the selected handle's
+        // ScenePos back to the drag anchor so PathGridRenderer redraws the crosshair at the
+        // original location. Called by Escape hotkey.
+        public void CancelDrag()
+        {
+            if (_isDragging && _selected.HasValue)
+            {
+                var h = _selected.Value;
+                h.ScenePos = _dragStartPosition;
+                _selected = h;
+                _currentPosition = _dragStartPosition;
             }
             _isDragging = false;
             _dragPending = false;

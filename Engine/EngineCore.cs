@@ -335,6 +335,30 @@ namespace VisualEQ.Engine
                     // Toggle edit mode. Only meaningful while a zone is loaded.
                     Controller?.ToggleEditMode();
                     break;
+                case Key.Escape:
+                    // Priority: cancel drag → clear selection. Does NOT exit the app anymore.
+                    if (WaypointDragging)
+                    {
+                        WaypointEditor?.CancelDrag();
+                        WaypointDragging = false;
+                        break;
+                    }
+                    if (ModelDragging)
+                    {
+                        dynamic modelSelector = Controller?.ModelSelector;
+                        modelSelector?.CancelDrag();
+                        ModelDragging = false;
+                        break;
+                    }
+                    Controller?.ClearSelection();
+                    break;
+                case Key.F:
+                    // Frame selection: fly camera to the currently-selected spawn using the
+                    // same wall-aware vantage as sidebar list-click. No-op when nothing's
+                    // selected. Fires the FrameSelectionRequested event so Controller can
+                    // resolve target + perform the fly-to.
+                    Controller?.FrameSelection();
+                    break;
                 default:
                     KeyState[e.Key] = true;
                     break;
@@ -393,7 +417,6 @@ namespace VisualEQ.Engine
                     case Key.Home:
                         Camera.Position.Z = 1000;
                         break;
-                    case Key.Escape:
                     case Key.Tilde:
                         Exit();
                         break;

@@ -236,6 +236,10 @@ namespace VisualEQ.Views
             if (_view.Controller.EditModeEnabled)
                 DrawEditModeBorder(gui);
 
+            // Always-visible coordinate overlay in the top-right — camera + selected spawn +
+            // drag delta. Renders as its own small ImGui window with no chrome.
+            RenderCoordinateHud(gui);
+
             // Modal precedence: commit dialog first, then discard confirm, then F10 warning.
             if (_commitPhase != CommitPhase.None)
                 RenderCommitDialog(gui);
@@ -243,6 +247,52 @@ namespace VisualEQ.Views
                 RenderDiscardConfirmDialog(gui);
             else if (_view.ShowF10Warning)
                 RenderF10WarningDialog(gui);
+        }
+
+        // Small always-visible overlay showing camera + selection state. Positioned in the
+        // top-right corner of the OS window; grows/shrinks based on how much info there is.
+        void RenderCoordinateHud(Gui gui)
+        {
+            const float hudW = 300f;
+            var pos = new Vector2(gui.Dimensions.X - hudW - 8f, 8f);
+
+            ImGui.SetNextWindowPos(pos, Condition.Always, Vector2.Zero);
+            ImGui.SetNextWindowSize(new Vector2(hudW, 0), Condition.Always);
+
+            const WindowFlags flags = WindowFlags.NoTitleBar | WindowFlags.NoMove
+                                    | WindowFlags.NoResize   | WindowFlags.NoCollapse
+                                    | WindowFlags.NoSavedSettings | WindowFlags.NoBringToFrontOnFocus
+                                    | WindowFlags.NoInputs   | WindowFlags.AlwaysAutoResize;
+
+            ImGui.BeginWindow($"###{Id}Hud", flags);
+
+            var cam = Camera.Position;
+            ImGui.Text($"Cam: X={cam.X:F0}  Y={cam.Y:F0}  Z={cam.Z:F0}");
+
+            var sp = _view.SelectedSpawn;
+            if (sp != null)
+            {
+                // Scene → DB coord un-swap for the readout.
+                var p = sp.Model.Position;
+                ImGui.Text($"Sel: X={p.Y:F0}  Y={p.X:F0}  Z={p.Z:F0}  H={sp.CurrentHeading:F0}");
+                if (sp.IsDirty)
+                {
+                    var op = sp.OriginalPosition;
+                    var dx = p.Y - op.Y;
+                    var dy = p.X - op.X;
+                    var dz = p.Z - op.Z;
+                    ImGui.Text($"Δ:   dX={dx:+0;-0}  dY={dy:+0;-0}  dZ={dz:+0;-0}");
+                }
+            }
+
+            var wp = _view.Controller.Engine.WaypointEditor.Selected;
+            if (wp.HasValue)
+            {
+                var s = wp.Value.ScenePos;
+                ImGui.Text($"WP:  grid={wp.Value.GridId}  #{wp.Value.Number}  X={s.Y:F0}  Y={s.X:F0}  Z={s.Z:F0}");
+            }
+
+            ImGui.EndWindow();
         }
 
         void BeginCommit()
@@ -850,33 +900,7 @@ namespace VisualEQ.Views
         void FlyToAndSelect(SpawnPoint sp)
         {
             _view.Controller.SpawnManager.Select(sp.Model);
-
-            // Face-to-face vantage. Pull the camera in if the octree finds a wall between
-            // the spawn and the preferred distance so we don't end up looking at a building.
-            const float PreferredDistance = 20f;
-            const float MinDistance = 5f;
-            const float HeadHeight = 6f;
-            const float CastHeight = 3f;
-            const float WallPadding = 2f;
-
-            var basePos = sp.Model.Position;
-            var forward = Vector3.Normalize(Vector3.Transform(new Vector3(0, 1, 0), sp.Model.Rotation));
-
-            var distance = PreferredDistance;
-            if (Collider != null)
-            {
-                var castOrigin = basePos + new Vector3(0, 0, CastHeight);
-                var hit = Collider.FindIntersection(castOrigin, forward);
-                if (hit.HasValue)
-                {
-                    var hitDist = (hit.Value.Item2 - castOrigin).Length();
-                    if (hitDist < PreferredDistance)
-                        distance = Math.Max(hitDist - WallPadding, MinDistance);
-                }
-            }
-
-            Camera.Position = basePos + forward * distance;
-            Camera.LookAt(basePos + new Vector3(0, 0, HeadHeight));
+            _view.Controller.FrameSelection();
         }
 
         static string PrimaryName(SpawnPoint sp) =>

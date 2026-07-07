@@ -27,5 +27,12 @@ namespace VisualEQ.Engine
         // there was history to consume (for future UI feedback like a toast).
         bool TryUndo();
         bool TryRedo();
+
+        // Wired to Escape — clears any current model + waypoint selection.
+        void ClearSelection();
+
+        // Wired to F — camera flies to the currently-selected spawn (wall-aware placement).
+        // No-op when nothing is selected.
+        void FrameSelection();
     }
 }
