@@ -43,8 +43,18 @@ namespace VisualEQ.Engine
         // Selection changed event
         public event Action<AniModelInstance> OnSelectionChanged;
 
-        // Position changed event
+        // Position changed event (per-frame during a drag)
         public event Action<AniModelInstance, Vector3> OnPositionChanged;
+
+        // Drag completed event — fires ONCE per successful drag with from/to positions.
+        // Consumed by Controller to record a SpawnMoveAction. `from` is the position at the
+        // moment drag activated (post-threshold); `to` is the final resting position.
+        public event Action<AniModelInstance, Vector3, Vector3> OnDragCompleted;
+
+        // Where the model was when the drag actually activated (past the threshold).
+        // Recorded in BeginActualDrag so StopDrag can fire OnDragCompleted with an
+        // accurate "from" position.
+        private Vector3 _dragStartPosition;
 
         public ModelSelector(EngineCore engine, List<AniModelInstance> models)
         {
@@ -106,11 +116,16 @@ namespace VisualEQ.Engine
             return false;
         }
 
+        // Read-only vs edit mode gate. When false, StartDrag is a no-op — clicks still
+        // select but drags never mutate anything. Controller sets this via the mode toggle.
+        public bool EditModeEnabled = false;
+
         // Record intent to drag. The actual drag setup is deferred to the first UpdateDrag
         // call that reports mouse movement past DragThresholdPixels, so a click without
-        // meaningful movement is a pure "select" gesture.
+        // meaningful movement is a pure "select" gesture. No-op in read-only mode.
         public bool StartDrag(int mouseX, int mouseY)
         {
+            if (!EditModeEnabled) return false;
             if (selectedModel == null) return false;
 
             _dragPending = true;
@@ -124,6 +139,7 @@ namespace VisualEQ.Engine
         // avoids the model snapping to the mouse when drag activates.
         private bool BeginActualDrag(int mouseX, int mouseY)
         {
+            _dragStartPosition = selectedModel.Position;
             lastValidPosition = selectedModel.Position;
             FindSurfaceHeight(selectedModel.Position);
 
@@ -210,6 +226,8 @@ namespace VisualEQ.Engine
             if (isDragging && selectedModel != null)
             {
                 StickModelToSurface();
+                // Notify listeners of the completed drag so they can record an edit action.
+                OnDragCompleted?.Invoke(selectedModel, _dragStartPosition, selectedModel.Position);
             }
 
             isDragging = false;

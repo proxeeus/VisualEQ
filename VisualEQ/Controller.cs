@@ -5,6 +5,7 @@ using System.Numerics;
 using System.Threading.Tasks;
 using VisualEQ.Database.Configuration;
 using VisualEQ.Database.Repositories;
+using VisualEQ.EditSystem;
 using VisualEQ.Engine;
 using VisualEQ.Settings;
 using VisualEQ.SpawnSystem;
@@ -43,6 +44,122 @@ namespace VisualEQ
         // that need to react to zone swaps (e.g. MainMenuView shows/hides itself).
         public event Action<string> ZoneChanged;
 
+        // Fires when the user hit F10 while there are unsaved pending edits. The sidebar
+        // subscribes and shows an unsaved-changes warning modal instead of clearing.
+        public event Action UnsavedChangesOnClearRequested;
+
+        // Called by EngineCore.OnKeyDown F10. If there are pending edits, defers to a UI
+        // prompt via the event above; otherwise clears immediately.
+        public void RequestClearCurrentZone()
+        {
+            if (PendingBuffer != null && !PendingBuffer.IsEmpty && UnsavedChangesOnClearRequested != null)
+            {
+                UnsavedChangesOnClearRequested.Invoke();
+                return;
+            }
+            ClearCurrentZone();
+        }
+
+        // Edit mode gate: drag mutations are only allowed when true. Persists via settings.
+        // Views + ModelSelector observe this via EditModeChanged.
+        public bool EditModeEnabled
+        {
+            get => Settings.EditModeEnabled;
+            set
+            {
+                if (Settings.EditModeEnabled == value) return;
+                Settings.EditModeEnabled = value;
+                SettingsManager.Save(Settings);
+                EditModeChanged?.Invoke(value);
+            }
+        }
+        public event Action<bool> EditModeChanged;
+
+        // Called by EngineCore.OnKeyDown when the user hits E. No-op when no zone is loaded
+        // (edit mode is meaningless without a scene).
+        public void ToggleEditMode()
+        {
+            if (CurrentZoneName == null) return;
+            EditModeEnabled = !EditModeEnabled;
+        }
+
+        // ─── Pending edit buffer ───────────────────────────────────────────────────────
+
+        // The in-memory buffer for the currently-loaded zone. Non-null while a zone is loaded.
+        // Fresh (empty) by default; may be populated from disk during zone load if a previous
+        // session left pending edits.
+        public EditBuffer PendingBuffer { get; private set; }
+
+        // Session-only undo/redo history — see UndoStack for rationale. Cleared on zone unload.
+        public UndoStack UndoStack { get; } = new UndoStack();
+
+        // Fires whenever the buffer's contents change (add, remove, or item update). Sidebar
+        // subscribes to refresh its Pending Changes list; ModelSelector uses it to fire
+        // updates for the orange dirty markers.
+        public event Action BufferChanged;
+
+        // Debounced auto-save. Every mutation calls MarkBufferDirty(); a background timer
+        // in UpdateFrame writes to disk after a short lull so drags don't hammer the FS.
+        bool _bufferDirty;
+        float _bufferDirtyAt;
+        const float BufferSaveDebounceSec = 0.5f;
+
+        public void MarkBufferDirty()
+        {
+            _bufferDirty = true;
+            _bufferDirtyAt = FrameTime;
+            BufferChanged?.Invoke();
+        }
+
+        void FlushBufferIfNeeded()
+        {
+            if (!_bufferDirty || PendingBuffer == null) return;
+            if (FrameTime - _bufferDirtyAt < BufferSaveDebounceSec) return;
+
+            if (PendingBuffer.IsEmpty)
+                EditBufferManager.DeleteForZone(PendingBuffer.Zone);
+            else
+                EditBufferManager.SaveForZone(PendingBuffer);
+            _bufferDirty = false;
+        }
+
+        // Applies every SpawnEdit + GridEntryEdit in a buffer to the currently-loaded scene.
+        // Called on user's "Restore" during session recovery.
+        public void ApplyPendingBuffer(EditBuffer buffer)
+        {
+            if (buffer == null || buffer.IsEmpty) return;
+
+            foreach (var kv in buffer.Spawns)
+            {
+                var sp = SpawnManager.SpawnPoints.FirstOrDefault(p => p.Record.Spawn.Id == kv.Key);
+                if (sp == null) continue;
+                var e = kv.Value;
+                // Positions in the buffer are DB-space; the scene swaps X/Y.
+                var scenePos = new Vector3(e.CurrentY, e.CurrentX, e.CurrentZ);
+                sp.MarkMoved(scenePos, e.CurrentHeading);
+            }
+            // Grid entries applied in Phase 5.6 when waypoint rendering picks up buffer state.
+
+            PendingBuffer = buffer;
+            BufferChanged?.Invoke();
+            // No MarkBufferDirty — buffer is already on disk from the previous session.
+        }
+
+        // Wipes the current buffer + on-disk file. Restores all dirty spawns to their
+        // original position/heading via SpawnPoint.Revert().
+        public void DiscardPendingBuffer()
+        {
+            if (PendingBuffer == null) return;
+
+            foreach (var sp in SpawnManager.SpawnPoints)
+                if (sp.IsDirty) sp.Revert();
+
+            EditBufferManager.DeleteForZone(PendingBuffer.Zone);
+            PendingBuffer = new EditBuffer { Zone = CurrentZoneName, CreatedAt = DateTime.UtcNow };
+            _bufferDirty = false;
+            BufferChanged?.Invoke();
+        }
+
         public Controller(AppSettings settings)
         {
             Settings = settings;
@@ -58,12 +175,108 @@ namespace VisualEQ
                 Views.ForEach(view => view.Update(Engine.Gui));
                 UpdateSpawnMarkers();
                 UpdatePathGrids();
+                FlushBufferIfNeeded();
             };
             modelSelector = new ModelSelector(Engine, CharacterModels);
+            modelSelector.EditModeEnabled = Settings.EditModeEnabled;
             Engine.Controller = this;
 
             // Forward model selection to SpawnManager.
             modelSelector.OnSelectionChanged += SpawnManager.Select;
+
+            // Keep ModelSelector in sync with the mode toggle.
+            EditModeChanged += enabled => modelSelector.EditModeEnabled = enabled;
+
+            // Turn a completed drag into a SpawnMoveAction and apply it. In 5.4 this will
+            // also push onto the undo stack.
+            modelSelector.OnDragCompleted += HandleDragCompleted;
+
+            // Waypoint editor mirrors the same wiring.
+            Engine.WaypointEditor.EditModeEnabled = Settings.EditModeEnabled;
+            EditModeChanged += enabled => Engine.WaypointEditor.EditModeEnabled = enabled;
+            Engine.WaypointEditor.OnDragCompleted += HandleWaypointDragCompleted;
+        }
+
+        void HandleWaypointDragCompleted(int gridId, int number, Vector3 fromScenePos, Vector3 toScenePos)
+        {
+            if (Vector3.DistanceSquared(fromScenePos, toScenePos) < 0.0001f) return;
+            var action = new EditSystem.GridWaypointMoveAction(gridId, number, fromScenePos, toScenePos);
+            RecordAction(action);
+        }
+
+        void HandleDragCompleted(AniModelInstance instance, Vector3 fromScenePos, Vector3 toScenePos)
+        {
+            // No-op if the position didn't actually change (surface-stick may snap a drag
+            // back onto its starting Z — treat as no-edit).
+            if (Vector3.DistanceSquared(fromScenePos, toScenePos) < 0.0001f) return;
+
+            var sp = SpawnManager.SpawnPoints.FirstOrDefault(p => p.Model == instance);
+            if (sp == null) return;
+
+            var action = new EditSystem.SpawnMoveAction(sp, fromScenePos, toScenePos);
+            RecordAction(action);
+        }
+
+        // Central intake for edit actions. Runs Apply and records for undo. Also called
+        // by future action sources (rotation UI, waypoint drag).
+        public void RecordAction(IEditAction action)
+        {
+            action.Apply(this);
+            UndoStack.Record(action);
+        }
+
+        // Public wrappers for hotkey / sidebar button use. Return true if something changed.
+        public bool TryUndo()
+        {
+            var a = UndoStack.Undo(this);
+            if (a != null) Console.WriteLine($"[Undo] {a.Description}");
+            return a != null;
+        }
+
+        public bool TryRedo()
+        {
+            var a = UndoStack.Redo(this);
+            if (a != null) Console.WriteLine($"[Redo] {a.Description}");
+            return a != null;
+        }
+
+        // Fires a Task that writes the buffer to the DB in a single transaction. The
+        // sidebar's commit dialog owns the Task and polls it; this method just returns it
+        // so the widget can display progress. Returns null if there's nothing to commit
+        // or the DB isn't configured.
+        public Task<EditSystem.EditCommitter.Result> CommitPendingChangesAsync()
+        {
+            if (PendingBuffer == null || PendingBuffer.IsEmpty) return null;
+            if (DbFactory == null)
+            {
+                return Task.FromResult(new EditSystem.EditCommitter.Result
+                {
+                    Success = false,
+                    Error   = "No database connection is configured. Open Settings to configure it."
+                });
+            }
+
+            var bufferSnapshot = PendingBuffer;
+            var zoneName = CurrentZoneName;
+            return Task.Run(() => EditSystem.EditCommitter.CommitAsync(bufferSnapshot, zoneName, DbFactory));
+        }
+
+        // Called by the sidebar after a successful commit. Clears the buffer + undo stack
+        // and drops the on-disk file. Kept separate from CommitPendingChangesAsync so the
+        // sidebar can show the result dialog before wiping state.
+        public void OnCommitSucceeded()
+        {
+            if (PendingBuffer != null && !string.IsNullOrEmpty(PendingBuffer.Zone))
+                EditSystem.EditBufferManager.DeleteForZone(PendingBuffer.Zone);
+
+            PendingBuffer = new EditBuffer
+            {
+                Zone       = CurrentZoneName,
+                CreatedAt  = DateTime.UtcNow,
+            };
+            _bufferDirty = false;
+            UndoStack.Clear();
+            BufferChanged?.Invoke();
         }
 
         public void AddView(BaseView view)
@@ -83,13 +296,24 @@ namespace VisualEQ
             CurrentZoneName = name;
             Loader.LoadZoneFile($"../ConverterApp/{name}_oes.zip", Engine);
             Engine.RebuildCollision();
+            // Start with a fresh buffer — the state-machine phase CheckRecovery may replace
+            // it with one loaded from disk after prompting the user.
+            PendingBuffer = new EditBuffer { Zone = name, CreatedAt = DateTime.UtcNow };
+            _bufferDirty = false;
             ZoneChanged?.Invoke(name);
         }
 
         // Tears down the current zone's scene state so a new zone can be loaded on top.
-        // Safe to call when nothing is loaded.
+        // Safe to call when nothing is loaded. Ensures any pending buffer edits are flushed
+        // to disk before we drop the reference — protects against losing work on F10.
         public void ClearCurrentZone()
         {
+            if (_bufferDirty && PendingBuffer != null && !PendingBuffer.IsEmpty)
+                EditBufferManager.SaveForZone(PendingBuffer);
+            _bufferDirty = false;
+            PendingBuffer = null;
+            UndoStack.Clear();
+
             Engine.ClearScene();
             CharacterModels.Clear();
             _modelCache.Clear();
@@ -319,17 +543,21 @@ namespace VisualEQ
                 bool isDirty = sp.IsDirty;
                 bool isPlaceholder = sp.IsPlaceholder;
 
+                // Priority: dirty > selected > placeholder. Dirty must win over selected so
+                // that dragging a spawn (which stays selected) still flips the marker orange.
                 Vector4 color;
                 float height;
-                if (isSelected && showSelected)
+                if (isDirty && showDirty)
+                {
+                    // Selected + dirty gets a taller marker so the user still sees "this is
+                    // the one I have selected" while the color reflects the dirty state.
+                    color = new Vector4(1f, 0.55f, 0.15f, 0.95f); // orange
+                    height = isSelected ? 60f : 40f;
+                }
+                else if (isSelected && showSelected)
                 {
                     color = new Vector4(0.3f, 1f, 1f, 1f);   // cyan
                     height = 60f;
-                }
-                else if (isDirty && showDirty)
-                {
-                    color = new Vector4(1f, 0.55f, 0.15f, 0.9f); // orange
-                    height = 40f;
                 }
                 else if (isPlaceholder && showPlaceholder)
                 {
@@ -347,35 +575,52 @@ namespace VisualEQ
 
         // Builds path grid line list for the selected spawn only. Empty when nothing is
         // selected, the selected spawn has no grid, or the user has disabled path grids.
+        // Also pushes the current waypoint set into WaypointEditor so clicks near a
+        // crosshair can grab the waypoint before the spawn selection.
         void UpdatePathGrids()
         {
             var lines = new List<(Vector3 A, Vector3 B, Vector4 Color)>();
+            var candidates = new List<Engine.WaypointEditor.Handle>();
 
             var sp = SpawnManager.Selected;
             if (sp != null && Settings.ShowPathGrids && sp.Record.Waypoints.Count > 0)
             {
-                var color = new Vector4(1f, 0.85f, 0.2f, 1f); // bright amber for the selected spawn's grid
+                var amber = new Vector4(1f, 0.85f, 0.2f, 1f);
+                var green = new Vector4(0.3f, 1f, 0.3f, 1f); // selected-waypoint highlight
+                var selectedHandle = Engine.WaypointEditor.Selected;
+
                 var waypoints = sp.Record.Waypoints.OrderBy(w => w.Number).ToList();
 
-                // Same coord swap as spawns: scene X = EQ Y, scene Y = EQ X.
                 Vector3 ToScene(Database.Models.GridEntry g) => new Vector3(g.Y, g.X, g.Z);
 
-                // Polyline through waypoints.
                 for (int i = 0; i + 1 < waypoints.Count; i++)
-                    lines.Add((ToScene(waypoints[i]), ToScene(waypoints[i + 1]), color));
+                    lines.Add((ToScene(waypoints[i]), ToScene(waypoints[i + 1]), amber));
 
-                // Small axis-aligned crosshair at each waypoint so single-point grids or
-                // corners are still visible.
                 const float armLength = 5f;
+                const float selectedArmLength = 9f;
                 foreach (var wp in waypoints)
                 {
-                    var c = ToScene(wp);
-                    lines.Add((c - new Vector3(armLength, 0, 0), c + new Vector3(armLength, 0, 0), color));
-                    lines.Add((c - new Vector3(0, armLength, 0), c + new Vector3(0, armLength, 0), color));
-                    lines.Add((c - new Vector3(0, 0, armLength), c + new Vector3(0, 0, armLength), color));
+                    var scenePos = ToScene(wp);
+                    var isSelected = selectedHandle.HasValue
+                        && selectedHandle.Value.GridId == wp.GridId
+                        && selectedHandle.Value.Number == wp.Number;
+                    var color = isSelected ? green : amber;
+                    var arm = isSelected ? selectedArmLength : armLength;
+
+                    lines.Add((scenePos - new Vector3(arm, 0, 0), scenePos + new Vector3(arm, 0, 0), color));
+                    lines.Add((scenePos - new Vector3(0, arm, 0), scenePos + new Vector3(0, arm, 0), color));
+                    lines.Add((scenePos - new Vector3(0, 0, arm), scenePos + new Vector3(0, 0, arm), color));
+
+                    candidates.Add(new Engine.WaypointEditor.Handle
+                    {
+                        GridId   = wp.GridId,
+                        Number   = wp.Number,
+                        ScenePos = scenePos,
+                    });
                 }
             }
 
+            Engine.WaypointEditor.SetCandidates(candidates);
             Engine.SetPathGridLines(lines);
         }
     }

@@ -9,6 +9,7 @@ using ImGuiNET;
 using NsimGui;
 using NsimGui.Widgets;
 using VisualEQ.ConverterCore;
+using VisualEQ.EditSystem;
 using VisualEQ.Settings;
 
 namespace VisualEQ.Views
@@ -66,6 +67,7 @@ namespace VisualEQ.Views
             FetchSpawns,
             SpawnLoadChunk,
             FinishSpawns,
+            CheckRecovery,   // 5.2 — detect pending buffer, show modal if non-empty
             Done
         }
         private const int SpawnLoadChunkSize = 10;
@@ -73,6 +75,11 @@ namespace VisualEQ.Views
         private string _loadingZone;
         private float _loadProgress;
         private string _loadLabel = "";
+
+        // Recovery modal state during LoadPhase.CheckRecovery.
+        private bool _recoveryChecked;
+        private bool _recoveryModalActive;
+        private EditBuffer _recoveryBuffer;
 
         // Decoder state. Converter is pure file I/O + CPU — safe to run on ThreadPool.
         private Task<DecodeResult> _decodeTask;
@@ -465,13 +472,17 @@ namespace VisualEQ.Views
             _loadPhase = LoadPhase.PaintMessage;
             _loadProgress = 0f;
             _loadLabel = "Preparing…";
+            _recoveryChecked = false;
+            _recoveryModalActive = false;
+            _recoveryBuffer = null;
         }
 
         void RenderLoadingDialog(Gui gui)
         {
-            // Centered on the OS window; fixed-size, non-movable, non-resizable modal.
+            // Centered on the OS window; fixed-size, non-movable, non-resizable modal. The
+            // dialog grows taller when the recovery buttons are showing.
             const float dlgW = 480f;
-            const float dlgH = 150f;
+            var dlgH = _recoveryModalActive ? 240f : 150f;
             var pos = new Vector2((gui.Dimensions.X - dlgW) / 2, (gui.Dimensions.Y - dlgH) / 2);
 
             ImGui.SetNextWindowPos(pos, Condition.Always, Vector2.Zero);
@@ -483,12 +494,73 @@ namespace VisualEQ.Views
 
             ImGui.BeginWindow($"###{Id}Loading", flags);
 
-            ImGui.Text($"Loading zone '{_loadingZone}'");
-            ImGui.Text(_loadLabel);
-            ImGui.Separator();
-            ImGui.ProgressBar(_loadProgress, new Vector2(0, 28), $"{(_loadProgress * 100):F0}%");
+            if (_recoveryModalActive)
+                RenderRecoveryModal();
+            else
+            {
+                ImGui.Text($"Loading zone '{_loadingZone}'");
+                ImGui.Text(_loadLabel);
+                ImGui.Separator();
+                ImGui.ProgressBar(_loadProgress, new Vector2(0, 28), $"{(_loadProgress * 100):F0}%");
+            }
 
             ImGui.EndWindow();
+        }
+
+        void RenderRecoveryModal()
+        {
+            var b = _recoveryBuffer;
+            ImGui.Text($"Unsaved changes for zone '{_loadingZone}'");
+            ImGui.Text("found from a previous session.");
+            ImGui.Separator();
+            ImGui.Text($"  {b.Spawns.Count} pending spawn moves");
+            if (b.GridEntries.Count > 0)
+                ImGui.Text($"  {b.GridEntries.Count} pending grid edits");
+            ImGui.Text($"  Last edit: {b.LastModifiedAt.ToLocalTime():yyyy-MM-dd HH:mm}");
+            ImGui.Separator();
+
+            var sz = new Vector2(130, 28);
+            if (ImGui.Button($"Restore###{Id}rvR", sz))
+                FinishRecoveryWith(applyRestore: true, discard: false, cancel: false);
+            ImGui.SameLine();
+            if (ImGui.Button($"Discard###{Id}rvD", sz))
+                FinishRecoveryWith(applyRestore: false, discard: true, cancel: false);
+            ImGui.SameLine();
+            if (ImGui.Button($"Cancel###{Id}rvC", sz))
+                FinishRecoveryWith(applyRestore: false, discard: false, cancel: true);
+        }
+
+        void FinishRecoveryWith(bool applyRestore, bool discard, bool cancel)
+        {
+            try
+            {
+                if (applyRestore)
+                    _controller.ApplyPendingBuffer(_recoveryBuffer);
+                else if (discard)
+                    EditBufferManager.DeleteForZone(_recoveryBuffer.Zone);
+                else if (cancel)
+                {
+                    _controller.ClearCurrentZone();
+                    _loadPhase = LoadPhase.None;
+                    _loadingZone = null;
+                    _loadProgress = 0f;
+                    _loadLabel = "";
+                    _recoveryChecked = false;
+                    _recoveryModalActive = false;
+                    _recoveryBuffer = null;
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[MainMenu] Recovery '{_loadingZone}' failed: {ex}");
+            }
+
+            _recoveryModalActive = false;
+            _recoveryBuffer = null;
+            _loadProgress = 1f;
+            _loadPhase = LoadPhase.Done;
+            _loadLabel = "Ready.";
         }
 
         // Runs one phase of the load per frame. The bar's % shown BEFORE this call is what
@@ -566,7 +638,28 @@ namespace VisualEQ.Views
 
                     case LoadPhase.FinishSpawns:
                         _controller.FinishSpawnLoad();
-                        _loadProgress = 1.0f;
+                        _loadProgress = 0.99f;
+                        _loadPhase = LoadPhase.CheckRecovery;
+                        _loadLabel = "Checking for unsaved changes…";
+                        break;
+
+                    case LoadPhase.CheckRecovery:
+                        // First entry: query disk. Subsequent frames (while modal is up)
+                        // do nothing here — the button handlers advance the state.
+                        if (_recoveryModalActive) break;
+                        if (!_recoveryChecked)
+                        {
+                            _recoveryChecked = true;
+                            _recoveryBuffer = EditBufferManager.LoadForZone(_loadingZone);
+                            if (_recoveryBuffer != null && !_recoveryBuffer.IsEmpty)
+                            {
+                                _recoveryModalActive = true;
+                                _loadLabel = $"{_recoveryBuffer.TotalPending} pending edits from last session";
+                                break;
+                            }
+                            _recoveryBuffer = null;
+                        }
+                        _loadProgress = 1f;
                         _loadPhase = LoadPhase.Done;
                         _loadLabel = "Ready.";
                         break;

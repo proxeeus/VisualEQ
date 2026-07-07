@@ -49,6 +49,13 @@ namespace VisualEQ.Database.Constants
             SET x = @X, y = @Y, z = @Z, heading = @Heading
             WHERE id = @SpawnId";
 
+        // Used by the Phase 5 commit path to write waypoint drags back to the DB. Key is
+        // (gridid, number, zoneid) — grid_entries has no primary key beyond that composite.
+        public const string UpdateGridEntry = @"
+            UPDATE grid_entries
+            SET x = @X, y = @Y, z = @Z, heading = @Heading, pause = @Pause
+            WHERE gridid = @GridId AND number = @Number AND zoneid = @ZoneId";
+
         public const string GetSpawnGroup = @"
             SELECT * FROM spawngroup WHERE id = @GroupId";
 

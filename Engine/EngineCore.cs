@@ -59,6 +59,10 @@ namespace VisualEQ.Engine
         // Reference to the controller that owns this engine
         public IController Controller { get; set; }
 
+        // Waypoint editing runs alongside spawn selection — clicks near a candidate waypoint
+        // engage this instead of ModelSelector.
+        public WaypointEditor WaypointEditor { get; }
+
         // Spawn state indicators drawn after the forward pass. Lazily instantiated on the
         // first render frame (GL context guaranteed). Controller pushes lines via
         // SetSpawnMarkerLines; last-set data is reused if a frame doesn't provide new lines.
@@ -78,6 +82,11 @@ namespace VisualEQ.Engine
         // Whether we're currently dragging a model
         private bool ModelDragging = false;
 
+        // Whether we're currently dragging a waypoint. Mutually exclusive with ModelDragging —
+        // WaypointEditor gets first crack at MouseDown, and if it grabs the click ModelSelector
+        // stays out of the way.
+        private bool WaypointDragging = false;
+
         // Make Width and Height properties publicly accessible
         public new int Width => base.Width;
         public new int Height => base.Height;
@@ -92,6 +101,7 @@ namespace VisualEQ.Engine
             WindowState = WindowState.Maximized;
             Stopwatch.Start();
             Gui = new Gui(new GuiRenderer());
+            WaypointEditor = new WaypointEditor(this);
 
             MouseMove += (_, e) =>
             {
@@ -99,8 +109,11 @@ namespace VisualEQ.Engine
                 {
                     Gui.MousePosition = (e.X, e.Y);
 
-                    // If we're dragging a model, update its position
-                    if (ModelDragging)
+                    if (WaypointDragging)
+                    {
+                        WaypointEditor?.UpdateDrag(e.X, e.Y);
+                    }
+                    else if (ModelDragging)
                     {
                         // Use dynamic to avoid type issues
                         dynamic modelSelector = Controller?.ModelSelector;
@@ -113,15 +126,26 @@ namespace VisualEQ.Engine
             {
                 UpdateMouseButton(e.Button, true);
 
-                // Handle model selection and dragging with left mouse button when not in GUI
+                // Handle selection and dragging with left mouse button when not in GUI.
+                // Waypoint edits take precedence over spawn selection so clicking a waypoint
+                // crosshair (which sits at the same screen area as a spawn model) doesn't
+                // accidentally grab the spawn.
                 if (e.Button == MouseButton.Left && !Gui.MouseWanted)
                 {
-                    // Try to select a model at mouse position
+                    if (WaypointEditor != null && WaypointEditor.TrySelect(e.X, e.Y))
+                    {
+                        WaypointDragging = true;
+                        WaypointEditor.StartDrag(e.X, e.Y);
+                        return;
+                    }
+
                     dynamic modelSelector = Controller?.ModelSelector;
                     if (modelSelector?.TrySelect(e.X, e.Y) == true)
                     {
                         ModelDragging = true;
                         modelSelector?.StartDrag(e.X, e.Y);
+                        // Selecting a new spawn should clear any prior waypoint sub-selection.
+                        WaypointEditor?.ClearSelection();
                     }
                 }
             };
@@ -129,6 +153,13 @@ namespace VisualEQ.Engine
             MouseUp += (_, e) =>
             {
                 UpdateMouseButton(e.Button, false);
+
+                if (e.Button == MouseButton.Left && WaypointDragging)
+                {
+                    WaypointDragging = false;
+                    WaypointEditor?.StopDrag();
+                    return;
+                }
 
                 // Stop dragging on mouse up
                 if (e.Button == MouseButton.Left && ModelDragging)
@@ -272,6 +303,18 @@ namespace VisualEQ.Engine
             // Don't drive camera or trigger game actions while a text field has focus.
             if (Gui.KeyboardWanted) return;
 
+            // Ctrl+ combos are always modifier gestures — never propagate to camera movement.
+            // Undo maps to Ctrl+Z on QWERTY, which arrives here as Key.W on AZERTY (Windows
+            // layout-independent VK codes: physical top-left of the top letter row is Key.W
+            // regardless of the layout label). We accept both so both layouts get real Ctrl+Z.
+            // Redo (Ctrl+Y) works from both layouts because Y sits at the same physical spot.
+            if (e.Control && !e.Shift && !e.Alt)
+            {
+                if (e.Key == Key.Z || e.Key == Key.W) { Controller?.TryUndo(); return; }
+                if (e.Key == Key.Y)                  { Controller?.TryRedo(); return; }
+                return; // consume unrecognized Ctrl+* so camera never sees the key
+            }
+
             switch (e.Key)
             {
                 case Key.L:
@@ -285,8 +328,12 @@ namespace VisualEQ.Engine
                     PhysicsEnabled = !PhysicsEnabled;
                     break;
                 case Key.F10:
-                    // Return to main menu: clear the current zone so MainMenuView shows itself again.
-                    Controller?.ClearCurrentZone();
+                    // Return to main menu — Controller may prompt if there are unsaved edits.
+                    Controller?.RequestClearCurrentZone();
+                    break;
+                case Key.E:
+                    // Toggle edit mode. Only meaningful while a zone is loaded.
+                    Controller?.ToggleEditMode();
                     break;
                 default:
                     KeyState[e.Key] = true;

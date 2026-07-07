@@ -30,5 +30,10 @@ namespace VisualEQ.Settings
         public bool ShowPlaceholderMarkers { get; set; } = true;
         public bool ShowDirtyMarkers { get; set; } = true;
         public bool ShowSelectedMarker { get; set; } = true;
+
+        // Edit mode: when false (default), drag operations are disabled — the app is a viewer.
+        // When true, spawns and grid waypoints can be dragged, edits accumulate in a per-zone
+        // JSON buffer at %APPDATA%\VisualEQ\pending\<zone>.json until committed to DB.
+        public bool EditModeEnabled { get; set; } = false;
     }
 }

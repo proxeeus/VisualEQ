@@ -118,7 +118,7 @@ Design: `SpawnPoint` **wraps** `AniModelInstance` — the engine renders raw `An
 - `ISpawnRepository`: `GetZoneSpawnsAsync` (simple), `GetZoneSpawnsFullAsync` (full compound records), `GetSpawnByIdAsync`, `UpdateSpawnLocationAsync`.
 - `SqlQueries` — every column that Dapper needs is aliased with `AS PascalCase` (e.g. `spawngroupID AS SpawnGroupId`) to make mapping deterministic across drivers.
 - Grid keying is `(zoneid, id)`. `GetZoneId` fetches `zone.zoneidnumber` by `short_name` — always filter `grid_entries` by both.
-- `proxeeus_db_schema.sql` at repo root is the reference schema for the currently supported EQEmu fork.
+- Always check the database schema in the database configured in eqemu_config.json at c:\eqemu
 
 ## 10. Roadmap status (from `VisualEQ-SpawnEditor-Plan.md`)
 
