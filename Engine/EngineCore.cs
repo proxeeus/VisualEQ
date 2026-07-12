@@ -171,7 +171,11 @@ namespace VisualEQ.Engine
             };
             MouseWheel += (_, e) =>
             {
-                if (ModelDragging)
+                if (WaypointDragging)
+                {
+                    WaypointEditor?.AdjustDragDepth(e.Delta * 2.0f);
+                }
+                else if (ModelDragging)
                 {
                     // Use mouse wheel to adjust depth while dragging
                     dynamic modelSelector = Controller?.ModelSelector;
