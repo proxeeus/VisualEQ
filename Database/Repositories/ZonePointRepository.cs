@@ -24,5 +24,13 @@ namespace VisualEQ.Database.Repositories
                     SqlQueries.GetTrilogyZonePoints, new { ZoneName = zoneName });
             }
         }
+
+        public async Task<IEnumerable<string>> GetAllZoneShortNamesAsync()
+        {
+            using (var connection = CreateConnection())
+            {
+                return await connection.QueryAsync<string>(SqlQueries.GetAllZoneShortNames);
+            }
+        }
     }
 }

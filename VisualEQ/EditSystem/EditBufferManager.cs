@@ -36,7 +36,7 @@ namespace VisualEQ.EditSystem
                 var json = File.ReadAllText(path);
                 var buffer = JsonSerializer.Deserialize<EditBuffer>(json, JsonOptions);
                 if (buffer == null) return null;
-                if (buffer.SchemaVersion > 3)
+                if (buffer.SchemaVersion > 4)
                 {
                     Console.WriteLine($"[EditBufferManager] Buffer for '{zone}' has newer schema version {buffer.SchemaVersion}; ignoring.");
                     return null;
@@ -45,8 +45,12 @@ namespace VisualEQ.EditSystem
                 // v2 → v3: ZonePointEdit scalar fields (target/heading/mode/keep*/plane
                 //         bounds) default to zero/null on deserialisation; ScalarOriginalsSeeded
                 //         is false so ApplyPendingBuffer will seed Original* from the live row.
-                if (buffer.SchemaVersion < 3) buffer.SchemaVersion = 3;
+                // v3 → v4: adds ZonePointInserts + ZonePointDeletes for new-row/delete-row
+                //         support. Both default to empty collections on load.
+                if (buffer.SchemaVersion < 4) buffer.SchemaVersion = 4;
                 if (buffer.ZonePoints == null) buffer.ZonePoints = new System.Collections.Generic.Dictionary<int, ZonePointEdit>();
+                if (buffer.ZonePointInserts == null) buffer.ZonePointInserts = new System.Collections.Generic.Dictionary<int, ZonePointInsert>();
+                if (buffer.ZonePointDeletes == null) buffer.ZonePointDeletes = new System.Collections.Generic.HashSet<int>();
                 return buffer;
             }
             catch (Exception ex)

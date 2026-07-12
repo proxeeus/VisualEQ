@@ -94,7 +94,10 @@ namespace NsimGui
         public void Render(float deltaTime)
         {
             IO.DeltaTime = deltaTime;
-            IO.MouseWheel = WheelDelta / 10f;
+            // OpenTK's MouseWheelEventArgs.Delta is already in "notches" (±1 per notch);
+            // ImGui expects IO.MouseWheel = ±1 per notch too. The previous /10 divisor
+            // made scrolling feel dead (10 notches to move one line) — pass through as-is.
+            IO.MouseWheel = WheelDelta;
             WheelDelta = 0;
 
             ImGui.NewFrame();

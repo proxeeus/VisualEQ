@@ -144,12 +144,21 @@ namespace VisualEQ.Views
         private const WindowFlags PinnedPanel =
             WindowFlags.NoTitleBar | WindowFlags.NoMove |
             WindowFlags.NoCollapse | WindowFlags.NoBringToFrontOnFocus |
-            WindowFlags.NoSavedSettings | WindowFlags.ResizeFromAnySide;
+            WindowFlags.NoSavedSettings | WindowFlags.ResizeFromAnySide |
+            // Always-visible right-side scrollbar so users know they CAN scroll when
+            // stacked sections push content off the bottom (inspector fields especially).
+            WindowFlags.AlwaysVerticalScrollbar;
 
         private const float DefaultWidth = 380f;
         private const float MinWidth = 180f;
         private const float MinRightGutter = 200f; // leave at least this many px for the 3D view
         private const float WidthSaveDebounceSec = 0.5f;
+        // Sidebar height reserves this many pixels at the bottom of the client area so
+        // the OS taskbar (which can overlap the app on some Windows setups, especially
+        // maximized-over-work-area quirks in Parallels) doesn't cover the last row of
+        // scrollable content. Users on setups without this issue lose a small amount of
+        // vertical space — trade for reliable "scroll reaches the end" behavior.
+        private const float BottomSafeAreaPx = 60f;
 
         private float _width;
         private readonly List<string> _order;
@@ -194,9 +203,17 @@ namespace VisualEQ.Views
 
         // Text-field state for InputText widgets in the inspector. Byte buffer must persist
         // across frames or focus is lost each frame; reset when selection or the underlying
-        // row value changes while not being edited.
+        // row value changes while not being edited. Used only as a fallback when the target-
+        // zone dropdown can't populate (no DB configured, no cached shortnames).
         private readonly byte[] _zpTargetZoneBuffer = new byte[64];
         private int? _zpTargetZoneBufferForId;
+
+        // Delete-confirmation state. Two-click gate — first click arms, second click within
+        // DeleteConfirmSeconds actually deletes. Simpler than a modal, matches the
+        // "click twice to confirm" convention.
+        private int _zpDeleteArmedForId;
+        private float _zpDeleteArmedAt;
+        private const float DeleteConfirmSeconds = 3f;
 
         // Debounced settings save — flush when width has been stable for a moment.
         private bool _widthDirty;
@@ -223,7 +240,9 @@ namespace VisualEQ.Views
         public override void Render(Gui gui)
         {
             var winW = gui.Dimensions.X;
-            var winH = gui.Dimensions.Y;
+            // Reserve safe area at the bottom so scroll-to-end reveals the last row above
+            // any OS taskbar overlap.
+            var winH = Math.Max(100f, gui.Dimensions.Y - BottomSafeAreaPx);
 
             ImGui.SetNextWindowPos(new Vector2(0, 0), Condition.Always, Vector2.Zero);
             ImGui.SetNextWindowSize(new Vector2(_width, winH), Condition.FirstUseEver);
@@ -333,7 +352,7 @@ namespace VisualEQ.Views
                 _commitResult = _commitTask.Result;
                 _commitTask   = null;
                 if (_commitResult.Success)
-                    _view.Controller.OnCommitSucceeded();
+                    _view.Controller.OnCommitSucceeded(_commitResult);
                 _commitPhase = CommitPhase.Result;
             }
 
@@ -409,9 +428,14 @@ namespace VisualEQ.Views
                 ImGui.Text($"  {r.SpawnRowsWritten} spawn2 row(s) updated");
                 ImGui.Text($"  {r.GridRowsWritten} grid_entries row(s) updated");
                 ImGui.Text($"  {r.ZonePointRowsWritten} trilogy_zone_points row(s) updated");
+                if (r.ZonePointInsertsWritten > 0)
+                    ImGui.Text($"  {r.ZonePointInsertsWritten} trilogy_zone_points row(s) inserted");
+                if (r.ZonePointDeletesWritten > 0)
+                    ImGui.Text($"  {r.ZonePointDeletesWritten} trilogy_zone_points row(s) deleted");
                 ImGui.Separator();
                 ImGui.Text("Buffer + undo history cleared.");
-                if (r.ZonePointRowsWritten > 0)
+                var touchedZonePoints = r.ZonePointRowsWritten + r.ZonePointInsertsWritten + r.ZonePointDeletesWritten;
+                if (touchedZonePoints > 0)
                 {
                     ImGui.Separator();
                     ImGui.Text("Run '#reload static' on the zone process to apply live.");
@@ -811,7 +835,11 @@ namespace VisualEQ.Views
                 .ToList();
             var hidden = total - recentSpawns.Count - recentGrids.Count;
 
-            ImGui.BeginChild($"###{Id}pcList", new Vector2(0, 260), true, WindowFlags.Default);
+            // Fixed-height list child. Wheel scroll IS handled by the child when the
+            // mouse hovers it (standard ImGui behavior) — so if you hover the list,
+            // wheel scrolls the list; if you hover the inspector below, wheel scrolls
+            // the parent sidebar. Kept modest so the sidebar doesn't drown under lists.
+            ImGui.BeginChild($"###{Id}pcList", new Vector2(0, 180), true, WindowFlags.Default);
 
             if (recentSpawns.Count > 0)
             {
@@ -909,7 +937,7 @@ namespace VisualEQ.Views
 
             ImGui.Text($"{matches.Count} of {spawns.Count} spawns");
 
-            ImGui.BeginChild($"###{Id}slList", new Vector2(0, 300), true, WindowFlags.Default);
+            ImGui.BeginChild($"###{Id}slList", new Vector2(0, 200), true, WindowFlags.Default);
             var selected = ctrl.SpawnManager.Selected;
             foreach (var m in matches)
             {
@@ -945,14 +973,29 @@ namespace VisualEQ.Views
             if (!ImGui.CollapsingHeader($"Zone Points ({count})###{Id}zp", 0))
                 return;
 
+            // Creation buttons — always visible; when edit mode is off they're hidden
+            // (matching the drag-editor's gate). Both spawn at the camera's XY.
+            if (ctrl.EditModeEnabled)
+            {
+                if (ImGui.Button($"+ New Box###{Id}zpNewBox", new Vector2(110, 24)))
+                    ctrl.CreateZonePoint(0);
+                ImGui.SameLine();
+                if (ImGui.Button($"+ New Plane###{Id}zpNewPlane", new Vector2(110, 24)))
+                    ctrl.CreateZonePoint(1); // default to X-plane; user flips to Y in inspector
+                ImGui.Text("Spawns at camera position; select mode + tune in the inspector.");
+                ImGui.Separator();
+            }
+
             if (count == 0)
             {
                 ImGui.Text("No trilogy_zone_points rows for this zone.");
+                if (ctrl.EditModeEnabled)
+                    ImGui.Text("Click + New Box or + New Plane above to add one.");
                 return;
             }
 
             var selected = ctrl.ZonePointManager.Selected;
-            ImGui.BeginChild($"###{Id}zpList", new Vector2(0, 260), true, WindowFlags.Default);
+            ImGui.BeginChild($"###{Id}zpList", new Vector2(0, 140), true, WindowFlags.Default);
             foreach (var zp in ctrl.ZonePointManager.ZonePoints)
             {
                 string badge;
@@ -973,7 +1016,9 @@ namespace VisualEQ.Views
                     default: mode = "mode?"; break;
                 }
                 var dirty = zp.IsDirty ? " *" : "";
-                var label = $"{badge} #{zp.Row.Id} {mode} → {zp.Row.TargetZone}{dirty}###{Id}zpItem{zp.Row.Id}";
+                var pending = zp.IsPendingInsert ? " [NEW]" : "";
+                var idLabel = zp.IsPendingInsert ? "new" : zp.Row.Id.ToString();
+                var label = $"{badge} #{idLabel} {mode} → {zp.Row.TargetZone}{dirty}{pending}###{Id}zpItem{zp.Row.Id}";
 
                 if (ImGui.Selectable(label, ReferenceEquals(zp, selected)))
                     FlyToZonePoint(zp);
@@ -997,7 +1042,35 @@ namespace VisualEQ.Views
         void RenderZonePointInspector(VisualEQ.ZonePointSystem.ZonePoint zp, bool editable)
         {
             ImGui.Separator();
-            ImGui.Text($"Selected: #{zp.Row.Id}  (health: {zp.Health})");
+            var idLabel = zp.IsPendingInsert ? "new" : zp.Row.Id.ToString();
+            var suffix  = zp.IsPendingInsert ? " [NEW — will INSERT on commit]" : "";
+            ImGui.Text($"Selected: #{idLabel}  (health: {zp.Health}){suffix}");
+
+            // Delete affordance — two-click confirm to prevent misclicks. First click arms;
+            // second within a couple seconds actually deletes. Only visible in edit mode.
+            if (editable)
+            {
+                if (_zpDeleteArmedForId == zp.Row.Id &&
+                    (FrameTime - _zpDeleteArmedAt) < DeleteConfirmSeconds)
+                {
+                    if (ImGui.Button($"Confirm delete###{Id}zpDelC", new Vector2(160, 24)))
+                    {
+                        _view.Controller.DeleteSelectedZonePoint();
+                        _zpDeleteArmedForId = 0;
+                    }
+                    ImGui.SameLine();
+                    if (ImGui.Button($"Cancel###{Id}zpDelX", new Vector2(90, 24)))
+                        _zpDeleteArmedForId = 0;
+                }
+                else
+                {
+                    if (ImGui.Button($"Delete this trigger###{Id}zpDel", new Vector2(180, 24)))
+                    {
+                        _zpDeleteArmedForId = zp.Row.Id;
+                        _zpDeleteArmedAt    = FrameTime;
+                    }
+                }
+            }
 
             // ─── Source position + size (read-only readout; edit these via world drag) ──
             ImGui.Separator();
@@ -1014,18 +1087,22 @@ namespace VisualEQ.Views
             ImGui.Separator();
             ImGui.Text("Mode");
             RenderModeRadios(zp, editable);
+            ImGui.Text("Box = tight portal / door. Plane = wide outdoor zone edge.");
 
             // ─── Plane crossing bounds — only relevant for modes 1/2 ─────────────────
             if (db.UseNewZoning == 1 || db.UseNewZoning == 2)
             {
                 ImGui.Separator();
-                ImGui.Text("Plane bounds (perpendicular axis)");
+                var perpAxis = db.UseNewZoning == 1 ? "Y" : "X";
+                ImGui.Text($"Plane bounds ({perpAxis} axis extent)");
                 RenderFloatField(zp, VisualEQ.EditSystem.ZonePointFieldEditAction.Field.MinVert,
                     "MinVert", () => zp.Row.MinVert, v => zp.Row.MinVert = v, editable);
                 RenderFloatField(zp, VisualEQ.EditSystem.ZonePointFieldEditAction.Field.MaxVert,
                     "MaxVert", () => zp.Row.MaxVert, v => zp.Row.MaxVert = v, editable);
                 RenderFloatField(zp, VisualEQ.EditSystem.ZonePointFieldEditAction.Field.CenterPoint,
                     "CenterPoint", () => zp.Row.CenterPoint, v => zp.Row.CenterPoint = v, editable);
+                ImGui.Text($"MinVert/MaxVert bracket the trigger line along the {perpAxis} axis.");
+                ImGui.Text("Both 0 = unbounded (spans the whole zone).");
             }
 
             // ─── Target ──────────────────────────────────────────────────────────────
@@ -1043,6 +1120,7 @@ namespace VisualEQ.Views
                 () => zp.Row.TargetZ, v => zp.Row.TargetZ = v, editable);
             RenderFloatField(zp, VisualEQ.EditSystem.ZonePointFieldEditAction.Field.Heading,
                 "heading (0–255)", () => zp.Row.Heading, v => zp.Row.Heading = v, editable);
+            ImGui.Text("Check 'wild' on an axis to preserve the player's coord across zones.");
 
             // ─── Keep flags ──────────────────────────────────────────────────────────
             ImGui.Separator();
@@ -1053,6 +1131,8 @@ namespace VisualEQ.Views
                 "keepY", () => zp.Row.KeepY, v => zp.Row.KeepY = v, editable);
             RenderKeepCheckbox(zp, VisualEQ.EditSystem.ZonePointFieldEditAction.Field.KeepZ,
                 "keepZ", () => zp.Row.KeepZ, v => zp.Row.KeepZ = v, editable);
+            ImGui.Text("Preserve the player's axis-value on teleport. Check for outdoor");
+            ImGui.Text("edges where source and target zones share a coord system.");
 
             if (zp.IsDirty)
             {
@@ -1150,9 +1230,54 @@ namespace VisualEQ.Views
                 return;
             }
 
-            // Only refresh the byte buffer when selection changes OR the row value drifted
-            // from the buffer while nothing is being edited. Otherwise the user's typing
-            // gets stomped on every frame.
+            var shortNames = _view.Controller.ZoneShortNames;
+            if (shortNames.Count > 0)
+            {
+                RenderTargetZoneCombo(zp, current, shortNames);
+                return;
+            }
+
+            RenderTargetZoneInputTextFallback(zp, current);
+        }
+
+        // Combo dropdown fed by the cached zone shortnames list. On any selection change,
+        // records a single ZonePointFieldEditAction — same undo path as any other field.
+        void RenderTargetZoneCombo(
+            VisualEQ.ZonePointSystem.ZonePoint zp,
+            string current,
+            System.Collections.Generic.List<string> shortNames)
+        {
+            var items = shortNames.ToArray();
+            int idx = Array.IndexOf(items, current);
+            if (idx < 0)
+            {
+                // Current value isn't in the cached list (unusual — stale zone shortname or
+                // a value not in `zone` table). Show a message so the user can spot it.
+                ImGui.Text($"target_zone = '{current}' (unknown to zone table)");
+                ImGui.Text("Pick a known zone below to fix:");
+                idx = 0;
+            }
+            else
+            {
+                ImGui.Text("target_zone");
+            }
+
+            var refIdx = idx;
+            if (ImGui.Combo($"###{Id}zpTZCombo", ref refIdx, items) && refIdx != idx)
+            {
+                var newValue = items[refIdx];
+                _view.Controller.RecordAction(
+                    new VisualEQ.EditSystem.ZonePointFieldEditAction(
+                        zp,
+                        VisualEQ.EditSystem.ZonePointFieldEditAction.Field.TargetZone,
+                        current, newValue));
+            }
+        }
+
+        // Fallback path when no zone shortnames are cached (DB not configured yet). Uses
+        // the same byte-buffer + active-edit pattern as the other InputText widgets.
+        void RenderTargetZoneInputTextFallback(VisualEQ.ZonePointSystem.ZonePoint zp, string current)
+        {
             var isThisFieldActive =
                 _zpActiveEditZonePointId == zp.Row.Id &&
                 _zpActiveEditField == VisualEQ.EditSystem.ZonePointFieldEditAction.Field.TargetZone;
@@ -1165,8 +1290,7 @@ namespace VisualEQ.Views
                 _zpTargetZoneBufferForId = zp.Row.Id;
             }
 
-            ImGui.Text("target_zone");
-            ImGui.SameLine();
+            ImGui.Text("target_zone (no zone table cached — type shortname)");
             ImGui.InputText($"###{Id}zpTZ", _zpTargetZoneBuffer, (uint)_zpTargetZoneBuffer.Length, InputTextFlags.Default, null);
             HandleActivationTransition(
                 zp,

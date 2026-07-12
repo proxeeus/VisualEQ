@@ -16,6 +16,13 @@ namespace VisualEQ.ZonePointSystem
 
         public int DirtyCount => ZonePoints.Count(zp => zp.IsDirty);
 
+        // Monotonically-decreasing counter for pending-insert temp ids. Real DB ids are
+        // always positive AUTO_INCREMENT; using negatives means we can distinguish
+        // "not yet persisted" via a single check (Id < 0) and there's no collision risk
+        // with existing rows.
+        int _nextTempId = -1;
+        public int NextTempId() => _nextTempId--;
+
         public void LoadFromRows(IEnumerable<TrilogyZonePoint> rows)
         {
             ZonePoints.Clear();
@@ -29,6 +36,26 @@ namespace VisualEQ.ZonePointSystem
         {
             ZonePoints.Clear();
             Selected = null;
+            _nextTempId = -1;
+        }
+
+        // Adds a ZonePoint (usually pending-insert) to the list. Silently no-ops on
+        // duplicate id so undo/redo of the same insert is idempotent.
+        public void Add(ZonePoint zp)
+        {
+            if (ZonePoints.Any(z => z.Row.Id == zp.Row.Id)) return;
+            ZonePoints.Add(zp);
+        }
+
+        // Removes by id — used by delete/undo-insert paths. Clears selection if the
+        // removed row was selected.
+        public void Remove(int id)
+        {
+            var idx = ZonePoints.FindIndex(z => z.Row.Id == id);
+            if (idx < 0) return;
+            var wasSelected = ReferenceEquals(ZonePoints[idx], Selected);
+            ZonePoints.RemoveAt(idx);
+            if (wasSelected) ClearSelection();
         }
 
         public void Select(int id)

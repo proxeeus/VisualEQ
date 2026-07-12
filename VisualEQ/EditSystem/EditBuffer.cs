@@ -20,17 +20,33 @@ namespace VisualEQ.EditSystem
         //   v1 — spawns + grid entries only
         //   v2 — adds ZonePoints (trilogy_zone_points edits, position + size only)
         //   v3 — adds scalar fields to ZonePointEdit (target/heading/mode/keep*/plane bounds)
-        public int SchemaVersion { get; set; } = 3;
+        //   v4 — adds ZonePointInserts + ZonePointDeletes for new-row / delete-row support
+        public int SchemaVersion { get; set; } = 4;
 
         public Dictionary<int, SpawnEdit> Spawns { get; set; } = new Dictionary<int, SpawnEdit>();
         public Dictionary<string, GridEntryEdit> GridEntries { get; set; } = new Dictionary<string, GridEntryEdit>();
         public Dictionary<int, ZonePointEdit> ZonePoints { get; set; } = new Dictionary<int, ZonePointEdit>();
 
+        // Pending inserts — keyed by their negative temp id (see ZonePointManager.NextTempId).
+        // On commit each becomes an INSERT and its returned AUTO_INCREMENT id replaces the
+        // temp id on the in-memory ZonePoint.
+        public Dictionary<int, ZonePointInsert> ZonePointInserts { get; set; } = new Dictionary<int, ZonePointInsert>();
+
+        // Pending deletes — DB ids of rows the user removed. Excludes pending-insert rows
+        // (those are dropped straight from ZonePointInserts instead of being tracked here).
+        public HashSet<int> ZonePointDeletes { get; set; } = new HashSet<int>();
+
         // Reserved for Phase 5.9+ (npc_types edits).
         public Dictionary<int, NpcEdit> Npcs { get; set; } = new Dictionary<int, NpcEdit>();
 
-        public bool IsEmpty => Spawns.Count == 0 && GridEntries.Count == 0 && ZonePoints.Count == 0 && Npcs.Count == 0;
-        public int TotalPending => Spawns.Count + GridEntries.Count + ZonePoints.Count + Npcs.Count;
+        public bool IsEmpty =>
+            Spawns.Count == 0 && GridEntries.Count == 0 &&
+            ZonePoints.Count == 0 && ZonePointInserts.Count == 0 && ZonePointDeletes.Count == 0 &&
+            Npcs.Count == 0;
+        public int TotalPending =>
+            Spawns.Count + GridEntries.Count +
+            ZonePoints.Count + ZonePointInserts.Count + ZonePointDeletes.Count +
+            Npcs.Count;
 
         // Composite key helper for grid entries: (gridId, number).
         public static string GridEntryKey(int gridId, int number) => $"{gridId}:{number}";
@@ -83,6 +99,33 @@ namespace VisualEQ.EditSystem
         // Populated when Phase 5.9+ NPC editing lands. Kept as a placeholder so the JSON
         // shape is stable across releases.
         public DateTime LastModifiedAt { get; set; }
+    }
+
+    // A brand-new trilogy_zone_points row waiting to be INSERTed on commit. Holds every
+    // schema column plus a negative temp id that the in-memory ZonePoint uses as its
+    // Row.Id until the INSERT lands and the real AUTO_INCREMENT id is stitched back in.
+    public class ZonePointInsert
+    {
+        public int TempId { get; set; }
+        public string Zone { get; set; }
+        public float X { get; set; }
+        public float Y { get; set; }
+        public float Z { get; set; }
+        public float Heading { get; set; }
+        public string TargetZone { get; set; }
+        public float TargetX { get; set; }
+        public float TargetY { get; set; }
+        public float TargetZ { get; set; }
+        public int Zrange { get; set; }
+        public int MaxZDiff { get; set; }
+        public byte UseNewZoning { get; set; }
+        public float MinVert { get; set; }
+        public float MaxVert { get; set; }
+        public float CenterPoint { get; set; }
+        public int KeepX { get; set; }
+        public int KeepY { get; set; }
+        public int KeepZ { get; set; }
+        public DateTime CreatedAt { get; set; }
     }
 
     // One row of pending edits for trilogy_zone_points. Covers every column exposed by
