@@ -16,7 +16,14 @@ namespace VisualEQ.EditSystem
             public string Error;
             public int SpawnRowsWritten;
             public int GridRowsWritten;
-            public int ZonePointRowsWritten;
+            public int ZonePointRowsWritten;      // UPDATEs on existing rows
+            public int ZonePointInsertsWritten;
+            public int ZonePointDeletesWritten;
+
+            // Maps pending-insert temp ids (negative) to their assigned AUTO_INCREMENT ids
+            // (positive) after a successful INSERT. Consumers (OnCommitSucceeded) apply this
+            // to the in-memory ZonePoint list so subsequent edits refer to the persisted row.
+            public System.Collections.Generic.Dictionary<int, int> InsertedIdMap;
         }
 
         public static async Task<Result> CommitAsync(
@@ -85,22 +92,62 @@ namespace VisualEQ.EditSystem
                                     tx);
                             }
 
-                            // Zone-point edits: buffer holds every editable field, so we
-                            // write from the buffer directly. ToZoneID is re-derived from
-                            // the current target_zone shortname (cheap SELECT per unique
-                            // target zone) so it never drifts out of sync with target_zone.
-                            int zonePointRows = 0;
+                            // Zone-point commits: DELETE first (so a delete+re-insert with
+                            // the same target coord doesn't briefly duplicate a row), then
+                            // INSERT (returns AUTO_INCREMENT ids we map back to the temp
+                            // ids), then UPDATE the pre-existing rows.
+                            //
+                            // ToZoneID is re-derived from the current target_zone shortname
+                            // for every INSERT/UPDATE (cached per shortname) so it never
+                            // drifts out of sync with target_zone across renames.
                             var toZoneIdCache = new System.Collections.Generic.Dictionary<string, int>(System.StringComparer.OrdinalIgnoreCase);
+                            async Task<int> ResolveToZoneIdAsync(string shortName)
+                            {
+                                var s = shortName ?? "";
+                                if (toZoneIdCache.TryGetValue(s, out var cached)) return cached;
+                                var resolved = await connection.QueryFirstOrDefaultAsync<int?>(
+                                    SqlQueries.GetZoneId, new { ZoneName = s }, tx) ?? 0;
+                                toZoneIdCache[s] = resolved;
+                                return resolved;
+                            }
+
+                            int zonePointDeletes = 0;
+                            foreach (var deleteId in buffer.ZonePointDeletes)
+                            {
+                                zonePointDeletes += await connection.ExecuteAsync(
+                                    SqlQueries.DeleteTrilogyZonePoint, new { Id = deleteId }, tx);
+                            }
+
+                            int zonePointInserts = 0;
+                            var insertedIdMap = new System.Collections.Generic.Dictionary<int, int>();
+                            foreach (var kv in buffer.ZonePointInserts)
+                            {
+                                var ins = kv.Value;
+                                var toZoneId = await ResolveToZoneIdAsync(ins.TargetZone);
+                                var newId = await connection.ExecuteScalarAsync<int>(
+                                    SqlQueries.InsertTrilogyZonePoint,
+                                    new
+                                    {
+                                        Zone         = ins.Zone,
+                                        X            = ins.X, Y = ins.Y, Z = ins.Z, Heading = ins.Heading,
+                                        TargetZone   = ins.TargetZone,
+                                        TargetX      = ins.TargetX, TargetY = ins.TargetY, TargetZ = ins.TargetZ,
+                                        Zrange       = ins.Zrange, MaxZDiff = ins.MaxZDiff,
+                                        UseNewZoning = ins.UseNewZoning,
+                                        MinVert      = ins.MinVert, MaxVert = ins.MaxVert, CenterPoint = ins.CenterPoint,
+                                        KeepX        = ins.KeepX, KeepY = ins.KeepY, KeepZ = ins.KeepZ,
+                                        ToZoneId     = toZoneId,
+                                    },
+                                    tx);
+                                insertedIdMap[ins.TempId] = newId;
+                                zonePointInserts++;
+                            }
+
+                            int zonePointRows = 0;
                             foreach (var kv in buffer.ZonePoints)
                             {
                                 var edit = kv.Value;
-                                var targetShort = edit.CurrentTargetZone ?? "";
-                                if (!toZoneIdCache.TryGetValue(targetShort, out var toZoneId))
-                                {
-                                    toZoneId = await connection.QueryFirstOrDefaultAsync<int?>(
-                                        SqlQueries.GetZoneId, new { ZoneName = targetShort }, tx) ?? 0;
-                                    toZoneIdCache[targetShort] = toZoneId;
-                                }
+                                var toZoneId = await ResolveToZoneIdAsync(edit.CurrentTargetZone);
                                 zonePointRows += await connection.ExecuteAsync(
                                     SqlQueries.UpdateTrilogyZonePoint,
                                     new
@@ -131,10 +178,13 @@ namespace VisualEQ.EditSystem
                             tx.Commit();
                             return new Result
                             {
-                                Success          = true,
-                                SpawnRowsWritten = spawnRows,
-                                GridRowsWritten  = gridRows,
-                                ZonePointRowsWritten = zonePointRows,
+                                Success                  = true,
+                                SpawnRowsWritten         = spawnRows,
+                                GridRowsWritten          = gridRows,
+                                ZonePointRowsWritten     = zonePointRows,
+                                ZonePointInsertsWritten  = zonePointInserts,
+                                ZonePointDeletesWritten  = zonePointDeletes,
+                                InsertedIdMap            = insertedIdMap,
                             };
                         }
                         catch (Exception ex)

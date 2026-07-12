@@ -40,6 +40,11 @@ namespace VisualEQ
 
         public ZonePointManager ZonePointManager { get; } = new ZonePointManager();
 
+        // Cached list of every zone shortname in the DB — populated on zone load,
+        // powers the target-zone dropdown in the inspector. Empty when no DB is
+        // configured; the inspector falls back to a free-text field in that case.
+        public List<string> ZoneShortNames { get; } = new List<string>();
+
         // Zone name set when LoadZone is called; triggers spawn load on later DB connect.
         public string CurrentZoneName { get; private set; }
 
@@ -441,8 +446,32 @@ namespace VisualEQ
         // sidebar can show the result dialog before wiping state.
         public void OnCommitSucceeded()
         {
+            OnCommitSucceeded(null);
+        }
+
+        // Overload that also stitches DB-assigned AUTO_INCREMENT ids back onto pending-
+        // insert ZonePoints (whose Row.Id was previously a negative temp id). Rows the
+        // user was editing keep their (now-real) identity, so undo history for post-
+        // commit field-edits remains coherent. Also drops any deleted rows from the
+        // in-memory manager list.
+        public void OnCommitSucceeded(EditSystem.EditCommitter.Result result)
+        {
             if (PendingBuffer != null && !string.IsNullOrEmpty(PendingBuffer.Zone))
                 EditSystem.EditBufferManager.DeleteForZone(PendingBuffer.Zone);
+
+            if (result != null)
+            {
+                if (result.InsertedIdMap != null)
+                {
+                    foreach (var kv in result.InsertedIdMap)
+                    {
+                        var zp = ZonePointManager.ZonePoints.FirstOrDefault(z => z.Row.Id == kv.Key);
+                        if (zp != null) zp.Row.Id = kv.Value;
+                    }
+                }
+                // Deletes were already applied in-memory when the DeleteAction ran; no
+                // scene mutation needed here.
+            }
 
             PendingBuffer = new EditBuffer
             {
@@ -495,6 +524,7 @@ namespace VisualEQ
             LastModelLoaded = null;
             SpawnManager.SpawnPoints.Clear();
             ZonePointManager.Clear();
+            ZoneShortNames.Clear();
             CurrentZoneName = null;
             ZoneChanged?.Invoke(null);
         }
@@ -542,11 +572,86 @@ namespace VisualEQ
                 var repo = new ZonePointRepository(DbFactory);
                 var rows = repo.GetZonePointsAsync(zoneName).GetAwaiter().GetResult();
                 ZonePointManager.LoadFromRows(rows);
+
+                // Populate the dropdown-backing list once per zone load. Cached because
+                // it's used every inspector-render frame.
+                if (ZoneShortNames.Count == 0)
+                {
+                    var shortnames = repo.GetAllZoneShortNamesAsync().GetAwaiter().GetResult();
+                    ZoneShortNames.AddRange(shortnames.Where(s => !string.IsNullOrEmpty(s)));
+                    Console.WriteLine($"[Controller] Cached {ZoneShortNames.Count} zone shortnames for target dropdown.");
+                }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[Controller] Zone point load error: {ex}");
             }
+        }
+
+        // Creates a new trilogy_zone_points row at the camera's current ground projection
+        // (X/Y from Camera.Position, Z from a downward collision probe so it lands on the
+        // floor). Wraps in a ZonePointInsertAction so the create is undoable, selects the
+        // new row so the inspector focuses it, and flies the camera to give the user a
+        // visual anchor.
+        public void CreateZonePoint(byte useNewZoning)
+        {
+            if (CurrentZoneName == null) return;
+
+            // Scene camera position → DB coords (swap XY). Ground-snap Z so the new box
+            // isn't floating.
+            var cam = Camera.Position;
+            float dbX = cam.Y;
+            float dbY = cam.X;
+            float dbZ = cam.Z;
+            if (Collider != null)
+            {
+                var probe = new Vector3(cam.X, cam.Y, cam.Z + 5f);
+                var hit = Collider.FindIntersection(probe, new Vector3(0, 0, -1), 0.5f);
+                if (hit.HasValue) dbZ = hit.Value.Item2.Z + 5f;
+            }
+
+            var row = new Database.Models.TrilogyZonePoint
+            {
+                Id           = ZonePointManager.NextTempId(),
+                Zone         = CurrentZoneName,
+                X            = dbX,
+                Y            = dbY,
+                Z            = dbZ,
+                Heading      = 0f,
+                TargetZone   = ZoneShortNames.FirstOrDefault(z =>
+                                    !string.Equals(z, CurrentZoneName, StringComparison.OrdinalIgnoreCase))
+                                ?? CurrentZoneName,
+                TargetX      = 0f,
+                TargetY      = 0f,
+                TargetZ      = 0f,
+                Zrange       = 15,
+                MaxZDiff     = 0,
+                UseNewZoning = useNewZoning,
+                MinVert      = 0f,
+                MaxVert      = 0f,
+                CenterPoint  = 0f,
+                KeepX        = 0,
+                KeepY        = 0,
+                KeepZ        = 0,
+                ToZoneId     = 0,
+            };
+
+            RecordAction(new EditSystem.ZonePointInsertAction(row));
+
+            // Select the fresh row so the inspector focuses on it and the user sees a
+            // handle to tune.
+            var created = ZonePointManager.ZonePoints.FirstOrDefault(z => z.Row.Id == row.Id);
+            if (created != null) ZonePointManager.Select(created);
+        }
+
+        // Removes the currently-selected zone_point (persisted rows go to buffer.Deletes,
+        // pending-insert rows get their Insert entry dropped). No-op when nothing is
+        // selected.
+        public void DeleteSelectedZonePoint()
+        {
+            var zp = ZonePointManager.Selected;
+            if (zp == null) return;
+            RecordAction(new EditSystem.ZonePointDeleteAction(zp));
         }
 
         // Preloads the placeholder-fallback model for the zone. Sets LastModelLoaded so

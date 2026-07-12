@@ -127,5 +127,34 @@ namespace VisualEQ.Database.Constants
                 keepX = @KeepX, keepY = @KeepY, keepZ = @KeepZ,
                 ToZoneID = @ToZoneId
             WHERE id = @Id";
+
+        // INSERT returns the AUTO_INCREMENT id via LAST_INSERT_ID() (session-scoped, safe
+        // inside a transaction). Committer runs this then remaps the in-memory temp id
+        // to the returned real id.
+        public const string InsertTrilogyZonePoint = @"
+            INSERT INTO trilogy_zone_points
+                (zone, x, y, z, heading,
+                 target_zone, target_x, target_y, target_z,
+                 Zrange, maxZDiff, UseNewZoning,
+                 MinVert, MaxVert, CenterPoint,
+                 keepX, keepY, keepZ, ToZoneID)
+            VALUES
+                (@Zone, @X, @Y, @Z, @Heading,
+                 @TargetZone, @TargetX, @TargetY, @TargetZ,
+                 @Zrange, @MaxZDiff, @UseNewZoning,
+                 @MinVert, @MaxVert, @CenterPoint,
+                 @KeepX, @KeepY, @KeepZ, @ToZoneId);
+            SELECT LAST_INSERT_ID();";
+
+        public const string DeleteTrilogyZonePoint = @"
+            DELETE FROM trilogy_zone_points WHERE id = @Id";
+
+        // Populates the target-zone dropdown in the inspector. Sorted alphabetically so
+        // the Combo is easy to scan; ORDER BY short_name is the natural human order for
+        // dozens of Trilogy-era zones.
+        public const string GetAllZoneShortNames = @"
+            SELECT short_name
+            FROM zone
+            ORDER BY short_name";
     }
 }

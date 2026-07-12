@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Numerics;
+using VisualEQ.Database.Models;
 using VisualEQ.ZonePointSystem;
 
 namespace VisualEQ.EditSystem
@@ -35,16 +36,8 @@ namespace VisualEQ.EditSystem
         {
             var zp = ZonePointActionHelpers.Find(controller, ZonePointId);
             if (zp == null) return;
-
             zp.MarkMoved(scenePos);
-            var edit = ZonePointActionHelpers.EnsureBufferEntry(controller, zp);
-            if (edit == null) return;
-            edit.CurrentX       = zp.Row.X;
-            edit.CurrentY       = zp.Row.Y;
-            edit.CurrentZ       = zp.Row.Z;
-            edit.LastModifiedAt = DateTime.UtcNow;
-            ZonePointActionHelpers.MaybeDropIfCleanNow(controller.PendingBuffer, edit, zp);
-            controller.MarkBufferDirty();
+            ZonePointActionHelpers.SyncBufferForCurrentState(controller, zp);
         }
     }
 
@@ -82,15 +75,8 @@ namespace VisualEQ.EditSystem
         {
             var zp = ZonePointActionHelpers.Find(controller, ZonePointId);
             if (zp == null) return;
-
             zp.MarkResized(zrange, maxZDiff);
-            var edit = ZonePointActionHelpers.EnsureBufferEntry(controller, zp);
-            if (edit == null) return;
-            edit.CurrentZrange   = zp.Row.Zrange;
-            edit.CurrentMaxZDiff = zp.Row.MaxZDiff;
-            edit.LastModifiedAt  = DateTime.UtcNow;
-            ZonePointActionHelpers.MaybeDropIfCleanNow(controller.PendingBuffer, edit, zp);
-            controller.MarkBufferDirty();
+            ZonePointActionHelpers.SyncBufferForCurrentState(controller, zp);
         }
     }
 
@@ -143,14 +129,8 @@ namespace VisualEQ.EditSystem
         {
             var zp = ZonePointActionHelpers.Find(controller, ZonePointId);
             if (zp == null) return;
-
             ApplyToZonePoint(zp, value);
-            var edit = ZonePointActionHelpers.EnsureBufferEntry(controller, zp);
-            if (edit == null) return;
-            ApplyToBufferEntry(edit, value);
-            edit.LastModifiedAt = DateTime.UtcNow;
-            ZonePointActionHelpers.MaybeDropIfCleanNow(controller.PendingBuffer, edit, zp);
-            controller.MarkBufferDirty();
+            ZonePointActionHelpers.SyncBufferForCurrentState(controller, zp);
         }
 
         void ApplyToZonePoint(ZonePoint zp, object v)
@@ -172,42 +152,293 @@ namespace VisualEQ.EditSystem
             }
         }
 
-        void ApplyToBufferEntry(ZonePointEdit edit, object v)
+        // Old ApplyToBufferEntry removed — SyncBufferForCurrentState now handles the
+        // buffer mirror in one place, dispatching on IsPendingInsert.
+    }
+
+    // Creates a brand-new trilogy_zone_points row. Apply installs a ZonePoint in the
+    // manager (with a negative temp id) and a ZonePointInsert in the buffer; Revert
+    // removes both. Undo-safe and idempotent — re-Apply is a no-op when the row is
+    // already present.
+    public sealed class ZonePointInsertAction : IEditAction
+    {
+        public int TempId { get; }
+        public TrilogyZonePoint InitialRow { get; }
+        public DateTime Timestamp { get; }
+
+        public string Description => $"Created zone_point (→ {InitialRow.TargetZone ?? "?"})";
+        public string TargetKey   => $"zonepoint:{TempId}";
+
+        public ZonePointInsertAction(TrilogyZonePoint initialRow)
         {
-            switch (Which)
+            InitialRow = initialRow;
+            TempId     = initialRow.Id;
+            Timestamp  = DateTime.UtcNow;
+        }
+
+        public void Apply(Controller controller)
+        {
+            if (controller.ZonePointManager.ZonePoints.Any(z => z.Row.Id == TempId)) return;
+
+            // Clone the initial row so undo/redo can restore original state even if the
+            // scene mutates the ZonePoint's Row after creation.
+            var row = CloneRow(InitialRow);
+            row.Id = TempId;
+            var zp = new ZonePoint(row);
+            controller.ZonePointManager.Add(zp);
+
+            var buffer = controller.PendingBuffer;
+            if (buffer != null)
             {
-                case Field.Heading:      edit.CurrentHeading      = Convert.ToSingle(v); break;
-                case Field.TargetZone:   edit.CurrentTargetZone   = (string)v; break;
-                case Field.TargetX:      edit.CurrentTargetX      = Convert.ToSingle(v); break;
-                case Field.TargetY:      edit.CurrentTargetY      = Convert.ToSingle(v); break;
-                case Field.TargetZ:      edit.CurrentTargetZ      = Convert.ToSingle(v); break;
-                case Field.UseNewZoning: edit.CurrentUseNewZoning = Convert.ToByte(v); break;
-                case Field.MinVert:      edit.CurrentMinVert      = Convert.ToSingle(v); break;
-                case Field.MaxVert:      edit.CurrentMaxVert      = Convert.ToSingle(v); break;
-                case Field.CenterPoint:  edit.CurrentCenterPoint  = Convert.ToSingle(v); break;
-                case Field.KeepX:        edit.CurrentKeepX        = Convert.ToInt32(v); break;
-                case Field.KeepY:        edit.CurrentKeepY        = Convert.ToInt32(v); break;
-                case Field.KeepZ:        edit.CurrentKeepZ        = Convert.ToInt32(v); break;
+                buffer.ZonePointInserts[TempId] = ToInsert(row);
+                controller.MarkBufferDirty();
             }
         }
+
+        public void Revert(Controller controller)
+        {
+            controller.ZonePointManager.Remove(TempId);
+            var buffer = controller.PendingBuffer;
+            if (buffer != null)
+            {
+                buffer.ZonePointInserts.Remove(TempId);
+                controller.MarkBufferDirty();
+            }
+        }
+
+        static TrilogyZonePoint CloneRow(TrilogyZonePoint src) => new TrilogyZonePoint
+        {
+            Id           = src.Id,
+            Zone         = src.Zone,
+            X            = src.X,
+            Y            = src.Y,
+            Z            = src.Z,
+            Heading      = src.Heading,
+            TargetZone   = src.TargetZone,
+            TargetX      = src.TargetX,
+            TargetY      = src.TargetY,
+            TargetZ      = src.TargetZ,
+            Zrange       = src.Zrange,
+            MaxZDiff     = src.MaxZDiff,
+            UseNewZoning = src.UseNewZoning,
+            MinVert      = src.MinVert,
+            MaxVert      = src.MaxVert,
+            CenterPoint  = src.CenterPoint,
+            KeepX        = src.KeepX,
+            KeepY        = src.KeepY,
+            KeepZ        = src.KeepZ,
+            ToZoneId     = src.ToZoneId,
+        };
+
+        static ZonePointInsert ToInsert(TrilogyZonePoint row) => new ZonePointInsert
+        {
+            TempId       = row.Id,
+            Zone         = row.Zone,
+            X            = row.X,
+            Y            = row.Y,
+            Z            = row.Z,
+            Heading      = row.Heading,
+            TargetZone   = row.TargetZone,
+            TargetX      = row.TargetX,
+            TargetY      = row.TargetY,
+            TargetZ      = row.TargetZ,
+            Zrange       = row.Zrange,
+            MaxZDiff     = row.MaxZDiff,
+            UseNewZoning = row.UseNewZoning,
+            MinVert      = row.MinVert,
+            MaxVert      = row.MaxVert,
+            CenterPoint  = row.CenterPoint,
+            KeepX        = row.KeepX,
+            KeepY        = row.KeepY,
+            KeepZ        = row.KeepZ,
+            CreatedAt    = DateTime.UtcNow,
+        };
+    }
+
+    // Removes a zone_point. Handles both persisted rows (adds to buffer.ZonePointDeletes
+    // for eventual DB DELETE) and pending-insert rows (just drops the ZonePointInsert
+    // entry — no DB touch needed). Revert restores the ZonePoint from a captured snapshot
+    // so field values survive undo intact.
+    public sealed class ZonePointDeleteAction : IEditAction
+    {
+        public int ZonePointId { get; }
+        public bool WasPendingInsert { get; }
+        public TrilogyZonePoint Snapshot { get; }
+        public string DisplayName { get; }
+        public DateTime Timestamp { get; }
+
+        public string Description => $"Deleted zone_point #{ZonePointId} (→ {DisplayName})";
+        public string TargetKey   => $"zonepoint:{ZonePointId}";
+
+        public ZonePointDeleteAction(ZonePoint zp)
+        {
+            ZonePointId      = zp.Row.Id;
+            WasPendingInsert = zp.IsPendingInsert;
+            Snapshot         = ZonePointInsertAction_CloneRow(zp.Row);
+            DisplayName      = zp.Row.TargetZone ?? "?";
+            Timestamp        = DateTime.UtcNow;
+        }
+
+        public void Apply(Controller controller)
+        {
+            controller.ZonePointManager.Remove(ZonePointId);
+            var buffer = controller.PendingBuffer;
+            if (buffer == null) return;
+
+            if (WasPendingInsert)
+            {
+                buffer.ZonePointInserts.Remove(ZonePointId);
+            }
+            else
+            {
+                buffer.ZonePointDeletes.Add(ZonePointId);
+                // Drop any prior field-edit entry for this id — the row is going away.
+                buffer.ZonePoints.Remove(ZonePointId);
+            }
+            controller.MarkBufferDirty();
+        }
+
+        public void Revert(Controller controller)
+        {
+            if (controller.ZonePointManager.ZonePoints.Any(z => z.Row.Id == ZonePointId)) return;
+
+            var row = ZonePointInsertAction_CloneRow(Snapshot);
+            var zp = new ZonePoint(row);
+            controller.ZonePointManager.Add(zp);
+
+            var buffer = controller.PendingBuffer;
+            if (buffer == null) return;
+
+            if (WasPendingInsert)
+            {
+                buffer.ZonePointInserts[ZonePointId] = new ZonePointInsert
+                {
+                    TempId       = row.Id,
+                    Zone         = row.Zone,
+                    X            = row.X, Y = row.Y, Z = row.Z, Heading = row.Heading,
+                    TargetZone   = row.TargetZone,
+                    TargetX      = row.TargetX, TargetY = row.TargetY, TargetZ = row.TargetZ,
+                    Zrange       = row.Zrange, MaxZDiff = row.MaxZDiff,
+                    UseNewZoning = row.UseNewZoning,
+                    MinVert      = row.MinVert, MaxVert = row.MaxVert, CenterPoint = row.CenterPoint,
+                    KeepX        = row.KeepX, KeepY = row.KeepY, KeepZ = row.KeepZ,
+                    CreatedAt    = DateTime.UtcNow,
+                };
+            }
+            else
+            {
+                buffer.ZonePointDeletes.Remove(ZonePointId);
+            }
+            controller.MarkBufferDirty();
+        }
+
+        // Duplicate of ZonePointInsertAction.CloneRow — kept file-local to avoid making it
+        // public; a follow-up refactor can extract if a third callsite appears.
+        static TrilogyZonePoint ZonePointInsertAction_CloneRow(TrilogyZonePoint src) => new TrilogyZonePoint
+        {
+            Id           = src.Id,
+            Zone         = src.Zone,
+            X            = src.X, Y = src.Y, Z = src.Z, Heading = src.Heading,
+            TargetZone   = src.TargetZone,
+            TargetX      = src.TargetX, TargetY = src.TargetY, TargetZ = src.TargetZ,
+            Zrange       = src.Zrange, MaxZDiff = src.MaxZDiff,
+            UseNewZoning = src.UseNewZoning,
+            MinVert      = src.MinVert, MaxVert = src.MaxVert, CenterPoint = src.CenterPoint,
+            KeepX        = src.KeepX, KeepY = src.KeepY, KeepZ = src.KeepZ,
+            ToZoneId     = src.ToZoneId,
+        };
     }
 
     // Shared helpers used by every ZonePoint*Action to keep buffer-entry seeding and the
-    // "back to baseline → drop" check in one place. Any new mutator only touches its own
-    // Current* fields.
+    // "back to baseline → drop" check in one place. Any new mutator just calls
+    // SyncBufferForCurrentState after mutating zp.Row — the helper picks the right buffer
+    // slot (Inserts vs Points) and mirrors every field.
     internal static class ZonePointActionHelpers
     {
         public static ZonePoint Find(Controller controller, int id) =>
             controller.ZonePointManager.ZonePoints.FirstOrDefault(z => z.Row.Id == id);
 
-        // Ensures a ZonePointEdit exists for zp and its Original* fields reflect the true
-        // baseline. First-edit path seeds every Original* from the ZonePoint (which cached
-        // them at load). Returns null when there's no active buffer.
+        // Post-mutation buffer sync. For persisted rows: ensures a ZonePointEdit exists,
+        // mirrors every Current* from zp.Row, runs MaybeDropIfCleanNow. For pending-insert
+        // rows: mirrors every field into the ZonePointInsert entry so the eventual INSERT
+        // reflects the latest inspector edits (was a silent-data-loss bug — the UPDATE
+        // path uses the temp id which matches no persisted row).
+        //
+        // Always calls MarkBufferDirty so the sidebar's pending count and the on-disk
+        // flush stay in sync.
+        public static void SyncBufferForCurrentState(Controller controller, ZonePoint zp)
+        {
+            var buffer = controller.PendingBuffer;
+            if (buffer == null) return;
+
+            if (zp.IsPendingInsert)
+            {
+                if (buffer.ZonePointInserts.TryGetValue(zp.Row.Id, out var insert))
+                    MirrorRowIntoInsert(insert, zp.Row);
+                controller.MarkBufferDirty();
+                return;
+            }
+
+            if (!buffer.ZonePoints.TryGetValue(zp.Row.Id, out var edit))
+            {
+                edit = SeedFullEdit(zp);
+                buffer.ZonePoints[zp.Row.Id] = edit;
+            }
+            MirrorRowIntoEdit(edit, zp.Row);
+            edit.LastModifiedAt = DateTime.UtcNow;
+            MaybeDropIfCleanNow(buffer, edit, zp);
+            controller.MarkBufferDirty();
+        }
+
+        static void MirrorRowIntoInsert(ZonePointInsert insert, VisualEQ.Database.Models.TrilogyZonePoint row)
+        {
+            insert.X            = row.X;
+            insert.Y            = row.Y;
+            insert.Z            = row.Z;
+            insert.Heading      = row.Heading;
+            insert.TargetZone   = row.TargetZone;
+            insert.TargetX      = row.TargetX;
+            insert.TargetY      = row.TargetY;
+            insert.TargetZ      = row.TargetZ;
+            insert.Zrange       = row.Zrange;
+            insert.MaxZDiff     = row.MaxZDiff;
+            insert.UseNewZoning = row.UseNewZoning;
+            insert.MinVert      = row.MinVert;
+            insert.MaxVert      = row.MaxVert;
+            insert.CenterPoint  = row.CenterPoint;
+            insert.KeepX        = row.KeepX;
+            insert.KeepY        = row.KeepY;
+            insert.KeepZ        = row.KeepZ;
+        }
+
+        static void MirrorRowIntoEdit(ZonePointEdit edit, VisualEQ.Database.Models.TrilogyZonePoint row)
+        {
+            edit.CurrentX            = row.X;
+            edit.CurrentY            = row.Y;
+            edit.CurrentZ            = row.Z;
+            edit.CurrentZrange       = row.Zrange;
+            edit.CurrentMaxZDiff     = row.MaxZDiff;
+            edit.CurrentHeading      = row.Heading;
+            edit.CurrentTargetZone   = row.TargetZone;
+            edit.CurrentTargetX      = row.TargetX;
+            edit.CurrentTargetY      = row.TargetY;
+            edit.CurrentTargetZ      = row.TargetZ;
+            edit.CurrentUseNewZoning = row.UseNewZoning;
+            edit.CurrentMinVert      = row.MinVert;
+            edit.CurrentMaxVert      = row.MaxVert;
+            edit.CurrentCenterPoint  = row.CenterPoint;
+            edit.CurrentKeepX        = row.KeepX;
+            edit.CurrentKeepY        = row.KeepY;
+            edit.CurrentKeepZ        = row.KeepZ;
+        }
+
+        // Kept as an obsolete shim so anywhere still calling this doesn't break — new code
+        // should use SyncBufferForCurrentState.
         public static ZonePointEdit EnsureBufferEntry(Controller controller, ZonePoint zp)
         {
             var buffer = controller.PendingBuffer;
             if (buffer == null) return null;
-
+            if (zp.IsPendingInsert) return null;  // pending inserts use ZonePointInsert, not ZonePointEdit
             if (!buffer.ZonePoints.TryGetValue(zp.Row.Id, out var edit))
             {
                 edit = SeedFullEdit(zp);

@@ -39,6 +39,11 @@ namespace VisualEQ.ZonePointSystem
 
         public bool IsDirty { get; private set; }
 
+        // A newly-created row that hasn't been persisted yet (its Row.Id is a negative
+        // temp id). Renderers can style it distinctly; commit path INSERTs instead of
+        // UPDATEs; undo-insert removes it entirely rather than reverting Row.*.
+        public bool IsPendingInsert => Row.Id < 0;
+
         public ZonePoint(TrilogyZonePoint row)
         {
             Row                  = row;
