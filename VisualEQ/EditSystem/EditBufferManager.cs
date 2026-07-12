@@ -36,11 +36,15 @@ namespace VisualEQ.EditSystem
                 var json = File.ReadAllText(path);
                 var buffer = JsonSerializer.Deserialize<EditBuffer>(json, JsonOptions);
                 if (buffer == null) return null;
-                if (buffer.SchemaVersion > 1)
+                if (buffer.SchemaVersion > 2)
                 {
                     Console.WriteLine($"[EditBufferManager] Buffer for '{zone}' has newer schema version {buffer.SchemaVersion}; ignoring.");
                     return null;
                 }
+                // v1 → v2: ZonePoints wasn't part of the schema; leave the dict empty (its
+                // System.Text.Json default). Upgrade in place so re-serialisation lands as v2.
+                if (buffer.SchemaVersion < 2) buffer.SchemaVersion = 2;
+                if (buffer.ZonePoints == null) buffer.ZonePoints = new System.Collections.Generic.Dictionary<int, ZonePointEdit>();
                 return buffer;
             }
             catch (Exception ex)

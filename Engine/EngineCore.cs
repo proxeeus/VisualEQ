@@ -59,9 +59,19 @@ namespace VisualEQ.Engine
         // Reference to the controller that owns this engine
         public IController Controller { get; set; }
 
+        // World-space bounding box of the collidable zone geometry. Null until the first
+        // successful RebuildCollision. Consumed by ZonePointRenderer to size the wildcard
+        // slab (a horizontal fill covering the whole zone at the wildcard row's Z).
+        public (Vector3 Min, Vector3 Max)? ZoneBounds { get; private set; }
+
         // Waypoint editing runs alongside spawn selection — clicks near a candidate waypoint
         // engage this instead of ModelSelector.
         public WaypointEditor WaypointEditor { get; }
+
+        // Zone-point handle editing. Same priority slot as WaypointEditor — clicks near a
+        // zone-point handle take precedence over both waypoint and spawn selection so the
+        // small handle icons don't get swallowed by an overlapping spawn model.
+        public ZonePointEditor ZonePointEditor { get; }
 
         // Spawn state indicators drawn after the forward pass. Lazily instantiated on the
         // first render frame (GL context guaranteed). Controller pushes lines via
@@ -79,6 +89,21 @@ namespace VisualEQ.Engine
         public void SetPathGridLines(System.Collections.Generic.IReadOnlyList<(System.Numerics.Vector3, System.Numerics.Vector3, System.Numerics.Vector4)> lines) =>
             _pendingPathGridLines = lines;
 
+        // trilogy_zone_points volume overlay. Same lazy-instantiation + pending-buffer
+        // pattern as SpawnMarkers/PathGridRenderer. Two buffers (lines + triangles) share
+        // a single push call so the frame stays atomic.
+        ZonePointRenderer _zonePoints;
+        System.Collections.Generic.IReadOnlyList<(System.Numerics.Vector3 A, System.Numerics.Vector3 B, System.Numerics.Vector4 Color)> _pendingZonePointLines;
+        System.Collections.Generic.IReadOnlyList<(System.Numerics.Vector3 A, System.Numerics.Vector3 B, System.Numerics.Vector3 C, System.Numerics.Vector4 Color)> _pendingZonePointTris;
+
+        public void SetZonePointPrimitives(
+            System.Collections.Generic.IReadOnlyList<(System.Numerics.Vector3, System.Numerics.Vector3, System.Numerics.Vector4)> lines,
+            System.Collections.Generic.IReadOnlyList<(System.Numerics.Vector3, System.Numerics.Vector3, System.Numerics.Vector3, System.Numerics.Vector4)> tris)
+        {
+            _pendingZonePointLines = lines;
+            _pendingZonePointTris = tris;
+        }
+
         // Whether we're currently dragging a model
         private bool ModelDragging = false;
 
@@ -86,6 +111,10 @@ namespace VisualEQ.Engine
         // WaypointEditor gets first crack at MouseDown, and if it grabs the click ModelSelector
         // stays out of the way.
         private bool WaypointDragging = false;
+
+        // Ditto for zone-point handle dragging. Priority chain (highest first):
+        //   ZonePointEditor > WaypointEditor > ModelSelector.
+        private bool ZonePointDragging = false;
 
         // Make Width and Height properties publicly accessible
         public new int Width => base.Width;
@@ -102,6 +131,7 @@ namespace VisualEQ.Engine
             Stopwatch.Start();
             Gui = new Gui(new GuiRenderer());
             WaypointEditor = new WaypointEditor(this);
+            ZonePointEditor = new ZonePointEditor(this);
 
             MouseMove += (_, e) =>
             {
@@ -109,7 +139,11 @@ namespace VisualEQ.Engine
                 {
                     Gui.MousePosition = (e.X, e.Y);
 
-                    if (WaypointDragging)
+                    if (ZonePointDragging)
+                    {
+                        ZonePointEditor?.UpdateDrag(e.X, e.Y);
+                    }
+                    else if (WaypointDragging)
                     {
                         WaypointEditor?.UpdateDrag(e.X, e.Y);
                     }
@@ -132,6 +166,13 @@ namespace VisualEQ.Engine
                 // accidentally grab the spawn.
                 if (e.Button == MouseButton.Left && !Gui.MouseWanted)
                 {
+                    if (ZonePointEditor != null && ZonePointEditor.TrySelect(e.X, e.Y))
+                    {
+                        ZonePointDragging = true;
+                        ZonePointEditor.StartDrag(e.X, e.Y);
+                        return;
+                    }
+
                     if (WaypointEditor != null && WaypointEditor.TrySelect(e.X, e.Y))
                     {
                         WaypointDragging = true;
@@ -154,6 +195,13 @@ namespace VisualEQ.Engine
             {
                 UpdateMouseButton(e.Button, false);
 
+                if (e.Button == MouseButton.Left && ZonePointDragging)
+                {
+                    ZonePointDragging = false;
+                    ZonePointEditor?.StopDrag();
+                    return;
+                }
+
                 if (e.Button == MouseButton.Left && WaypointDragging)
                 {
                     WaypointDragging = false;
@@ -171,7 +219,11 @@ namespace VisualEQ.Engine
             };
             MouseWheel += (_, e) =>
             {
-                if (WaypointDragging)
+                if (ZonePointDragging)
+                {
+                    ZonePointEditor?.AdjustDragDepth(e.Delta * 2.0f);
+                }
+                else if (WaypointDragging)
                 {
                     WaypointEditor?.AdjustDragDepth(e.Delta * 2.0f);
                 }
@@ -254,7 +306,12 @@ namespace VisualEQ.Engine
             }
 
             Console.WriteLine($"Building octree for {ot.Count} triangles");
-            Collider = new CollisionHelper(new Octree(new CollisionManager.Mesh(ot), 250));
+            var collMesh = new CollisionManager.Mesh(ot);
+            Collider = new CollisionHelper(new Octree(collMesh, 250));
+            if (ot.Count > 0)
+                ZoneBounds = (collMesh.BoundingBox.Min, collMesh.BoundingBox.Max);
+            else
+                ZoneBounds = null;
             Console.WriteLine("Built octree");
         }
 
@@ -341,6 +398,12 @@ namespace VisualEQ.Engine
                     break;
                 case Key.Escape:
                     // Priority: cancel drag → clear selection. Does NOT exit the app anymore.
+                    if (ZonePointDragging)
+                    {
+                        ZonePointEditor?.CancelDrag();
+                        ZonePointDragging = false;
+                        break;
+                    }
                     if (WaypointDragging)
                     {
                         WaypointEditor?.CancelDrag();
@@ -523,6 +586,20 @@ namespace VisualEQ.Engine
                 _pendingPathGridLines = null;
             }
             _pathGrids.Draw(ProjectionView);
+
+            // Zone-point trigger volumes.
+            if (_zonePoints == null) _zonePoints = new ZonePointRenderer();
+            if (_pendingZonePointLines != null)
+            {
+                _zonePoints.SetLines(_pendingZonePointLines);
+                _pendingZonePointLines = null;
+            }
+            if (_pendingZonePointTris != null)
+            {
+                _zonePoints.SetTriangles(_pendingZonePointTris);
+                _pendingZonePointTris = null;
+            }
+            _zonePoints.Draw(ProjectionView);
 
             Debugging.Draw(ProjectionView);
 
