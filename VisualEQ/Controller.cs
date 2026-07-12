@@ -10,6 +10,7 @@ using VisualEQ.Engine;
 using VisualEQ.Settings;
 using VisualEQ.SpawnSystem;
 using VisualEQ.Views;
+using VisualEQ.ZonePointSystem;
 using static VisualEQ.Engine.Globals;
 
 namespace VisualEQ
@@ -36,6 +37,8 @@ namespace VisualEQ
         public MySqlConnectionFactory DbFactory { get; private set; }
 
         public SpawnManager SpawnManager { get; } = new SpawnManager();
+
+        public ZonePointManager ZonePointManager { get; } = new ZonePointManager();
 
         // Zone name set when LoadZone is called; triggers spawn load on later DB connect.
         public string CurrentZoneName { get; private set; }
@@ -140,6 +143,16 @@ namespace VisualEQ
             }
             // Grid entries applied in Phase 5.6 when waypoint rendering picks up buffer state.
 
+            foreach (var kv in buffer.ZonePoints)
+            {
+                var zp = ZonePointManager.ZonePoints.FirstOrDefault(p => p.Row.Id == kv.Key);
+                if (zp == null) continue;
+                var e = kv.Value;
+                var scenePos = new Vector3(e.CurrentY, e.CurrentX, e.CurrentZ);
+                zp.MarkMoved(scenePos);
+                zp.MarkResized(e.CurrentZrange, e.CurrentMaxZDiff);
+            }
+
             PendingBuffer = buffer;
             BufferChanged?.Invoke();
             // No MarkBufferDirty — buffer is already on disk from the previous session.
@@ -153,6 +166,8 @@ namespace VisualEQ
 
             foreach (var sp in SpawnManager.SpawnPoints)
                 if (sp.IsDirty) sp.Revert();
+            foreach (var zp in ZonePointManager.ZonePoints)
+                if (zp.IsDirty) zp.Revert();
 
             EditBufferManager.DeleteForZone(PendingBuffer.Zone);
             PendingBuffer = new EditBuffer { Zone = CurrentZoneName, CreatedAt = DateTime.UtcNow };
@@ -175,6 +190,7 @@ namespace VisualEQ
                 Views.ForEach(view => view.Update(Engine.Gui));
                 UpdateSpawnMarkers();
                 UpdatePathGrids();
+                UpdateZonePoints();
                 FlushBufferIfNeeded();
             };
             modelSelector = new ModelSelector(Engine, CharacterModels);
@@ -195,6 +211,56 @@ namespace VisualEQ
             Engine.WaypointEditor.EditModeEnabled = Settings.EditModeEnabled;
             EditModeChanged += enabled => Engine.WaypointEditor.EditModeEnabled = enabled;
             Engine.WaypointEditor.OnDragCompleted += HandleWaypointDragCompleted;
+
+            // Zone-point editor mirrors the same wiring pattern.
+            Engine.ZonePointEditor.EditModeEnabled = Settings.EditModeEnabled;
+            EditModeChanged += enabled => Engine.ZonePointEditor.EditModeEnabled = enabled;
+            Engine.ZonePointEditor.OnZonePointClicked += HandleZonePointClicked;
+            Engine.ZonePointEditor.OnDragCompleted += HandleZonePointDragCompleted;
+            // Lookup delegate: hands the editor a live view of the row + apply callbacks.
+            // The editor never touches the domain model directly — keeps EngineCore
+            // agnostic of ZonePointSystem types.
+            Engine.ZonePointEditor.SetLookup(id =>
+            {
+                var zp = ZonePointManager.ZonePoints.FirstOrDefault(z => z.Row.Id == id);
+                if (zp == null) return null;
+                return new Engine.ZonePointEditor.ZonePointDragTarget
+                {
+                    Id          = zp.Row.Id,
+                    SceneCenter = zp.SceneCenter,
+                    Zrange      = zp.Row.Zrange,
+                    MaxZDiff    = zp.Row.MaxZDiff,
+                    ApplyMove   = scenePos => zp.MarkMoved(scenePos),
+                    ApplyResize = (zr, mz)  => zp.MarkResized(zr, mz),
+                };
+            });
+        }
+
+        void HandleZonePointClicked(int zonePointId)
+        {
+            ZonePointManager.Select(zonePointId);
+        }
+
+        void HandleZonePointDragCompleted(
+            ZonePointEditor.HandleKind kind,
+            int zonePointId,
+            Vector3 fromScenePos, Vector3 toScenePos,
+            int fromZrange, int toZrange,
+            int fromMaxZDiff, int toMaxZDiff)
+        {
+            var zp = ZonePointManager.ZonePoints.FirstOrDefault(z => z.Row.Id == zonePointId);
+            if (zp == null) return;
+
+            if (kind == ZonePointEditor.HandleKind.Center)
+            {
+                if (Vector3.DistanceSquared(fromScenePos, toScenePos) < 0.0001f) return;
+                RecordAction(new EditSystem.ZonePointMoveAction(zp, fromScenePos, toScenePos));
+            }
+            else
+            {
+                if (fromZrange == toZrange && fromMaxZDiff == toMaxZDiff) return;
+                RecordAction(new EditSystem.ZonePointResizeAction(zp, fromZrange, toZrange, fromMaxZDiff, toMaxZDiff));
+            }
         }
 
         void HandleWaypointDragCompleted(int gridId, int number, Vector3 fromScenePos, Vector3 toScenePos)
@@ -246,6 +312,8 @@ namespace VisualEQ
         {
             ModelSelector?.ClearSelection();
             Engine?.WaypointEditor?.ClearSelection();
+            Engine?.ZonePointEditor?.ClearSelection();
+            ZonePointManager?.ClearSelection();
         }
 
         // Wired to F. Puts the camera face-to-face with the selected spawn using the same
@@ -279,6 +347,21 @@ namespace VisualEQ
 
             Camera.Position = basePos + forward * distance;
             Camera.LookAt(basePos + new Vector3(0, 0, HeadHeight));
+        }
+
+        // Zone-point analogue of FrameSelection — flies the camera to look at the currently
+        // selected zone point's center handle from a comfortable distance. No wall-cast
+        // shortening: zone-point centers can sit inside geometry (fall-through triggers) and
+        // clamping to the near wall would leave the camera in the floor.
+        public void FrameZonePointSelection()
+        {
+            var zp = ZonePointManager.Selected;
+            if (zp == null) return;
+
+            var forward = Vector3.Normalize(Vector3.Transform(new Vector3(0, 1, 0), Camera.LookRotation));
+            var center = zp.SceneCenter;
+            Camera.Position = center - forward * 60f + new Vector3(0, 0, 20f);
+            Camera.LookAt(center);
         }
 
         // Fires a Task that writes the buffer to the DB in a single transaction. The
@@ -360,6 +443,7 @@ namespace VisualEQ
             _modelCache.Clear();
             LastModelLoaded = null;
             SpawnManager.SpawnPoints.Clear();
+            ZonePointManager.Clear();
             CurrentZoneName = null;
             ZoneChanged?.Invoke(null);
         }
@@ -389,6 +473,29 @@ namespace VisualEQ
             Camera.Position = new Vector3(0, 0, 1000);
 
             LoadZoneSpawnsSync(name);
+            LoadZonePointsSync(name);
+        }
+
+        // Fetches trilogy_zone_points for the zone and hands them to ZonePointManager.
+        // No GL work — safe to call on any thread, but we call it on the GL thread for
+        // consistency with the sibling spawn-load call (§7 GL-thread rule in CLAUDE.md).
+        public void LoadZonePointsSync(string zoneName)
+        {
+            if (DbFactory == null)
+            {
+                Console.WriteLine("[Controller] Zone point load skipped — no DB connection.");
+                return;
+            }
+            try
+            {
+                var repo = new ZonePointRepository(DbFactory);
+                var rows = repo.GetZonePointsAsync(zoneName).GetAwaiter().GetResult();
+                ZonePointManager.LoadFromRows(rows);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Controller] Zone point load error: {ex}");
+            }
         }
 
         // Preloads the placeholder-fallback model for the zone. Sets LastModelLoaded so
@@ -447,6 +554,8 @@ namespace VisualEQ
                 // Register spawn instances with the model selector so they are clickable.
                 foreach (var sp in SpawnManager.SpawnPoints)
                     CharacterModels.Add(sp.Model);
+
+                LoadZonePointsSync(zoneName);
             }
             catch (Exception ex)
             {
@@ -508,6 +617,10 @@ namespace VisualEQ
             _spawnLoadRecords = null;
             _spawnLoadAvailable = null;
             _spawnLoadIndex = 0;
+
+            // Zone points are a small table (dozens of rows per zone); load synchronously
+            // right after spawns so the menu flow's Done phase sees the full scene.
+            LoadZonePointsSync(CurrentZoneName);
         }
 
         // Same as LoadZoneSpawnsAsync but blocks the caller. Used by the in-app zone loader
@@ -707,6 +820,105 @@ namespace VisualEQ
 
             Engine.WaypointEditor.SetCandidates(candidates);
             Engine.SetPathGridLines(lines);
+        }
+
+        // Builds and pushes the zone-point primitive lists AND the editor's candidate
+        // handle set. Runs every frame — every row renders at its health color; the
+        // selected row also gets corner + Z-face handles; and the editor's candidate
+        // list is refreshed so a click near any glyph engages the drag.
+        void UpdateZonePoints()
+        {
+            var emptyLines = System.Array.Empty<(Vector3, Vector3, Vector4)>();
+            var emptyTris  = System.Array.Empty<(Vector3, Vector3, Vector3, Vector4)>();
+
+            if (ZonePointManager.ZonePoints.Count == 0)
+            {
+                Engine.SetZonePointPrimitives(emptyLines, emptyTris);
+                Engine.ZonePointEditor.SetCandidates(System.Array.Empty<ZonePointEditor.Handle>());
+                return;
+            }
+
+            var selected = ZonePointManager.Selected;
+            var built = ZonePointSystem.ZonePointPrimitiveBuilder.Build(
+                ZonePointManager.ZonePoints,
+                selected,
+                Engine.ZoneBounds);
+
+            // Handle-glyph lines + candidates. Small crosses at center handles for every
+            // zone point; larger contrast crosses at corner/face handles for the selected.
+            var handleColor        = new Vector4(0.85f, 0.95f, 1f, 1f);
+            var selectedHandleClr  = new Vector4(0.30f, 1.00f, 1.00f, 1f);
+            var candidates = new List<ZonePointEditor.Handle>(ZonePointManager.ZonePoints.Count * 3);
+
+            const float centerArm = 4f;
+            const float handleArm = 6f;
+
+            foreach (var zp in ZonePointManager.ZonePoints)
+            {
+                // Skip source-wildcard rows for now — their "center" sits at the sentinel
+                // coord and dragging it is meaningless without an inspector-level toggle.
+                if (zp.HasSourceWildcard) continue;
+
+                var c = zp.SceneCenter;
+                built.Lines.Add(new ZonePointSystem.ZonePointPrimitiveBuilder.Line(
+                    c - new Vector3(centerArm, 0, 0), c + new Vector3(centerArm, 0, 0), handleColor));
+                built.Lines.Add(new ZonePointSystem.ZonePointPrimitiveBuilder.Line(
+                    c - new Vector3(0, centerArm, 0), c + new Vector3(0, centerArm, 0), handleColor));
+                built.Lines.Add(new ZonePointSystem.ZonePointPrimitiveBuilder.Line(
+                    c - new Vector3(0, 0, centerArm), c + new Vector3(0, 0, centerArm), handleColor));
+
+                candidates.Add(new Engine.ZonePointEditor.Handle
+                {
+                    ZonePointId = zp.Row.Id,
+                    Kind        = ZonePointEditor.HandleKind.Center,
+                    ScenePos    = c,
+                });
+
+                if (ReferenceEquals(zp, selected) && zp.Row.UseNewZoning == 0)
+                {
+                    var xy = System.MathF.Max(1f, zp.Row.Zrange);
+                    // Draw corner + face handles at the row's center Z so they stay visible
+                    // even inside a very tall (infinite-Z) volume.
+                    var corners = new[]
+                    {
+                        (ZonePointEditor.HandleKind.CornerXmYm, new Vector3(c.X - xy, c.Y - xy, c.Z)),
+                        (ZonePointEditor.HandleKind.CornerXpYm, new Vector3(c.X + xy, c.Y - xy, c.Z)),
+                        (ZonePointEditor.HandleKind.CornerXpYp, new Vector3(c.X + xy, c.Y + xy, c.Z)),
+                        (ZonePointEditor.HandleKind.CornerXmYp, new Vector3(c.X - xy, c.Y + xy, c.Z)),
+                    };
+                    foreach (var (kind, pos) in corners)
+                    {
+                        AddHandleCross(built.Lines, pos, handleArm, selectedHandleClr);
+                        candidates.Add(new ZonePointEditor.Handle { ZonePointId = zp.Row.Id, Kind = kind, ScenePos = pos });
+                    }
+
+                    var zHalf = zp.Row.MaxZDiff == 0 ? 2000f : System.MathF.Max(1f, zp.Row.MaxZDiff);
+                    var faceZm = new Vector3(c.X, c.Y, c.Z - zHalf);
+                    var faceZp = new Vector3(c.X, c.Y, c.Z + zHalf);
+                    AddHandleCross(built.Lines, faceZm, handleArm, selectedHandleClr);
+                    AddHandleCross(built.Lines, faceZp, handleArm, selectedHandleClr);
+                    candidates.Add(new ZonePointEditor.Handle { ZonePointId = zp.Row.Id, Kind = ZonePointEditor.HandleKind.FaceZm, ScenePos = faceZm });
+                    candidates.Add(new ZonePointEditor.Handle { ZonePointId = zp.Row.Id, Kind = ZonePointEditor.HandleKind.FaceZp, ScenePos = faceZp });
+                }
+            }
+
+            var lines = new (Vector3, Vector3, Vector4)[built.Lines.Count];
+            for (int i = 0; i < built.Lines.Count; i++)
+                lines[i] = (built.Lines[i].A, built.Lines[i].B, built.Lines[i].Color);
+
+            var tris = new (Vector3, Vector3, Vector3, Vector4)[built.Tris.Count];
+            for (int i = 0; i < built.Tris.Count; i++)
+                tris[i] = (built.Tris[i].A, built.Tris[i].B, built.Tris[i].C, built.Tris[i].Color);
+
+            Engine.SetZonePointPrimitives(lines, tris);
+            Engine.ZonePointEditor.SetCandidates(candidates);
+        }
+
+        static void AddHandleCross(List<ZonePointSystem.ZonePointPrimitiveBuilder.Line> lines, Vector3 pos, float arm, Vector4 color)
+        {
+            lines.Add(new ZonePointSystem.ZonePointPrimitiveBuilder.Line(pos - new Vector3(arm, 0, 0), pos + new Vector3(arm, 0, 0), color));
+            lines.Add(new ZonePointSystem.ZonePointPrimitiveBuilder.Line(pos - new Vector3(0, arm, 0), pos + new Vector3(0, arm, 0), color));
+            lines.Add(new ZonePointSystem.ZonePointPrimitiveBuilder.Line(pos - new Vector3(0, 0, arm), pos + new Vector3(0, 0, arm), color));
         }
     }
 }

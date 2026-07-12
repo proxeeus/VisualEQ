@@ -94,5 +94,38 @@ namespace VisualEQ.Database.Constants
             FROM grid_entries
             WHERE gridid IN @GridIds AND zoneid = @ZoneId
             ORDER BY gridid, number";
+
+        // Trilogy client's server-side zone-crossing triggers. Columns aliased so Dapper
+        // maps deterministically regardless of MySQL's platform-dependent case handling.
+        public const string GetTrilogyZonePoints = @"
+            SELECT
+                id,
+                zone,
+                x, y, z, heading,
+                target_zone     AS TargetZone,
+                target_x        AS TargetX,
+                target_y        AS TargetY,
+                target_z        AS TargetZ,
+                Zrange,
+                maxZDiff        AS MaxZDiff,
+                UseNewZoning,
+                MinVert, MaxVert, CenterPoint,
+                keepX           AS KeepX,
+                keepY           AS KeepY,
+                keepZ           AS KeepZ,
+                ToZoneID        AS ToZoneId
+            FROM trilogy_zone_points
+            WHERE zone = @ZoneName";
+
+        public const string UpdateTrilogyZonePoint = @"
+            UPDATE trilogy_zone_points
+            SET x = @X, y = @Y, z = @Z, heading = @Heading,
+                target_zone = @TargetZone,
+                target_x = @TargetX, target_y = @TargetY, target_z = @TargetZ,
+                Zrange = @Zrange, maxZDiff = @MaxZDiff, UseNewZoning = @UseNewZoning,
+                MinVert = @MinVert, MaxVert = @MaxVert, CenterPoint = @CenterPoint,
+                keepX = @KeepX, keepY = @KeepY, keepZ = @KeepZ,
+                ToZoneID = @ToZoneId
+            WHERE id = @Id";
     }
-} 
+}

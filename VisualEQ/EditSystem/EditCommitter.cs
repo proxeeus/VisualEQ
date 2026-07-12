@@ -16,6 +16,7 @@ namespace VisualEQ.EditSystem
             public string Error;
             public int SpawnRowsWritten;
             public int GridRowsWritten;
+            public int ZonePointRowsWritten;
         }
 
         public static async Task<Result> CommitAsync(
@@ -84,12 +85,56 @@ namespace VisualEQ.EditSystem
                                     tx);
                             }
 
+                            // Zone-point edits: read the current row first so unchanged
+                            // fields (target coords, keep*, MinVert etc.) round-trip
+                            // untouched — the v1 drag editor only mutates X/Y/Z/Zrange/MaxZDiff.
+                            int zonePointRows = 0;
+                            foreach (var kv in buffer.ZonePoints)
+                            {
+                                var edit = kv.Value;
+                                var existing = await connection.QueryFirstOrDefaultAsync<VisualEQ.Database.Models.TrilogyZonePoint>(
+                                    SqlQueries.GetTrilogyZonePoints + " AND id = @Id",
+                                    new { ZoneName = zoneName, Id = edit.Id },
+                                    tx);
+                                if (existing == null)
+                                {
+                                    Console.WriteLine($"[EditCommitter] Skipping missing zone_point id={edit.Id}");
+                                    continue;
+                                }
+                                zonePointRows += await connection.ExecuteAsync(
+                                    SqlQueries.UpdateTrilogyZonePoint,
+                                    new
+                                    {
+                                        Id           = edit.Id,
+                                        X            = edit.CurrentX,
+                                        Y            = edit.CurrentY,
+                                        Z            = edit.CurrentZ,
+                                        Heading      = existing.Heading,
+                                        TargetZone   = existing.TargetZone,
+                                        TargetX      = existing.TargetX,
+                                        TargetY      = existing.TargetY,
+                                        TargetZ      = existing.TargetZ,
+                                        Zrange       = edit.CurrentZrange,
+                                        MaxZDiff     = edit.CurrentMaxZDiff,
+                                        UseNewZoning = existing.UseNewZoning,
+                                        MinVert      = existing.MinVert,
+                                        MaxVert      = existing.MaxVert,
+                                        CenterPoint  = existing.CenterPoint,
+                                        KeepX        = existing.KeepX,
+                                        KeepY        = existing.KeepY,
+                                        KeepZ        = existing.KeepZ,
+                                        ToZoneId     = existing.ToZoneId,
+                                    },
+                                    tx);
+                            }
+
                             tx.Commit();
                             return new Result
                             {
                                 Success          = true,
                                 SpawnRowsWritten = spawnRows,
                                 GridRowsWritten  = gridRows,
+                                ZonePointRowsWritten = zonePointRows,
                             };
                         }
                         catch (Exception ex)

@@ -63,8 +63,12 @@ namespace VisualEQ.Engine
         // the NPC's hip/center Z at each grid entry, not the terrain Z, so a naïve snap
         // would drop the waypoint into the floor.
         float _dragGroundOffset;
+        Vector2 _dragHorizOffset;
+        float _wheelZOffset;
         const int DragThresholdPixels = 8;
         const float DefaultGroundOffset = 0.1f;
+        // Downward-probe start Z — see ModelSelector for rationale.
+        const float HighProbeAltitude = 5000f;
 
         public WaypointEditor(EngineCore engine)
         {
@@ -158,26 +162,39 @@ namespace VisualEQ.Engine
 
             var eye = Camera.Position + new Vector3(0, 0, FpsCamera.CameraHeight);
             var rayDir = ScreenToWorldRay(mouseX, mouseY);
-            var t = IntersectRayPlane(eye, rayDir, _dragPlaneNormal, _dragPlaneDistance);
-            if (t <= 0) return false;
+            Vector3 newPos;
 
-            var hitPoint = eye + rayDir * t;
-            var newPos = hitPoint + _dragOffset;
-
-            // Ground-plane drag: snap Z to (ground below + drag-start ground-offset). Alt
-            // stays on the camera-perpendicular plane for precise vertical adjustments.
-            if (!_useCameraPlane && Collider != null)
+            if (_useCameraPlane)
             {
-                var probeOrigin = new Vector3(newPos.X, newPos.Y, newPos.Z + 20f);
-                var hit = Collider.FindIntersection(probeOrigin, new Vector3(0, 0, -1), 0.5f);
-                if (hit.HasValue)
-                    newPos.Z = hit.Value.Item2.Z + _dragGroundOffset;
+                var t = IntersectRayPlane(eye, rayDir, _dragPlaneNormal, _dragPlaneDistance);
+                if (t <= 0) return false;
+                newPos = eye + rayDir * t + _dragOffset;
+            }
+            else
+            {
+                // Ground-plane: XY from mouse-on-XY-plane projection; Z from downward probe
+                // from HIGH altitude (catches wall tops / rooftops correctly).
+                var groundNormal = new Vector3(0, 0, 1);
+                var tPlane = IntersectRayPlane(eye, rayDir, groundNormal, _dragStartPosition.Z);
+                if (tPlane <= 0) return false;
+
+                var xyProj = eye + rayDir * tPlane;
+                var targetX = xyProj.X + _dragHorizOffset.X;
+                var targetY = xyProj.Y + _dragHorizOffset.Y;
+
+                float targetZ = _dragStartPosition.Z + _wheelZOffset;
+                if (Collider != null)
+                {
+                    var probe = new Vector3(targetX, targetY, HighProbeAltitude);
+                    var hit = Collider.FindIntersection(probe, new Vector3(0, 0, -1), 0.5f);
+                    if (hit.HasValue)
+                        targetZ = hit.Value.Item2.Z + _dragGroundOffset + _wheelZOffset;
+                }
+                newPos = new Vector3(targetX, targetY, targetZ);
             }
 
             _currentPosition = newPos;
 
-            // Push the updated position back into the selected handle so PathGridRenderer
-            // draws the waypoint at its dragged spot in real time.
             var h = _selected.Value;
             h.ScenePos = _currentPosition;
             _selected = h;
@@ -191,38 +208,63 @@ namespace VisualEQ.Engine
 
             _useCameraPlane = _engine.GetPressedKeys().Contains(OpenTK.Input.Key.AltLeft)
                             || _engine.GetPressedKeys().Contains(OpenTK.Input.Key.AltRight);
-
-            // Preserve waypoint height above terrain for the whole drag.
+            _wheelZOffset = 0f;
+            _dragHorizOffset = Vector2.Zero;
             _dragGroundOffset = DefaultGroundOffset;
-            if (Collider != null)
-            {
-                var probe = _dragStartPosition + new Vector3(0, 0, 20f);
-                var hit = Collider.FindIntersection(probe, new Vector3(0, 0, -1), 0.5f);
-                if (hit.HasValue)
-                    _dragGroundOffset = _dragStartPosition.Z - hit.Value.Item2.Z;
-            }
 
             var eye = Camera.Position + new Vector3(0, 0, FpsCamera.CameraHeight);
+            var rayDir = ScreenToWorldRay(mouseX, mouseY);
+
             if (_useCameraPlane)
             {
                 var forward = Vector3.Normalize(Vector3.Transform(FpsCamera.Forward, Camera.LookRotation));
-                _dragPlaneNormal   = forward;
+                _dragPlaneNormal = forward;
                 _dragPlaneDistance = Vector3.Dot(_dragPlaneNormal, _dragStartPosition);
+
+                var t = IntersectRayPlane(eye, rayDir, _dragPlaneNormal, _dragPlaneDistance);
+                if (t <= 0) return false;
+                var hitPoint = eye + rayDir * t;
+                _dragOffset = _dragStartPosition - hitPoint;
             }
             else
             {
-                _dragPlaneNormal   = new Vector3(0, 0, 1);
-                _dragPlaneDistance = _dragStartPosition.Z;
+                // Ground-plane setup: capture horizontal grab-offset via XY-plane projection
+                // and vertical ground-offset via a downward probe from high altitude (catches
+                // whichever surface — floor or wall top — the waypoint is currently on).
+                var groundNormal = new Vector3(0, 0, 1);
+                var tPlane = IntersectRayPlane(eye, rayDir, groundNormal, _dragStartPosition.Z);
+                if (tPlane > 0)
+                {
+                    var xyProj = eye + rayDir * tPlane;
+                    _dragHorizOffset = new Vector2(_dragStartPosition.X - xyProj.X, _dragStartPosition.Y - xyProj.Y);
+                }
+                if (Collider != null)
+                {
+                    var probe = new Vector3(_dragStartPosition.X, _dragStartPosition.Y, HighProbeAltitude);
+                    var below = Collider.FindIntersection(probe, new Vector3(0, 0, -1), 0.5f);
+                    if (below.HasValue) _dragGroundOffset = _dragStartPosition.Z - below.Value.Item2.Z;
+                }
             }
 
-            var rayDir = ScreenToWorldRay(mouseX, mouseY);
-            var t = IntersectRayPlane(eye, rayDir, _dragPlaneNormal, _dragPlaneDistance);
-            if (t <= 0) return false;
-
-            var hitPoint = eye + rayDir * t;
-            _dragOffset = _dragStartPosition - hitPoint;
             _isDragging = true;
             return true;
+        }
+
+        // Mouse wheel during ground-plane drag adds a free Z offset — user can nudge a
+        // waypoint above or below its terrain snap without switching to Alt-drag.
+        public void AdjustDragDepth(float amount)
+        {
+            if (!_isDragging || _selected == null) return;
+            if (_useCameraPlane) return; // camera-perp mode has no wheel adjustment
+
+            var distance = Vector3.Distance(Camera.Position, _currentPosition);
+            var scaledAmount = amount * Math.Max(0.05f, distance / 500f);
+            _wheelZOffset += scaledAmount;
+
+            var h = _selected.Value;
+            h.ScenePos = new Vector3(h.ScenePos.X, h.ScenePos.Y, h.ScenePos.Z + scaledAmount);
+            _selected = h;
+            _currentPosition = h.ScenePos;
         }
 
         public void StopDrag()

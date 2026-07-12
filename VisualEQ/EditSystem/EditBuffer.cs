@@ -17,16 +17,19 @@ namespace VisualEQ.EditSystem
 
         // Bump when the on-disk shape changes. EditBufferManager will refuse to load
         // buffers whose version is higher than the current code understands.
-        public int SchemaVersion { get; set; } = 1;
+        //   v1 — spawns + grid entries only
+        //   v2 — adds ZonePoints (trilogy_zone_points edits)
+        public int SchemaVersion { get; set; } = 2;
 
         public Dictionary<int, SpawnEdit> Spawns { get; set; } = new Dictionary<int, SpawnEdit>();
         public Dictionary<string, GridEntryEdit> GridEntries { get; set; } = new Dictionary<string, GridEntryEdit>();
+        public Dictionary<int, ZonePointEdit> ZonePoints { get; set; } = new Dictionary<int, ZonePointEdit>();
 
         // Reserved for Phase 5.9+ (npc_types edits).
         public Dictionary<int, NpcEdit> Npcs { get; set; } = new Dictionary<int, NpcEdit>();
 
-        public bool IsEmpty => Spawns.Count == 0 && GridEntries.Count == 0 && Npcs.Count == 0;
-        public int TotalPending => Spawns.Count + GridEntries.Count + Npcs.Count;
+        public bool IsEmpty => Spawns.Count == 0 && GridEntries.Count == 0 && ZonePoints.Count == 0 && Npcs.Count == 0;
+        public int TotalPending => Spawns.Count + GridEntries.Count + ZonePoints.Count + Npcs.Count;
 
         // Composite key helper for grid entries: (gridId, number).
         public static string GridEntryKey(int gridId, int number) => $"{gridId}:{number}";
@@ -78,6 +81,31 @@ namespace VisualEQ.EditSystem
         public int NpcId { get; set; }
         // Populated when Phase 5.9+ NPC editing lands. Kept as a placeholder so the JSON
         // shape is stable across releases.
+        public DateTime LastModifiedAt { get; set; }
+    }
+
+    // One row of pending edits for trilogy_zone_points. Covers drag-move + drag-resize
+    // (the v1 editor scope). Field-level edits (target coords, keep*, MinVert, mode
+    // switches) would extend this shape when the inspector slice lands.
+    public class ZonePointEdit
+    {
+        public int Id { get; set; }
+
+        // DB-space coordinates (X = east/west, Y = north/south, Z = up).
+        public float OriginalX { get; set; }
+        public float OriginalY { get; set; }
+        public float OriginalZ { get; set; }
+        public int OriginalZrange { get; set; }
+        public int OriginalMaxZDiff { get; set; }
+
+        public float CurrentX { get; set; }
+        public float CurrentY { get; set; }
+        public float CurrentZ { get; set; }
+        public int CurrentZrange { get; set; }
+        public int CurrentMaxZDiff { get; set; }
+
+        // Human-readable label for the sidebar list ("→ felwithea" etc.). Not authoritative.
+        public string DisplayName { get; set; }
         public DateTime LastModifiedAt { get; set; }
     }
 }

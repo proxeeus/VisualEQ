@@ -131,10 +131,11 @@ namespace VisualEQ.Views
         public const string SectionPending     = "pending_changes";
         public const string SectionSpawnInfo   = "spawn_info";
         public const string SectionSpawnList   = "spawn_list";
+        public const string SectionZonePoints  = "zone_points";
         public const string SectionTeleport    = "teleport";
         public const string SectionModelEditor = "model_editor";
 
-        static readonly string[] DefaultOrder = { SectionStatus, SectionPending, SectionSpawnInfo, SectionSpawnList, SectionModelEditor, SectionTeleport };
+        static readonly string[] DefaultOrder = { SectionStatus, SectionPending, SectionSpawnInfo, SectionSpawnList, SectionZonePoints, SectionModelEditor, SectionTeleport };
 
         private readonly SidebarView _view;
 
@@ -389,8 +390,14 @@ namespace VisualEQ.Views
                 ImGui.Separator();
                 ImGui.Text($"  {r.SpawnRowsWritten} spawn2 row(s) updated");
                 ImGui.Text($"  {r.GridRowsWritten} grid_entries row(s) updated");
+                ImGui.Text($"  {r.ZonePointRowsWritten} trilogy_zone_points row(s) updated");
                 ImGui.Separator();
                 ImGui.Text("Buffer + undo history cleared.");
+                if (r.ZonePointRowsWritten > 0)
+                {
+                    ImGui.Separator();
+                    ImGui.Text("Run '#reload static' on the zone process to apply live.");
+                }
             }
             else
             {
@@ -528,6 +535,7 @@ namespace VisualEQ.Views
                 case SectionPending:     RenderPendingChangesSection(index); break;
                 case SectionSpawnInfo:   RenderSpawnInfoSection(index); break;
                 case SectionSpawnList:   RenderSpawnListSection(index); break;
+                case SectionZonePoints:  RenderZonePointsSection(index); break;
                 case SectionTeleport:    RenderTeleportSection(index); break;
                 case SectionModelEditor: RenderModelEditorSection(index); break;
             }
@@ -910,6 +918,79 @@ namespace VisualEQ.Views
 
         static string ReadBuffer(byte[] buf) =>
             System.Text.Encoding.UTF8.GetString(buf).TrimEnd('\0');
+
+        void RenderZonePointsSection(int index)
+        {
+            RenderReorderHandles(index, "zp");
+            var ctrl = _view.Controller;
+            var count = ctrl.ZonePointManager.ZonePoints.Count;
+            if (!ImGui.CollapsingHeader($"Zone Points ({count})###{Id}zp", 0))
+                return;
+
+            if (count == 0)
+            {
+                ImGui.Text("No trilogy_zone_points rows for this zone.");
+                return;
+            }
+
+            var selected = ctrl.ZonePointManager.Selected;
+            ImGui.BeginChild($"###{Id}zpList", new Vector2(0, 260), true, WindowFlags.Default);
+            foreach (var zp in ctrl.ZonePointManager.ZonePoints)
+            {
+                string badge;
+                switch (zp.Health)
+                {
+                    case VisualEQ.ZonePointSystem.ZonePointHealth.Green:  badge = "[G]"; break;
+                    case VisualEQ.ZonePointSystem.ZonePointHealth.Yellow: badge = "[Y]"; break;
+                    case VisualEQ.ZonePointSystem.ZonePointHealth.Purple: badge = "[P]"; break;
+                    case VisualEQ.ZonePointSystem.ZonePointHealth.Red:    badge = "[R]"; break;
+                    default: badge = "[?]"; break;
+                }
+                string mode;
+                switch (zp.Row.UseNewZoning)
+                {
+                    case 0: mode = "box"; break;
+                    case 1: mode = "X-plane"; break;
+                    case 2: mode = "Y-plane"; break;
+                    default: mode = "mode?"; break;
+                }
+                var dirty = zp.IsDirty ? " *" : "";
+                var label = $"{badge} #{zp.Row.Id} {mode} → {zp.Row.TargetZone}{dirty}###{Id}zpItem{zp.Row.Id}";
+
+                if (ImGui.Selectable(label, ReferenceEquals(zp, selected)))
+                    FlyToZonePoint(zp);
+            }
+            ImGui.EndChild();
+
+            if (selected != null)
+            {
+                ImGui.Separator();
+                ImGui.Text($"Selected: #{selected.Row.Id} → {selected.Row.TargetZone}");
+                var db = selected.Row;
+                ImGui.Text($"  src (x,y,z) = ({db.X:F0}, {db.Y:F0}, {db.Z:F0})");
+                ImGui.Text($"  tgt (x,y,z) = ({db.TargetX:F0}, {db.TargetY:F0}, {db.TargetZ:F0})");
+                if (db.UseNewZoning == 0)
+                {
+                    var zStr = db.MaxZDiff == 0 ? "∞" : db.MaxZDiff.ToString();
+                    ImGui.Text($"  Zrange={db.Zrange}  MaxZDiff={zStr}");
+                }
+                else
+                {
+                    ImGui.Text($"  MinVert={db.MinVert:F0}  MaxVert={db.MaxVert:F0}");
+                }
+                if (selected.IsDirty)
+                {
+                    ImGui.Separator();
+                    ImGui.Text("Unsaved edits (see Pending Changes).");
+                }
+            }
+        }
+
+        void FlyToZonePoint(VisualEQ.ZonePointSystem.ZonePoint zp)
+        {
+            _view.Controller.ZonePointManager.Select(zp);
+            _view.Controller.FrameZonePointSelection();
+        }
 
         void RenderModelEditorSection(int index)
         {
