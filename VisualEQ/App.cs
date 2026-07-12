@@ -17,12 +17,47 @@ namespace VisualEQ
 {
     internal class App
     {
+        // %APPDATA%\VisualEQ\crash.log — appended on any unhandled exception. Keeps a
+        // durable trace even when the console window is torn down with the process
+        // (native crash, hard fault) so post-mortem debugging doesn't depend on catching
+        // stdout live.
+        static readonly string CrashLogPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "VisualEQ", "crash.log");
+
+        static void LogCrash(string origin, Exception ex)
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(CrashLogPath));
+                var msg = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {origin}\n{ex}\n\n";
+                File.AppendAllText(CrashLogPath, msg);
+                Console.Error.WriteLine(msg);
+            }
+            catch (Exception logEx)
+            {
+                Console.Error.WriteLine($"[LogCrash] failed to write to {CrashLogPath}: {logEx.Message}");
+            }
+        }
+
         static void Main(string[] args)
         {
+            // Catch-alls for exceptions the try/catch below won't see — anything thrown
+            // from OpenTK render/update callbacks or ThreadPool continuations bypasses the
+            // main-thread frame. Log to file so the user can share the trace after a crash.
+            AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+                LogCrash("UnhandledException", e.ExceptionObject as Exception ?? new Exception(e.ExceptionObject?.ToString() ?? "unknown"));
+            System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, e) =>
+            {
+                LogCrash("UnobservedTaskException", e.Exception);
+                e.SetObserved();
+            };
+
             try
             {
                 var settings = SettingsManager.Load();
                 Console.WriteLine($"Settings loaded from {SettingsManager.SettingsPath}");
+                Console.WriteLine($"Crash log: {CrashLogPath}");
 
                 var controller = new Controller(settings);
                 controller.Engine.Controller = controller;
@@ -64,6 +99,7 @@ namespace VisualEQ
             }
             catch (Exception ex)
             {
+                LogCrash("Main try/catch", ex);
                 Console.WriteLine($"Error starting application: {ex.Message}");
                 Console.WriteLine(ex.StackTrace);
             }
