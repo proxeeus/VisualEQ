@@ -148,9 +148,60 @@ namespace VisualEQ
                 var zp = ZonePointManager.ZonePoints.FirstOrDefault(p => p.Row.Id == kv.Key);
                 if (zp == null) continue;
                 var e = kv.Value;
+
+                // v2 → v3 migration: earlier buffers stored only position + size, so the
+                // scalar Original* fields deserialise as zero/null. Seed them from the live
+                // row now so any future field-edit's revert-to-baseline check has real values
+                // to compare against. Also copy the live row into Current* for fields the
+                // v2 buffer didn't know about — otherwise the commit would blank them out.
+                if (!e.ScalarOriginalsSeeded)
+                {
+                    e.OriginalHeading       = zp.OriginalHeading;
+                    e.OriginalTargetZone    = zp.OriginalTargetZone;
+                    e.OriginalTargetX       = zp.OriginalTargetX;
+                    e.OriginalTargetY       = zp.OriginalTargetY;
+                    e.OriginalTargetZ       = zp.OriginalTargetZ;
+                    e.OriginalUseNewZoning  = zp.OriginalUseNewZoning;
+                    e.OriginalMinVert       = zp.OriginalMinVert;
+                    e.OriginalMaxVert       = zp.OriginalMaxVert;
+                    e.OriginalCenterPoint   = zp.OriginalCenterPoint;
+                    e.OriginalKeepX         = zp.OriginalKeepX;
+                    e.OriginalKeepY         = zp.OriginalKeepY;
+                    e.OriginalKeepZ         = zp.OriginalKeepZ;
+
+                    e.CurrentHeading        = zp.OriginalHeading;
+                    e.CurrentTargetZone     = zp.OriginalTargetZone;
+                    e.CurrentTargetX        = zp.OriginalTargetX;
+                    e.CurrentTargetY        = zp.OriginalTargetY;
+                    e.CurrentTargetZ        = zp.OriginalTargetZ;
+                    e.CurrentUseNewZoning   = zp.OriginalUseNewZoning;
+                    e.CurrentMinVert        = zp.OriginalMinVert;
+                    e.CurrentMaxVert        = zp.OriginalMaxVert;
+                    e.CurrentCenterPoint    = zp.OriginalCenterPoint;
+                    e.CurrentKeepX          = zp.OriginalKeepX;
+                    e.CurrentKeepY          = zp.OriginalKeepY;
+                    e.CurrentKeepZ          = zp.OriginalKeepZ;
+
+                    e.ScalarOriginalsSeeded = true;
+                }
+
                 var scenePos = new Vector3(e.CurrentY, e.CurrentX, e.CurrentZ);
                 zp.MarkMoved(scenePos);
                 zp.MarkResized(e.CurrentZrange, e.CurrentMaxZDiff);
+                // Apply scalar Current* into the live row so the inspector opens with the
+                // recovered values, not the DB baseline.
+                zp.SetHeading(e.CurrentHeading);
+                zp.SetTargetZone(e.CurrentTargetZone);
+                zp.SetTargetX(e.CurrentTargetX);
+                zp.SetTargetY(e.CurrentTargetY);
+                zp.SetTargetZ(e.CurrentTargetZ);
+                zp.SetUseNewZoning(e.CurrentUseNewZoning);
+                zp.SetMinVert(e.CurrentMinVert);
+                zp.SetMaxVert(e.CurrentMaxVert);
+                zp.SetCenterPoint(e.CurrentCenterPoint);
+                zp.SetKeepX(e.CurrentKeepX);
+                zp.SetKeepY(e.CurrentKeepY);
+                zp.SetKeepZ(e.CurrentKeepZ);
             }
 
             PendingBuffer = buffer;
