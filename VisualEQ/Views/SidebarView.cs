@@ -180,6 +180,24 @@ namespace VisualEQ.Views
         private float _headingBeforeEdit;
         private int? _headingBufferSpawnId;
 
+        // Zone-point inspector state — single "currently active field" tracker so per-field
+        // edits get one action on release (not one per keystroke). ImGui only lets one item
+        // be active at a time so a single-slot tracker is sufficient.
+        //
+        // The reader is stored alongside the field so a defensive flush (fires when the user
+        // moves focus from field A to field B) uses A's reader, not B's — otherwise we'd
+        // record an action for field A with field B's value type and blow up on the cast.
+        private int? _zpActiveEditZonePointId;
+        private VisualEQ.EditSystem.ZonePointFieldEditAction.Field _zpActiveEditField;
+        private object _zpActiveEditBeforeValue;
+        private Func<object> _zpActiveEditReader;
+
+        // Text-field state for InputText widgets in the inspector. Byte buffer must persist
+        // across frames or focus is lost each frame; reset when selection or the underlying
+        // row value changes while not being edited.
+        private readonly byte[] _zpTargetZoneBuffer = new byte[64];
+        private int? _zpTargetZoneBufferForId;
+
         // Debounced settings save — flush when width has been stable for a moment.
         private bool _widthDirty;
         private float _widthDirtyAt;
@@ -963,33 +981,330 @@ namespace VisualEQ.Views
             ImGui.EndChild();
 
             if (selected != null)
-            {
-                ImGui.Separator();
-                ImGui.Text($"Selected: #{selected.Row.Id} → {selected.Row.TargetZone}");
-                var db = selected.Row;
-                ImGui.Text($"  src (x,y,z) = ({db.X:F0}, {db.Y:F0}, {db.Z:F0})");
-                ImGui.Text($"  tgt (x,y,z) = ({db.TargetX:F0}, {db.TargetY:F0}, {db.TargetZ:F0})");
-                if (db.UseNewZoning == 0)
-                {
-                    var zStr = db.MaxZDiff == 0 ? "∞" : db.MaxZDiff.ToString();
-                    ImGui.Text($"  Zrange={db.Zrange}  MaxZDiff={zStr}");
-                }
-                else
-                {
-                    ImGui.Text($"  MinVert={db.MinVert:F0}  MaxVert={db.MaxVert:F0}");
-                }
-                if (selected.IsDirty)
-                {
-                    ImGui.Separator();
-                    ImGui.Text("Unsaved edits (see Pending Changes).");
-                }
-            }
+                RenderZonePointInspector(selected, ctrl.EditModeEnabled);
         }
 
         void FlyToZonePoint(VisualEQ.ZonePointSystem.ZonePoint zp)
         {
             _view.Controller.ZonePointManager.Select(zp);
             _view.Controller.FrameZonePointSelection();
+        }
+
+        // Selected-zone-point inspector. When editable is false (edit mode off) fields
+        // render as read-only text; when true, fields render as ImGui inputs and each
+        // field-edit commits a ZonePointFieldEditAction on release-with-change (so
+        // one keystroke doesn't spawn a hundred undo entries).
+        void RenderZonePointInspector(VisualEQ.ZonePointSystem.ZonePoint zp, bool editable)
+        {
+            ImGui.Separator();
+            ImGui.Text($"Selected: #{zp.Row.Id}  (health: {zp.Health})");
+
+            // ─── Source position + size (read-only readout; edit these via world drag) ──
+            ImGui.Separator();
+            ImGui.Text("Source (drag in world to edit)");
+            var db = zp.Row;
+            ImGui.Text($"  x, y, z = ({db.X:F1}, {db.Y:F1}, {db.Z:F1})");
+            if (db.UseNewZoning == 0)
+            {
+                var zStr = db.MaxZDiff == 0 ? "∞" : db.MaxZDiff.ToString();
+                ImGui.Text($"  Zrange={db.Zrange}  MaxZDiff={zStr}");
+            }
+
+            // ─── Mode ────────────────────────────────────────────────────────────────
+            ImGui.Separator();
+            ImGui.Text("Mode");
+            RenderModeRadios(zp, editable);
+
+            // ─── Plane crossing bounds — only relevant for modes 1/2 ─────────────────
+            if (db.UseNewZoning == 1 || db.UseNewZoning == 2)
+            {
+                ImGui.Separator();
+                ImGui.Text("Plane bounds (perpendicular axis)");
+                RenderFloatField(zp, VisualEQ.EditSystem.ZonePointFieldEditAction.Field.MinVert,
+                    "MinVert", () => zp.Row.MinVert, v => zp.Row.MinVert = v, editable);
+                RenderFloatField(zp, VisualEQ.EditSystem.ZonePointFieldEditAction.Field.MaxVert,
+                    "MaxVert", () => zp.Row.MaxVert, v => zp.Row.MaxVert = v, editable);
+                RenderFloatField(zp, VisualEQ.EditSystem.ZonePointFieldEditAction.Field.CenterPoint,
+                    "CenterPoint", () => zp.Row.CenterPoint, v => zp.Row.CenterPoint = v, editable);
+            }
+
+            // ─── Target ──────────────────────────────────────────────────────────────
+            ImGui.Separator();
+            ImGui.Text("Target");
+            RenderTargetZoneField(zp, editable);
+            RenderCoordFieldWithWildcard(zp, "target_x",
+                VisualEQ.EditSystem.ZonePointFieldEditAction.Field.TargetX,
+                () => zp.Row.TargetX, v => zp.Row.TargetX = v, editable);
+            RenderCoordFieldWithWildcard(zp, "target_y",
+                VisualEQ.EditSystem.ZonePointFieldEditAction.Field.TargetY,
+                () => zp.Row.TargetY, v => zp.Row.TargetY = v, editable);
+            RenderCoordFieldWithWildcard(zp, "target_z",
+                VisualEQ.EditSystem.ZonePointFieldEditAction.Field.TargetZ,
+                () => zp.Row.TargetZ, v => zp.Row.TargetZ = v, editable);
+            RenderFloatField(zp, VisualEQ.EditSystem.ZonePointFieldEditAction.Field.Heading,
+                "heading (0–255)", () => zp.Row.Heading, v => zp.Row.Heading = v, editable);
+
+            // ─── Keep flags ──────────────────────────────────────────────────────────
+            ImGui.Separator();
+            ImGui.Text("Keep player axis on teleport");
+            RenderKeepCheckbox(zp, VisualEQ.EditSystem.ZonePointFieldEditAction.Field.KeepX,
+                "keepX", () => zp.Row.KeepX, v => zp.Row.KeepX = v, editable);
+            RenderKeepCheckbox(zp, VisualEQ.EditSystem.ZonePointFieldEditAction.Field.KeepY,
+                "keepY", () => zp.Row.KeepY, v => zp.Row.KeepY = v, editable);
+            RenderKeepCheckbox(zp, VisualEQ.EditSystem.ZonePointFieldEditAction.Field.KeepZ,
+                "keepZ", () => zp.Row.KeepZ, v => zp.Row.KeepZ = v, editable);
+
+            if (zp.IsDirty)
+            {
+                ImGui.Separator();
+                ImGui.Text("Unsaved edits (see Pending Changes).");
+            }
+        }
+
+        // ─── Field render helpers ────────────────────────────────────────────────────
+        //
+        // Common pattern:
+        //   1. Snapshot the current value from the row.
+        //   2. Render the ImGui widget. If value changed, write back to the row live
+        //      (so the volume renders the change immediately).
+        //   3. When the widget transitions from active → inactive, if the value changed
+        //      since edit start, record a ZonePointFieldEditAction with (before, after).
+        //   4. When the widget is not active and this field isn't the "active edit",
+        //      nothing else happens — the row value is authoritative.
+
+        void RenderFloatField(
+            VisualEQ.ZonePointSystem.ZonePoint zp,
+            VisualEQ.EditSystem.ZonePointFieldEditAction.Field which,
+            string label,
+            Func<float> read,
+            Action<float> write,
+            bool editable)
+        {
+            var current = read();
+            if (!editable)
+            {
+                ImGui.Text($"  {label} = {current:F2}");
+                return;
+            }
+            var val = current;
+            var changed = ImGui.DragFloat($"{label}###{Id}zpF{(int)which}", ref val, 0f, 0f, 1f, "%.2f", 1f);
+            if (changed) write(val);
+            HandleActivationTransition(zp, which, current, () => read());
+        }
+
+        // target_x/y/z gets a wildcard checkbox next to the numeric input. Toggling on
+        // sets the sentinel 999999; toggling off drops to 0 (user can then type a real
+        // value). Wildcard toggles route through the same field-edit action path.
+        void RenderCoordFieldWithWildcard(
+            VisualEQ.ZonePointSystem.ZonePoint zp,
+            string label,
+            VisualEQ.EditSystem.ZonePointFieldEditAction.Field which,
+            Func<float> read,
+            Action<float> write,
+            bool editable)
+        {
+            var current = read();
+            var isWild = VisualEQ.ZonePointSystem.ZonePointWildcards.IsWildcard(current);
+
+            if (!editable)
+            {
+                ImGui.Text(isWild ? $"  {label} = <wildcard>" : $"  {label} = {current:F2}");
+                return;
+            }
+
+            var wildLocal = isWild;
+            if (ImGui.Checkbox($"wild###{Id}zpW{(int)which}", ref wildLocal))
+            {
+                var before = current;
+                var after  = wildLocal
+                    ? VisualEQ.ZonePointSystem.ZonePointWildcards.Sentinel
+                    : 0f;
+                if (Math.Abs(before - after) > 0.001f)
+                {
+                    _view.Controller.RecordAction(
+                        new VisualEQ.EditSystem.ZonePointFieldEditAction(zp, which, before, after));
+                }
+                return; // don't render the InputFloat this frame — value just changed
+            }
+            ImGui.SameLine();
+
+            if (isWild)
+            {
+                ImGui.Text($"{label} = <wildcard>");
+                return;
+            }
+
+            var val = current;
+            var changed = ImGui.DragFloat($"{label}###{Id}zpF{(int)which}", ref val, 0f, 0f, 1f, "%.2f", 1f);
+            if (changed) write(val);
+            HandleActivationTransition(zp, which, current, () => read());
+        }
+
+        void RenderTargetZoneField(VisualEQ.ZonePointSystem.ZonePoint zp, bool editable)
+        {
+            var current = zp.Row.TargetZone ?? "";
+
+            if (!editable)
+            {
+                ImGui.Text($"  target_zone = '{current}'");
+                return;
+            }
+
+            // Only refresh the byte buffer when selection changes OR the row value drifted
+            // from the buffer while nothing is being edited. Otherwise the user's typing
+            // gets stomped on every frame.
+            var isThisFieldActive =
+                _zpActiveEditZonePointId == zp.Row.Id &&
+                _zpActiveEditField == VisualEQ.EditSystem.ZonePointFieldEditAction.Field.TargetZone;
+
+            if (_zpTargetZoneBufferForId != zp.Row.Id || (!isThisFieldActive && ReadBuffer(_zpTargetZoneBuffer) != current))
+            {
+                Array.Clear(_zpTargetZoneBuffer, 0, _zpTargetZoneBuffer.Length);
+                var bytes = System.Text.Encoding.UTF8.GetBytes(current);
+                Array.Copy(bytes, _zpTargetZoneBuffer, Math.Min(bytes.Length, _zpTargetZoneBuffer.Length - 1));
+                _zpTargetZoneBufferForId = zp.Row.Id;
+            }
+
+            ImGui.Text("target_zone");
+            ImGui.SameLine();
+            ImGui.InputText($"###{Id}zpTZ", _zpTargetZoneBuffer, (uint)_zpTargetZoneBuffer.Length, InputTextFlags.Default, null);
+            HandleActivationTransition(
+                zp,
+                VisualEQ.EditSystem.ZonePointFieldEditAction.Field.TargetZone,
+                current,
+                () => ReadBuffer(_zpTargetZoneBuffer));
+        }
+
+        void RenderKeepCheckbox(
+            VisualEQ.ZonePointSystem.ZonePoint zp,
+            VisualEQ.EditSystem.ZonePointFieldEditAction.Field which,
+            string label,
+            Func<int> read,
+            Action<int> write,
+            bool editable)
+        {
+            var current = read();
+            if (!editable)
+            {
+                ImGui.Text($"  {label} = {(current != 0 ? "true" : "false")}");
+                return;
+            }
+            var val = current != 0;
+            if (ImGui.Checkbox($"{label}###{Id}zpK{(int)which}", ref val))
+            {
+                var before = current;
+                var after  = val ? 1 : 0;
+                if (before != after)
+                {
+                    _view.Controller.RecordAction(
+                        new VisualEQ.EditSystem.ZonePointFieldEditAction(zp, which, before, after));
+                }
+            }
+        }
+
+        void RenderModeRadios(VisualEQ.ZonePointSystem.ZonePoint zp, bool editable)
+        {
+            var current = (int)zp.Row.UseNewZoning;
+            if (!editable)
+            {
+                string name;
+                switch (current)
+                {
+                    case 0: name = "box"; break;
+                    case 1: name = "X-plane"; break;
+                    case 2: name = "Y-plane"; break;
+                    default: name = "?"; break;
+                }
+                ImGui.Text($"  {name} (UseNewZoning={current})");
+                return;
+            }
+
+            void Radio(int value, string label, string idSuffix)
+            {
+                var isOn = current == value;
+                if (ImGui.RadioButtonBool($"{label}###{Id}zpM{idSuffix}", isOn) && !isOn)
+                {
+                    _view.Controller.RecordAction(
+                        new VisualEQ.EditSystem.ZonePointFieldEditAction(
+                            zp,
+                            VisualEQ.EditSystem.ZonePointFieldEditAction.Field.UseNewZoning,
+                            (byte)current, (byte)value));
+                }
+            }
+            Radio(0, "box",     "0");
+            ImGui.SameLine();
+            Radio(1, "X-plane", "1");
+            ImGui.SameLine();
+            Radio(2, "Y-plane", "2");
+        }
+
+        // Detects the was-active → not-active transition for the most-recently-rendered
+        // ImGui item. On active-start, snapshot the before-value. On active-end, if the
+        // value drifted, record a ZonePointFieldEditAction. The `readCurrent` closure lets
+        // us pull the "after" value from the row (or a byte-buffer, for strings).
+        void HandleActivationTransition(
+            VisualEQ.ZonePointSystem.ZonePoint zp,
+            VisualEQ.EditSystem.ZonePointFieldEditAction.Field which,
+            object beforeValueIfStarting,
+            Func<object> readCurrent)
+        {
+            // 0.4.6 doesn't expose per-item IsItemActive — IsAnyItemActive queried right
+            // after rendering effectively equals "is THIS item active" since only one item
+            // can be active at a time. Same pattern the heading slider uses.
+            var isActive = ImGui.IsAnyItemActive();
+            var wasThisFieldActive =
+                _zpActiveEditZonePointId == zp.Row.Id &&
+                _zpActiveEditField == which;
+
+            if (isActive && !wasThisFieldActive)
+            {
+                // Starting an edit — capture the before-value. If a different field's edit
+                // was pending, flush that first using ITS reader (stored on start) — using
+                // the new field's reader here would apply the new field's value to the old
+                // field's action and crash on the type cast at Apply time.
+                if (_zpActiveEditZonePointId.HasValue)
+                    FlushActiveEditIfChanged();
+                _zpActiveEditZonePointId = zp.Row.Id;
+                _zpActiveEditField       = which;
+                _zpActiveEditBeforeValue = beforeValueIfStarting;
+                _zpActiveEditReader      = readCurrent;
+            }
+            else if (!isActive && wasThisFieldActive)
+            {
+                FlushActiveEditIfChanged();
+            }
+        }
+
+        void FlushActiveEditIfChanged()
+        {
+            if (!_zpActiveEditZonePointId.HasValue || _zpActiveEditReader == null) return;
+
+            var ctrl = _view.Controller;
+            var zp = ctrl.ZonePointManager.ZonePoints
+                .FirstOrDefault(p => p.Row.Id == _zpActiveEditZonePointId.Value);
+            if (zp == null)
+            {
+                _zpActiveEditZonePointId = null;
+                _zpActiveEditReader      = null;
+                return;
+            }
+
+            var after  = _zpActiveEditReader();
+            var before = _zpActiveEditBeforeValue;
+
+            bool changed = !object.Equals(before ?? "", after ?? "");
+            if (before is float bf && after is float af) changed = Math.Abs(bf - af) > 0.001f;
+            if (before is int bi && after is int ai)     changed = bi != ai;
+            if (before is byte bb && after is byte ab)   changed = bb != ab;
+
+            if (changed)
+            {
+                ctrl.RecordAction(new VisualEQ.EditSystem.ZonePointFieldEditAction(
+                    zp, _zpActiveEditField, before, after));
+            }
+            _zpActiveEditZonePointId = null;
+            _zpActiveEditBeforeValue = null;
+            _zpActiveEditReader      = null;
         }
 
         void RenderModelEditorSection(int index)

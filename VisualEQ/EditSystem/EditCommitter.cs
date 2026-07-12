@@ -85,21 +85,21 @@ namespace VisualEQ.EditSystem
                                     tx);
                             }
 
-                            // Zone-point edits: read the current row first so unchanged
-                            // fields (target coords, keep*, MinVert etc.) round-trip
-                            // untouched — the v1 drag editor only mutates X/Y/Z/Zrange/MaxZDiff.
+                            // Zone-point edits: buffer holds every editable field, so we
+                            // write from the buffer directly. ToZoneID is re-derived from
+                            // the current target_zone shortname (cheap SELECT per unique
+                            // target zone) so it never drifts out of sync with target_zone.
                             int zonePointRows = 0;
+                            var toZoneIdCache = new System.Collections.Generic.Dictionary<string, int>(System.StringComparer.OrdinalIgnoreCase);
                             foreach (var kv in buffer.ZonePoints)
                             {
                                 var edit = kv.Value;
-                                var existing = await connection.QueryFirstOrDefaultAsync<VisualEQ.Database.Models.TrilogyZonePoint>(
-                                    SqlQueries.GetTrilogyZonePoints + " AND id = @Id",
-                                    new { ZoneName = zoneName, Id = edit.Id },
-                                    tx);
-                                if (existing == null)
+                                var targetShort = edit.CurrentTargetZone ?? "";
+                                if (!toZoneIdCache.TryGetValue(targetShort, out var toZoneId))
                                 {
-                                    Console.WriteLine($"[EditCommitter] Skipping missing zone_point id={edit.Id}");
-                                    continue;
+                                    toZoneId = await connection.QueryFirstOrDefaultAsync<int?>(
+                                        SqlQueries.GetZoneId, new { ZoneName = targetShort }, tx) ?? 0;
+                                    toZoneIdCache[targetShort] = toZoneId;
                                 }
                                 zonePointRows += await connection.ExecuteAsync(
                                     SqlQueries.UpdateTrilogyZonePoint,
@@ -109,21 +109,21 @@ namespace VisualEQ.EditSystem
                                         X            = edit.CurrentX,
                                         Y            = edit.CurrentY,
                                         Z            = edit.CurrentZ,
-                                        Heading      = existing.Heading,
-                                        TargetZone   = existing.TargetZone,
-                                        TargetX      = existing.TargetX,
-                                        TargetY      = existing.TargetY,
-                                        TargetZ      = existing.TargetZ,
+                                        Heading      = edit.CurrentHeading,
+                                        TargetZone   = edit.CurrentTargetZone,
+                                        TargetX      = edit.CurrentTargetX,
+                                        TargetY      = edit.CurrentTargetY,
+                                        TargetZ      = edit.CurrentTargetZ,
                                         Zrange       = edit.CurrentZrange,
                                         MaxZDiff     = edit.CurrentMaxZDiff,
-                                        UseNewZoning = existing.UseNewZoning,
-                                        MinVert      = existing.MinVert,
-                                        MaxVert      = existing.MaxVert,
-                                        CenterPoint  = existing.CenterPoint,
-                                        KeepX        = existing.KeepX,
-                                        KeepY        = existing.KeepY,
-                                        KeepZ        = existing.KeepZ,
-                                        ToZoneId     = existing.ToZoneId,
+                                        UseNewZoning = edit.CurrentUseNewZoning,
+                                        MinVert      = edit.CurrentMinVert,
+                                        MaxVert      = edit.CurrentMaxVert,
+                                        CenterPoint  = edit.CurrentCenterPoint,
+                                        KeepX        = edit.CurrentKeepX,
+                                        KeepY        = edit.CurrentKeepY,
+                                        KeepZ        = edit.CurrentKeepZ,
+                                        ToZoneId     = toZoneId,
                                     },
                                     tx);
                             }
