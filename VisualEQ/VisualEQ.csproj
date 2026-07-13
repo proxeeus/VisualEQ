@@ -16,4 +16,14 @@
           SkipUnchangedFiles="true"
           Condition="Exists('$(OutputPath)runtimes\win-x64\native\cimgui.dll')" />
   </Target>
+  <!-- Publish mirror of CopyNativeLibs. Self-contained publish copies the runtimes/ tree
+       into the publish output but the ImGui.NET loader wants cimgui.dll next to the exe on
+       some configurations. Flattening it here is cheap insurance and matches the layout the
+       release zip expects. -->
+  <Target Name="CopyNativeLibsOnPublish" AfterTargets="Publish">
+    <Copy SourceFiles="$(PublishDir)runtimes\win-x64\native\cimgui.dll"
+          DestinationFolder="$(PublishDir)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(PublishDir)runtimes\win-x64\native\cimgui.dll')" />
+  </Target>
 </Project>
