@@ -116,6 +116,12 @@ namespace VisualEQ.Engine
         //   ZonePointEditor > WaypointEditor > ModelSelector.
         private bool ZonePointDragging = false;
 
+        // True while the user is drawing a new zone_point (drag-to-create). Intercepts
+        // MouseMove so the preview updates in real time; released on MouseUp which
+        // commits the insert. Higher priority than every selector — creation mode
+        // completely overrides the normal click behaviour.
+        private bool CreationDragging = false;
+
         // Make Width and Height properties publicly accessible
         public new int Width => base.Width;
         public new int Height => base.Height;
@@ -139,7 +145,12 @@ namespace VisualEQ.Engine
                 {
                     Gui.MousePosition = (e.X, e.Y);
 
-                    if (ZonePointDragging)
+                    if (CreationDragging)
+                    {
+                        var groundHit = ProjectMouseToGround(e.X, e.Y);
+                        if (groundHit.HasValue) Controller?.OnCreationMouseMove(groundHit.Value);
+                    }
+                    else if (ZonePointDragging)
                     {
                         ZonePointEditor?.UpdateDrag(e.X, e.Y);
                     }
@@ -166,6 +177,20 @@ namespace VisualEQ.Engine
                 // accidentally grab the spawn.
                 if (e.Button == MouseButton.Left && !Gui.MouseWanted)
                 {
+                    // Creation mode overrides selectors entirely — a click while in draw
+                    // mode always starts the ground-plane drag, never selects existing
+                    // handles/spawns/waypoints.
+                    if (Controller != null && Controller.IsCreationActive)
+                    {
+                        var groundHit = ProjectMouseToGround(e.X, e.Y);
+                        if (groundHit.HasValue)
+                        {
+                            Controller.OnCreationMouseDown(groundHit.Value);
+                            CreationDragging = true;
+                        }
+                        return;
+                    }
+
                     if (ZonePointEditor != null && ZonePointEditor.TrySelect(e.X, e.Y))
                     {
                         ZonePointDragging = true;
@@ -194,6 +219,13 @@ namespace VisualEQ.Engine
             MouseUp += (_, e) =>
             {
                 UpdateMouseButton(e.Button, false);
+
+                if (e.Button == MouseButton.Left && CreationDragging)
+                {
+                    CreationDragging = false;
+                    Controller?.OnCreationMouseUp();
+                    return;
+                }
 
                 if (e.Button == MouseButton.Left && ZonePointDragging)
                 {
@@ -323,6 +355,49 @@ namespace VisualEQ.Engine
             Lights.Clear();
         }
 
+        // Projects a screen-space mouse position onto the "ground" — a downward probe
+        // from a high altitude through the mouse's XY ray-plane intersection at camera Z.
+        // Returns the collider hit's Z if any, else the camera Z. Used by the drag-to-
+        // create pipeline to compute where in-world the user is drawing.
+        public Vector3? ProjectMouseToGround(int mouseX, int mouseY)
+        {
+            var eye = Camera.Position + new Vector3(0, 0, FpsCamera.CameraHeight);
+            var rayDir = ScreenToWorldRay(mouseX, mouseY);
+
+            // Cast into the ground plane at the camera's height — gives us the XY point
+            // the user is aiming at. Then probe straight down from high altitude for the
+            // actual ground Z so the box/plane sits on the surface.
+            var groundNormal = new Vector3(0, 0, 1);
+            var denom = Vector3.Dot(rayDir, groundNormal);
+            if (Math.Abs(denom) < 0.0001f) return null;
+            var t = (Camera.Position.Z - Vector3.Dot(eye, groundNormal)) / denom;
+            if (t <= 0) return null;
+            var xy = eye + rayDir * t;
+
+            float z = xy.Z;
+            if (Collider != null)
+            {
+                var probe = new Vector3(xy.X, xy.Y, 5000f);
+                var hit = Collider.FindIntersection(probe, new Vector3(0, 0, -1), 0.5f);
+                if (hit.HasValue) z = hit.Value.Item2.Z;
+            }
+            return new Vector3(xy.X, xy.Y, z);
+        }
+
+        // Screen → world ray. Same math as ZonePointEditor/WaypointEditor use internally.
+        Vector3 ScreenToWorldRay(int mouseX, int mouseY)
+        {
+            float ndcX = 2f * mouseX / Width - 1f;
+            float ndcY = 1f - 2f * mouseY / Height;
+            var rayClip = new System.Numerics.Vector4(ndcX, ndcY, -1f, 1f);
+            Matrix4x4.Invert(ProjectionMat, out var invProj);
+            var rayView = System.Numerics.Vector4.Transform(rayClip, invProj);
+            rayView = new System.Numerics.Vector4(rayView.X, rayView.Y, -1f, 0f);
+            Matrix4x4.Invert(FpsCamera.Matrix, out var invView);
+            var rayWorld = System.Numerics.Vector4.Transform(rayView, invView);
+            return Vector3.Normalize(new Vector3(rayWorld.X, rayWorld.Y, rayWorld.Z));
+        }
+
         void UpdateMouseButton(MouseButton button, bool state)
         {
             switch (button)
@@ -397,7 +472,13 @@ namespace VisualEQ.Engine
                     Controller?.ToggleEditMode();
                     break;
                 case Key.Escape:
-                    // Priority: cancel drag → clear selection. Does NOT exit the app anymore.
+                    // Priority: cancel creation → cancel drag → clear selection.
+                    if (Controller != null && Controller.IsCreationActive)
+                    {
+                        Controller.CancelCreation();
+                        CreationDragging = false;
+                        break;
+                    }
                     if (ZonePointDragging)
                     {
                         ZonePointEditor?.CancelDrag();

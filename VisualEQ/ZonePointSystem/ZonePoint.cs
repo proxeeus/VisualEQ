@@ -44,6 +44,12 @@ namespace VisualEQ.ZonePointSystem
         // UPDATEs; undo-insert removes it entirely rather than reverting Row.*.
         public bool IsPendingInsert => Row.Id < 0;
 
+        // Row physically belongs to another zone (its Row.Zone != currently-loaded zone)
+        // but lands INSIDE the current zone via target_zone. Rendered as a landing pad +
+        // heading arrow at the target coord; inspector limits editable fields to the
+        // heading (the direction the arriving player faces).
+        public bool IsIncoming { get; internal set; }
+
         public ZonePoint(TrilogyZonePoint row)
         {
             Row                  = row;

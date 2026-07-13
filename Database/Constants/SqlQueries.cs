@@ -156,5 +156,29 @@ namespace VisualEQ.Database.Constants
             SELECT short_name
             FROM zone
             ORDER BY short_name";
+
+        // Rows in other zones that land inside the currently-viewed zone — used to render
+        // "incoming" arrows at the target_x/y/z coord with a heading indicator. The row's
+        // `zone` field stays as the SOURCE (foreign) zone; edits still UPDATE by id so
+        // the cross-zone commit path is identical to the normal case.
+        public const string GetIncomingZonePoints = @"
+            SELECT
+                id,
+                zone,
+                x, y, z, heading,
+                target_zone     AS TargetZone,
+                target_x        AS TargetX,
+                target_y        AS TargetY,
+                target_z        AS TargetZ,
+                Zrange,
+                maxZDiff        AS MaxZDiff,
+                UseNewZoning,
+                MinVert, MaxVert, CenterPoint,
+                keepX           AS KeepX,
+                keepY           AS KeepY,
+                keepZ           AS KeepZ,
+                ToZoneID        AS ToZoneId
+            FROM trilogy_zone_points
+            WHERE target_zone = @ZoneName AND zone <> @ZoneName";
     }
 }

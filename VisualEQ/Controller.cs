@@ -31,6 +31,14 @@ namespace VisualEQ
         object IController.ModelSelector => modelSelector;
         public ModelSelector ModelSelector => modelSelector;
 
+        // IController plumbing for the drag-to-create pipeline. Implementations here
+        // dispatch to the OnCreation* methods declared elsewhere in this class.
+        bool IController.IsCreationActive => ActiveCreation != CreationMode.None;
+        void IController.OnCreationMouseDown(Vector3 groundHit) => OnCreationMouseDown(groundHit);
+        void IController.OnCreationMouseMove(Vector3 groundHit) => OnCreationMouseMove(groundHit);
+        void IController.OnCreationMouseUp() => OnCreationMouseUp();
+        void IController.CancelCreation() => CancelCreation();
+
         public AppSettings Settings { get; }
 
         // Non-null once the user has saved a valid DB connection.
@@ -44,6 +52,157 @@ namespace VisualEQ
         // powers the target-zone dropdown in the inspector. Empty when no DB is
         // configured; the inspector falls back to a free-text field in that case.
         public List<string> ZoneShortNames { get; } = new List<string>();
+
+        // ─── Drag-to-create state ────────────────────────────────────────────────────
+        // When active, the mouse pipeline is intercepted before zone-point / waypoint /
+        // spawn selectors so left-click-drag on the ground plane draws a preview
+        // rectangle (box) or line (plane). Mouse-up commits the new zone_point via a
+        // ZonePointInsertAction and returns to CreationMode.None.
+        public enum CreationMode { None, DrawBox, DrawPlane }
+        public CreationMode ActiveCreation { get; private set; } = CreationMode.None;
+
+        // Ground-plane drag anchor + current point. Both null when not actively dragging.
+        Vector3? _creationDragStart;
+        Vector3? _creationDragCurrent;
+
+        public Vector3? CreationDragStart   => _creationDragStart;
+        public Vector3? CreationDragCurrent => _creationDragCurrent;
+
+        public event Action<CreationMode> CreationModeChanged;
+
+        public void EnterCreationMode(CreationMode m)
+        {
+            if (m == ActiveCreation) return;
+            ActiveCreation = m;
+            _creationDragStart = _creationDragCurrent = null;
+            CreationModeChanged?.Invoke(m);
+        }
+
+        public void CancelCreation()
+        {
+            if (ActiveCreation == CreationMode.None && _creationDragStart == null) return;
+            ActiveCreation = CreationMode.None;
+            _creationDragStart = null;
+            _creationDragCurrent = null;
+            CreationModeChanged?.Invoke(CreationMode.None);
+        }
+
+        // Called by EngineCore.MouseDown when creation mode is active. scenePos is the
+        // mouse ray's intersection with the ground plane (Z = camera-anchor Z, or the
+        // collider's floor if a hit is found).
+        public void OnCreationMouseDown(Vector3 scenePos)
+        {
+            if (ActiveCreation == CreationMode.None) return;
+            _creationDragStart = _creationDragCurrent = scenePos;
+        }
+
+        public void OnCreationMouseMove(Vector3 scenePos)
+        {
+            if (ActiveCreation == CreationMode.None) return;
+            if (_creationDragStart.HasValue) _creationDragCurrent = scenePos;
+        }
+
+        public void OnCreationMouseUp()
+        {
+            if (ActiveCreation == CreationMode.None) return;
+            if (_creationDragStart.HasValue && _creationDragCurrent.HasValue)
+            {
+                var start = _creationDragStart.Value;
+                var end   = _creationDragCurrent.Value;
+                if (Vector3.DistanceSquared(new Vector3(start.X, start.Y, 0), new Vector3(end.X, end.Y, 0)) > 1f)
+                {
+                    if (ActiveCreation == CreationMode.DrawBox)   CreateBoxFromDrag(start, end);
+                    else if (ActiveCreation == CreationMode.DrawPlane) CreatePlaneFromDrag(start, end);
+                }
+            }
+            _creationDragStart = null;
+            _creationDragCurrent = null;
+            ActiveCreation = CreationMode.None;
+            CreationModeChanged?.Invoke(CreationMode.None);
+        }
+
+        // Ground-rectangle → box. Zrange = half of max(width, height) — the schema is a
+        // single scalar so the resulting box is square-fit (spec §6). Center = rectangle
+        // midpoint.
+        void CreateBoxFromDrag(Vector3 sceneStart, Vector3 sceneEnd)
+        {
+            var centerScene = new Vector3(
+                (sceneStart.X + sceneEnd.X) * 0.5f,
+                (sceneStart.Y + sceneEnd.Y) * 0.5f,
+                (sceneStart.Z + sceneEnd.Z) * 0.5f);
+            var halfW = System.MathF.Abs(sceneEnd.X - sceneStart.X) * 0.5f;
+            var halfH = System.MathF.Abs(sceneEnd.Y - sceneStart.Y) * 0.5f;
+            var zrange = (int)System.MathF.Max(1f, System.MathF.Max(halfW, halfH));
+
+            var row = NewRowTemplate();
+            row.X            = centerScene.Y;   // DB X = scene Y
+            row.Y            = centerScene.X;   // DB Y = scene X
+            row.Z            = centerScene.Z;
+            row.Zrange       = zrange;
+            row.UseNewZoning = 0;
+
+            RecordAction(new EditSystem.ZonePointInsertAction(row));
+            SelectFreshInsert(row.Id);
+        }
+
+        // Ground-line → plane crossing. Midpoint's X or Y becomes the trigger coord
+        // (depending on which axis has the larger delta — we choose the plane
+        // perpendicular to the SHORTER axis so the line hugs the intended edge). Line
+        // endpoints become MinVert/MaxVert on the perpendicular axis.
+        void CreatePlaneFromDrag(Vector3 sceneStart, Vector3 sceneEnd)
+        {
+            var mid = new Vector3(
+                (sceneStart.X + sceneEnd.X) * 0.5f,
+                (sceneStart.Y + sceneEnd.Y) * 0.5f,
+                (sceneStart.Z + sceneEnd.Z) * 0.5f);
+            var dx = System.MathF.Abs(sceneEnd.X - sceneStart.X);
+            var dy = System.MathF.Abs(sceneEnd.Y - sceneStart.Y);
+
+            var row = NewRowTemplate();
+            row.Z = mid.Z;
+            if (dx >= dy)
+            {
+                // Line runs along scene X (= DB Y). Perpendicular axis is scene Y (= DB X).
+                // → DB mode 2 (Y-plane); plane at DB Y = mid's DB Y (= mid.X in scene).
+                row.UseNewZoning = 2;
+                row.X = 0f;             // ungated on DB X (bounds control extent)
+                row.Y = mid.X;          // DB Y = scene X
+                row.MinVert = System.MathF.Min(sceneStart.Y, sceneEnd.Y); // scene Y = DB X
+                row.MaxVert = System.MathF.Max(sceneStart.Y, sceneEnd.Y);
+            }
+            else
+            {
+                // Line runs along scene Y (= DB X). Perpendicular axis is scene X (= DB Y).
+                // → DB mode 1 (X-plane); plane at DB X = mid's DB X (= mid.Y in scene).
+                row.UseNewZoning = 1;
+                row.X = mid.Y;          // DB X = scene Y
+                row.Y = 0f;             // ungated on DB Y (bounds control extent)
+                row.MinVert = System.MathF.Min(sceneStart.X, sceneEnd.X); // scene X = DB Y
+                row.MaxVert = System.MathF.Max(sceneStart.X, sceneEnd.X);
+            }
+
+            RecordAction(new EditSystem.ZonePointInsertAction(row));
+            SelectFreshInsert(row.Id);
+        }
+
+        Database.Models.TrilogyZonePoint NewRowTemplate() => new Database.Models.TrilogyZonePoint
+        {
+            Id           = ZonePointManager.NextTempId(),
+            Zone         = CurrentZoneName,
+            Heading      = 0f,
+            TargetZone   = ZoneShortNames.FirstOrDefault(z =>
+                                !string.Equals(z, CurrentZoneName, StringComparison.OrdinalIgnoreCase))
+                            ?? CurrentZoneName,
+            Zrange       = 15,
+            MaxZDiff     = 0,
+            UseNewZoning = 0,
+        };
+
+        void SelectFreshInsert(int id)
+        {
+            var created = ZonePointManager.ZonePoints.FirstOrDefault(z => z.Row.Id == id);
+            if (created != null) ZonePointManager.Select(created);
+        }
 
         // Zone name set when LoadZone is called; triggers spawn load on later DB connect.
         public string CurrentZoneName { get; private set; }
@@ -150,7 +309,9 @@ namespace VisualEQ
 
             foreach (var kv in buffer.ZonePoints)
             {
-                var zp = ZonePointManager.ZonePoints.FirstOrDefault(p => p.Row.Id == kv.Key);
+                // Incoming rows (owned by other zones) can also carry pending heading edits,
+                // so check both lists via AllPoints().
+                var zp = ZonePointManager.AllPoints().FirstOrDefault(p => p.Row.Id == kv.Key);
                 if (zp == null) continue;
                 var e = kv.Value;
 
@@ -222,7 +383,7 @@ namespace VisualEQ
 
             foreach (var sp in SpawnManager.SpawnPoints)
                 if (sp.IsDirty) sp.Revert();
-            foreach (var zp in ZonePointManager.ZonePoints)
+            foreach (var zp in ZonePointManager.AllPoints())
                 if (zp.IsDirty) zp.Revert();
 
             EditBufferManager.DeleteForZone(PendingBuffer.Zone);
@@ -278,16 +439,41 @@ namespace VisualEQ
             // agnostic of ZonePointSystem types.
             Engine.ZonePointEditor.SetLookup(id =>
             {
-                var zp = ZonePointManager.ZonePoints.FirstOrDefault(z => z.Row.Id == id);
+                var zp = ZonePointManager.AllPoints().FirstOrDefault(z => z.Row.Id == id);
                 if (zp == null) return null;
+
+                // Incoming rows: the spatial anchor in this zone is the landing pad
+                // (SceneTarget), and center-drag mutates target_x/y/z — the source coord
+                // lives in another zone and is meaningless to drag from here.
+                if (zp.IsIncoming)
+                {
+                    return new Engine.ZonePointEditor.ZonePointDragTarget
+                    {
+                        Id                = zp.Row.Id,
+                        SceneCenter       = zp.SceneTarget,
+                        Zrange            = zp.Row.Zrange,
+                        MaxZDiff          = zp.Row.MaxZDiff,
+                        MinVert           = zp.Row.MinVert,
+                        MaxVert           = zp.Row.MaxVert,
+                        UseNewZoning      = zp.Row.UseNewZoning,
+                        ApplyMove         = scenePos => { zp.SetTargetX(scenePos.Y); zp.SetTargetY(scenePos.X); zp.SetTargetZ(scenePos.Z); },
+                        ApplyResize       = null,
+                        ApplyPlaneBounds  = null,
+                    };
+                }
+
                 return new Engine.ZonePointEditor.ZonePointDragTarget
                 {
-                    Id          = zp.Row.Id,
-                    SceneCenter = zp.SceneCenter,
-                    Zrange      = zp.Row.Zrange,
-                    MaxZDiff    = zp.Row.MaxZDiff,
-                    ApplyMove   = scenePos => zp.MarkMoved(scenePos),
-                    ApplyResize = (zr, mz)  => zp.MarkResized(zr, mz),
+                    Id                = zp.Row.Id,
+                    SceneCenter       = zp.SceneCenter,
+                    Zrange            = zp.Row.Zrange,
+                    MaxZDiff          = zp.Row.MaxZDiff,
+                    MinVert           = zp.Row.MinVert,
+                    MaxVert           = zp.Row.MaxVert,
+                    UseNewZoning      = zp.Row.UseNewZoning,
+                    ApplyMove         = scenePos      => zp.MarkMoved(scenePos),
+                    ApplyResize       = (zr, mz)      => zp.MarkResized(zr, mz),
+                    ApplyPlaneBounds  = (min, max)    => { zp.SetMinVert(min); zp.SetMaxVert(max); },
                 };
             });
         }
@@ -297,25 +483,49 @@ namespace VisualEQ
             ZonePointManager.Select(zonePointId);
         }
 
-        void HandleZonePointDragCompleted(
-            ZonePointEditor.HandleKind kind,
-            int zonePointId,
-            Vector3 fromScenePos, Vector3 toScenePos,
-            int fromZrange, int toZrange,
-            int fromMaxZDiff, int toMaxZDiff)
+        void HandleZonePointDragCompleted(ZonePointEditor.DragResult r)
         {
-            var zp = ZonePointManager.ZonePoints.FirstOrDefault(z => z.Row.Id == zonePointId);
+            var zp = ZonePointManager.AllPoints().FirstOrDefault(z => z.Row.Id == r.ZonePointId);
             if (zp == null) return;
 
-            if (kind == ZonePointEditor.HandleKind.Center)
+            // Incoming rows: only the center handle is exposed, and it moves the landing
+            // coord (target_x/y/z) — not the source coord (which lives in the other zone).
+            if (zp.IsIncoming)
             {
-                if (Vector3.DistanceSquared(fromScenePos, toScenePos) < 0.0001f) return;
-                RecordAction(new EditSystem.ZonePointMoveAction(zp, fromScenePos, toScenePos));
+                if (r.Kind != ZonePointEditor.HandleKind.Center) return;
+                if (Vector3.DistanceSquared(r.FromCenter, r.ToCenter) < 0.0001f) return;
+                RecordAction(new EditSystem.ZonePointTargetMoveAction(zp, r.FromCenter, r.ToCenter));
+                return;
             }
-            else
+
+            switch (r.Kind)
             {
-                if (fromZrange == toZrange && fromMaxZDiff == toMaxZDiff) return;
-                RecordAction(new EditSystem.ZonePointResizeAction(zp, fromZrange, toZrange, fromMaxZDiff, toMaxZDiff));
+                case ZonePointEditor.HandleKind.Center:
+                    if (Vector3.DistanceSquared(r.FromCenter, r.ToCenter) < 0.0001f) return;
+                    RecordAction(new EditSystem.ZonePointMoveAction(zp, r.FromCenter, r.ToCenter));
+                    break;
+
+                case ZonePointEditor.HandleKind.CornerXmYm:
+                case ZonePointEditor.HandleKind.CornerXpYm:
+                case ZonePointEditor.HandleKind.CornerXpYp:
+                case ZonePointEditor.HandleKind.CornerXmYp:
+                case ZonePointEditor.HandleKind.FaceZm:
+                case ZonePointEditor.HandleKind.FaceZp:
+                    if (r.FromZrange == r.ToZrange && r.FromMaxZDiff == r.ToMaxZDiff) return;
+                    RecordAction(new EditSystem.ZonePointResizeAction(zp, r.FromZrange, r.ToZrange, r.FromMaxZDiff, r.ToMaxZDiff));
+                    break;
+
+                case ZonePointEditor.HandleKind.PlaneEndMinVert:
+                    if (System.Math.Abs(r.FromMinVert - r.ToMinVert) < 0.001f) return;
+                    RecordAction(new EditSystem.ZonePointFieldEditAction(
+                        zp, EditSystem.ZonePointFieldEditAction.Field.MinVert, r.FromMinVert, r.ToMinVert));
+                    break;
+
+                case ZonePointEditor.HandleKind.PlaneEndMaxVert:
+                    if (System.Math.Abs(r.FromMaxVert - r.ToMaxVert) < 0.001f) return;
+                    RecordAction(new EditSystem.ZonePointFieldEditAction(
+                        zp, EditSystem.ZonePointFieldEditAction.Field.MaxVert, r.FromMaxVert, r.ToMaxVert));
+                    break;
             }
         }
 
@@ -415,9 +625,11 @@ namespace VisualEQ
             if (zp == null) return;
 
             var forward = Vector3.Normalize(Vector3.Transform(new Vector3(0, 1, 0), Camera.LookRotation));
-            var center = zp.SceneCenter;
-            Camera.Position = center - forward * 60f + new Vector3(0, 0, 20f);
-            Camera.LookAt(center);
+            // Incoming rows' spatial anchor is the landing pad at SceneTarget (not the
+            // source coord, which is in another zone anyway).
+            var anchor  = zp.IsIncoming ? zp.SceneTarget : zp.SceneCenter;
+            Camera.Position = anchor - forward * 60f + new Vector3(0, 0, 20f);
+            Camera.LookAt(anchor);
         }
 
         // Fires a Task that writes the buffer to the DB in a single transaction. The
@@ -572,6 +784,11 @@ namespace VisualEQ
                 var repo = new ZonePointRepository(DbFactory);
                 var rows = repo.GetZonePointsAsync(zoneName).GetAwaiter().GetResult();
                 ZonePointManager.LoadFromRows(rows);
+
+                // Incoming rows — foreign zones that land in this zone. Shown as landing
+                // pads + heading arrows so users can see where arriving players face.
+                var incoming = repo.GetIncomingZonePointsAsync(zoneName).GetAwaiter().GetResult();
+                ZonePointManager.LoadIncomingFromRows(incoming);
 
                 // Populate the dropdown-backing list once per zone load. Cached because
                 // it's used every inspector-render frame.
@@ -987,7 +1204,7 @@ namespace VisualEQ
             var emptyLines = System.Array.Empty<(Vector3, Vector3, Vector4)>();
             var emptyTris  = System.Array.Empty<(Vector3, Vector3, Vector3, Vector4)>();
 
-            if (ZonePointManager.ZonePoints.Count == 0)
+            if (ZonePointManager.ZonePoints.Count == 0 && ZonePointManager.IncomingPoints.Count == 0)
             {
                 Engine.SetZonePointPrimitives(emptyLines, emptyTris);
                 Engine.ZonePointEditor.SetCandidates(System.Array.Empty<ZonePointEditor.Handle>());
@@ -997,6 +1214,7 @@ namespace VisualEQ
             var selected = ZonePointManager.Selected;
             var built = ZonePointSystem.ZonePointPrimitiveBuilder.Build(
                 ZonePointManager.ZonePoints,
+                ZonePointManager.IncomingPoints,
                 selected,
                 Engine.ZoneBounds);
 
@@ -1004,7 +1222,9 @@ namespace VisualEQ
             // zone point; larger contrast crosses at corner/face handles for the selected.
             var handleColor        = new Vector4(0.85f, 0.95f, 1f, 1f);
             var selectedHandleClr  = new Vector4(0.30f, 1.00f, 1.00f, 1f);
-            var candidates = new List<ZonePointEditor.Handle>(ZonePointManager.ZonePoints.Count * 3);
+            var incomingHandleClr  = new Vector4(0.30f, 0.95f, 1.00f, 1f);
+            var candidates = new List<ZonePointEditor.Handle>(
+                ZonePointManager.ZonePoints.Count * 3 + ZonePointManager.IncomingPoints.Count);
 
             const float centerArm = 4f;
             const float handleArm = 6f;
@@ -1056,6 +1276,101 @@ namespace VisualEQ
                     candidates.Add(new ZonePointEditor.Handle { ZonePointId = zp.Row.Id, Kind = ZonePointEditor.HandleKind.FaceZm, ScenePos = faceZm });
                     candidates.Add(new ZonePointEditor.Handle { ZonePointId = zp.Row.Id, Kind = ZonePointEditor.HandleKind.FaceZp, ScenePos = faceZp });
                 }
+                else if (ReferenceEquals(zp, selected) && (zp.Row.UseNewZoning == 1 || zp.Row.UseNewZoning == 2))
+                {
+                    // Plane-crossing end-cap handles. Position depends on mode:
+                    //   mode 1 (X-plane, perpendicular = scene X axis) → handles at (min/maxVert, c.Y, c.Z)
+                    //   mode 2 (Y-plane, perpendicular = scene Y axis) → handles at (c.X, min/maxVert, c.Z)
+                    Vector3 minPos, maxPos;
+                    if (zp.Row.UseNewZoning == 1)
+                    {
+                        minPos = new Vector3(zp.Row.MinVert, c.Y, c.Z);
+                        maxPos = new Vector3(zp.Row.MaxVert, c.Y, c.Z);
+                    }
+                    else
+                    {
+                        minPos = new Vector3(c.X, zp.Row.MinVert, c.Z);
+                        maxPos = new Vector3(c.X, zp.Row.MaxVert, c.Z);
+                    }
+                    AddHandleCross(built.Lines, minPos, handleArm, selectedHandleClr);
+                    AddHandleCross(built.Lines, maxPos, handleArm, selectedHandleClr);
+                    candidates.Add(new ZonePointEditor.Handle { ZonePointId = zp.Row.Id, Kind = ZonePointEditor.HandleKind.PlaneEndMinVert, ScenePos = minPos });
+                    candidates.Add(new ZonePointEditor.Handle { ZonePointId = zp.Row.Id, Kind = ZonePointEditor.HandleKind.PlaneEndMaxVert, ScenePos = maxPos });
+                }
+            }
+
+            // Incoming rows: only a center-handle candidate (at the landing coord) so
+            // clicking the pad selects the row for inspector heading edit. IsIncoming=true
+            // makes TrySelect prefer this over any overlapping owned-box handles that
+            // would otherwise win the depth sort.
+            foreach (var zp in ZonePointManager.IncomingPoints)
+            {
+                candidates.Add(new ZonePointEditor.Handle
+                {
+                    ZonePointId = zp.Row.Id,
+                    Kind        = ZonePointEditor.HandleKind.Center,
+                    ScenePos    = zp.SceneTarget,
+                    IsIncoming  = true,
+                });
+            }
+
+            // Drag-to-create preview. When the user is mid-drag with an active creation
+            // mode, sketch the pending shape in a distinct yellow so they can see what
+            // they're about to commit.
+            if (ActiveCreation != CreationMode.None
+                && _creationDragStart.HasValue && _creationDragCurrent.HasValue)
+            {
+                var start = _creationDragStart.Value;
+                var end   = _creationDragCurrent.Value;
+                var previewWire = new Vector4(1.0f, 0.85f, 0.20f, 1.0f);
+                var previewFill = new Vector4(1.0f, 0.85f, 0.20f, 0.20f);
+
+                if (ActiveCreation == CreationMode.DrawBox)
+                {
+                    // Ground-hugging rectangle. Preview the SQUARE-fit that the box will
+                    // actually snap to (max of width/height) — that's what commit produces.
+                    var cx = (start.X + end.X) * 0.5f;
+                    var cy = (start.Y + end.Y) * 0.5f;
+                    var cz = (start.Z + end.Z) * 0.5f;
+                    var half = System.MathF.Max(1f, System.MathF.Max(
+                        System.MathF.Abs(end.X - start.X) * 0.5f,
+                        System.MathF.Abs(end.Y - start.Y) * 0.5f));
+                    var min = new Vector3(cx - half, cy - half, cz - 5f);
+                    var max = new Vector3(cx + half, cy + half, cz + 5f);
+                    var v000 = new Vector3(min.X, min.Y, min.Z);
+                    var v100 = new Vector3(max.X, min.Y, min.Z);
+                    var v110 = new Vector3(max.X, max.Y, min.Z);
+                    var v010 = new Vector3(min.X, max.Y, min.Z);
+                    built.Lines.Add(new ZonePointSystem.ZonePointPrimitiveBuilder.Line(v000, v100, previewWire));
+                    built.Lines.Add(new ZonePointSystem.ZonePointPrimitiveBuilder.Line(v100, v110, previewWire));
+                    built.Lines.Add(new ZonePointSystem.ZonePointPrimitiveBuilder.Line(v110, v010, previewWire));
+                    built.Lines.Add(new ZonePointSystem.ZonePointPrimitiveBuilder.Line(v010, v000, previewWire));
+                    built.Tris.Add(new ZonePointSystem.ZonePointPrimitiveBuilder.Tri(v000, v100, v110, previewFill));
+                    built.Tris.Add(new ZonePointSystem.ZonePointPrimitiveBuilder.Tri(v000, v110, v010, previewFill));
+                }
+                else if (ActiveCreation == CreationMode.DrawPlane)
+                {
+                    // A tall thin wall along the drag line. Height = a modest preview
+                    // (real plane extends to zone bounds; showing that at 2000px scale
+                    // during drag is visually noisy).
+                    var mid = new Vector3(
+                        (start.X + end.X) * 0.5f,
+                        (start.Y + end.Y) * 0.5f,
+                        (start.Z + end.Z) * 0.5f);
+                    var height = 80f;
+                    var top   = mid + new Vector3(0, 0, height);
+                    var bot   = mid - new Vector3(0, 0, height);
+                    built.Lines.Add(new ZonePointSystem.ZonePointPrimitiveBuilder.Line(start, end, previewWire));
+                    built.Lines.Add(new ZonePointSystem.ZonePointPrimitiveBuilder.Line(
+                        new Vector3(start.X, start.Y, start.Z + height),
+                        new Vector3(end.X, end.Y, end.Z + height), previewWire));
+                    built.Lines.Add(new ZonePointSystem.ZonePointPrimitiveBuilder.Line(
+                        new Vector3(start.X, start.Y, start.Z),
+                        new Vector3(start.X, start.Y, start.Z + height), previewWire));
+                    built.Lines.Add(new ZonePointSystem.ZonePointPrimitiveBuilder.Line(
+                        new Vector3(end.X, end.Y, end.Z),
+                        new Vector3(end.X, end.Y, end.Z + height), previewWire));
+                }
             }
 
             var lines = new (Vector3, Vector3, Vector4)[built.Lines.Count];
@@ -1065,6 +1380,26 @@ namespace VisualEQ
             var tris = new (Vector3, Vector3, Vector3, Vector4)[built.Tris.Count];
             for (int i = 0; i < built.Tris.Count; i++)
                 tris[i] = (built.Tris[i].A, built.Tris[i].B, built.Tris[i].C, built.Tris[i].Color);
+
+            // Body candidates for the click hit-test fallback — every owned zone-point
+            // box contributes its AABB (using the SAME clamping the renderer applies for
+            // infinite-Z boxes so visible and clickable stay in sync). Clicking the box
+            // wireframe/fill selects the box even though the tiny 12px center handle is
+            // otherwise the only precise target.
+            var bodies = new List<ZonePointEditor.BoxBody>(ZonePointManager.ZonePoints.Count);
+            foreach (var zp in ZonePointManager.ZonePoints)
+            {
+                var aabb = ZonePointSystem.ZonePointPrimitiveBuilder.TryGetBoxSceneAabb(zp, Engine.ZoneBounds);
+                if (!aabb.HasValue) continue;
+                bodies.Add(new ZonePointEditor.BoxBody
+                {
+                    ZonePointId = zp.Row.Id,
+                    Min         = aabb.Value.Min,
+                    Max         = aabb.Value.Max,
+                    Center      = zp.SceneCenter,
+                });
+            }
+            Engine.ZonePointEditor.SetBodyCandidates(bodies);
 
             Engine.SetZonePointPrimitives(lines, tris);
             Engine.ZonePointEditor.SetCandidates(candidates);

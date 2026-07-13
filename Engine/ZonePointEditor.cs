@@ -34,6 +34,8 @@ namespace VisualEQ.Engine
             CornerXmYp,   // -X, +Y
             FaceZm,       // bottom face center
             FaceZp,       // top face center
+            PlaneEndMinVert, // plane-crossing end-cap at MinVert (drag → adjusts MinVert)
+            PlaneEndMaxVert, // plane-crossing end-cap at MaxVert (drag → adjusts MaxVert)
         }
 
         public struct Handle : IEquatable<Handle>
@@ -44,6 +46,10 @@ namespace VisualEQ.Engine
             // For corner handles we also carry the corresponding Z (top/bottom) so drag
             // math and rendering stay consistent when MaxZDiff changes mid-drag.
             public bool IsTop;
+            // Incoming landing-pad handles get priority in TrySelect so a pad sitting
+            // inside/beneath an owned box is still clickable — otherwise the box's
+            // center handle (closer to camera) would always win.
+            public bool IsIncoming;
 
             public bool Equals(Handle other) =>
                 ZonePointId == other.ZonePointId && Kind == other.Kind && IsTop == other.IsTop;
@@ -55,6 +61,25 @@ namespace VisualEQ.Engine
 
         readonly List<Handle> _candidates = new List<Handle>();
 
+        // Body candidates — box AABBs that participate in the click hit-test as a
+        // FALLBACK after the screen-space handle test. Clicking anywhere on/inside a
+        // box now selects it as if you'd clicked its center handle, so clicks don't
+        // fall through to the ModelSelector (which grabs distant NPCs with its own
+        // depth-scaled hit sphere).
+        public struct BoxBody
+        {
+            public int ZonePointId;
+            public Vector3 Min;
+            public Vector3 Max;
+            public Vector3 Center;   // scene-space; drives the resulting Handle.ScenePos
+        }
+        readonly List<BoxBody> _bodyCandidates = new List<BoxBody>();
+        public void SetBodyCandidates(IEnumerable<BoxBody> bodies)
+        {
+            _bodyCandidates.Clear();
+            _bodyCandidates.AddRange(bodies);
+        }
+
         Handle? _selected;
         public Handle? SelectedHandle => _selected;
 
@@ -65,11 +90,27 @@ namespace VisualEQ.Engine
         // currently-selected one — Controller consumes to update ZonePointManager.Selected.
         public event Action<int> OnZonePointClicked;
 
-        // Fires once per successful drag: kind, id, and the from/to values that changed.
-        // Center drag → fromScenePos/toScenePos are the row's SceneCenter.
-        // Corner drag → fromZrange/toZrange updated (positions unchanged).
-        // Face drag   → fromMaxZDiff/toMaxZDiff updated (positions unchanged).
-        public event Action<HandleKind, int, Vector3, Vector3, int, int, int, int> OnDragCompleted;
+        // Fires once per successful drag with the from/to values for whichever field
+        // the drag was actually manipulating. Signature is wide because a single
+        // callback covers every handle kind (center → position, corner/face → box
+        // size, plane end-cap → plane bound). The Controller dispatches on `kind` and
+        // records the appropriate action.
+        public struct DragResult
+        {
+            public HandleKind Kind;
+            public int ZonePointId;
+            public Vector3 FromCenter;
+            public Vector3 ToCenter;
+            public int FromZrange;
+            public int ToZrange;
+            public int FromMaxZDiff;
+            public int ToMaxZDiff;
+            public float FromMinVert;
+            public float ToMinVert;
+            public float FromMaxVert;
+            public float ToMaxVert;
+        }
+        public event Action<DragResult> OnDragCompleted;
 
         bool _isDragging;
         bool _dragPending;
@@ -89,12 +130,17 @@ namespace VisualEQ.Engine
         // half-extents in world space from the mouse-on-plane point.
         int _dragStartZrange;
         int _dragStartMaxZDiff;
+        float _dragStartMinVert;
+        float _dragStartMaxVert;
         Vector3 _dragStartCornerPos;   // world-space position of the grabbed corner at drag start
+        byte _dragStartMode;           // captured so plane-end drag knows which axis to move along
 
         // Current (live) values while dragging — kept so cancel restores originals.
         Vector3 _currentCenter;
         int _currentZrange;
         int _currentMaxZDiff;
+        float _currentMinVert;
+        float _currentMaxVert;
 
         const int DragThresholdPixels = 8;
         const float DefaultGroundOffset = 0.1f;
@@ -124,15 +170,27 @@ namespace VisualEQ.Engine
             _selected = null;
         }
 
+        // Hybrid hit-test:
+        //   1. World-space ray/sphere filters to "which handles is the click ray roughly
+        //      pointing at?" (uses a generous depth-scaled world radius so distant handles
+        //      don't require pixel-perfect aim).
+        //   2. Screen-space distance-to-cursor picks the winner among those. Whichever
+        //      glyph is visually closest to the mouse cursor wins — matches user vision
+        //      regardless of world-space depth ordering.
+        //
+        // Fallback: ray/AABB test on box bodies so clicking anywhere on a box's volume
+        // selects it (prevents falling through to ModelSelector's depth-scaled hit
+        // spheres that grab NPCs across the map).
         public bool TrySelect(int mouseX, int mouseY)
         {
-            if (_candidates.Count == 0) return false;
+            if (_candidates.Count == 0 && _bodyCandidates.Count == 0) return false;
 
+            var mouse     = new Vector2(mouseX, mouseY);
             var rayOrigin = Camera.Position + new Vector3(0, 0, FpsCamera.CameraHeight);
-            var rayDir = ScreenToWorldRay(mouseX, mouseY);
+            var rayDir    = ScreenToWorldRay(mouseX, mouseY);
 
-            Handle? closest = null;
-            float bestProj = float.MaxValue;
+            Handle? best = null;
+            float bestScreenDist2 = float.MaxValue;
 
             foreach (var h in _candidates)
             {
@@ -140,30 +198,107 @@ namespace VisualEQ.Engine
                 var proj = Vector3.Dot(to, rayDir);
                 if (proj < 0) continue;
 
-                // Center handles need a chunkier hit radius since they're the primary
-                // click target; corner/face handles get a smaller floor to reduce
-                // accidental clicks when the user meant a nearby spawn.
-                var baseRadius = h.Kind == HandleKind.Center ? 14f : 10f;
-                var radius = baseRadius + proj * 0.008f;
-
+                var worldRadius = BaseRadiusFor(h.Kind, h.IsIncoming) + proj * 0.005f;
                 var closestPoint = rayOrigin + rayDir * proj;
                 var d2 = Vector3.DistanceSquared(closestPoint, h.ScenePos);
-                if (d2 < radius * radius && proj < bestProj)
+                if (d2 >= worldRadius * worldRadius) continue;
+
+                // Passed the ray-sphere filter. Project to screen and measure pixel
+                // distance to cursor — that determines the winner.
+                if (!TryProjectToScreen(h.ScenePos, out var screenPos)) continue;
+                var screenDist2 = (screenPos - mouse).LengthSquared();
+                if (screenDist2 < bestScreenDist2)
                 {
-                    closest = h;
-                    bestProj = proj;
+                    best = h;
+                    bestScreenDist2 = screenDist2;
                 }
             }
 
-            if (closest.HasValue)
+            if (best.HasValue)
             {
-                _selected = closest;
-                // Center clicks propagate a selection event so the sidebar + manager sync.
-                if (closest.Value.Kind == HandleKind.Center)
-                    OnZonePointClicked?.Invoke(closest.Value.ZonePointId);
+                _selected = best;
+                if (best.Value.Kind == HandleKind.Center)
+                    OnZonePointClicked?.Invoke(best.Value.ZonePointId);
+                return true;
+            }
+
+            // No handle hit — try box bodies. Clicking anywhere inside/on a box's
+            // wireframe/fill selects it as if you'd clicked its center handle.
+            BoxBody? bestBody = null;
+            float bestBodyT = float.MaxValue;
+            foreach (var b in _bodyCandidates)
+            {
+                if (RayIntersectsAabb(rayOrigin, rayDir, b.Min, b.Max, out var tHit) && tHit < bestBodyT)
+                {
+                    bestBody = b;
+                    bestBodyT = tHit;
+                }
+            }
+            if (bestBody.HasValue)
+            {
+                var b = bestBody.Value;
+                _selected = new Handle { ZonePointId = b.ZonePointId, Kind = HandleKind.Center, ScenePos = b.Center };
+                OnZonePointClicked?.Invoke(b.ZonePointId);
                 return true;
             }
             return false;
+        }
+
+        // Standard slab-method ray/AABB test. tHit is the entry distance along the ray
+        // (may be negative if the origin is inside the box — treat as t=0).
+        static bool RayIntersectsAabb(Vector3 origin, Vector3 dir, Vector3 min, Vector3 max, out float tHit)
+        {
+            float tmin = float.NegativeInfinity;
+            float tmax = float.PositiveInfinity;
+            for (int i = 0; i < 3; i++)
+            {
+                float o = i == 0 ? origin.X : (i == 1 ? origin.Y : origin.Z);
+                float d = i == 0 ? dir.X    : (i == 1 ? dir.Y    : dir.Z);
+                float lo = i == 0 ? min.X   : (i == 1 ? min.Y   : min.Z);
+                float hi = i == 0 ? max.X   : (i == 1 ? max.Y   : max.Z);
+                if (Math.Abs(d) < 1e-8f)
+                {
+                    if (o < lo || o > hi) { tHit = 0; return false; }
+                    continue;
+                }
+                float t1 = (lo - o) / d;
+                float t2 = (hi - o) / d;
+                if (t1 > t2) { var tmp = t1; t1 = t2; t2 = tmp; }
+                if (t1 > tmin) tmin = t1;
+                if (t2 < tmax) tmax = t2;
+                if (tmin > tmax) { tHit = 0; return false; }
+            }
+            tHit = tmin > 0 ? tmin : 0f;
+            return tmax >= 0;
+        }
+
+        // Per-kind base world-space hit radius. Incoming pads get the largest so they
+        // stay easy to click even overlapping owned handles. All are additionally
+        // scaled by camera-space depth so far-away handles don't require pixel-perfect
+        // aim (scale factor kept small so nearby handles stay precise).
+        static float BaseRadiusFor(HandleKind kind, bool isIncoming)
+        {
+            if (isIncoming) return 20f;
+            switch (kind)
+            {
+                case HandleKind.Center: return 14f;
+                default:                return 10f;   // corners, faces, plane end-caps
+            }
+        }
+
+        // Projects a world position to screen pixel coords. Returns false if the point
+        // is behind the camera (perspective divide would flip signs).
+        bool TryProjectToScreen(Vector3 worldPos, out Vector2 screen)
+        {
+            var clip = System.Numerics.Vector4.Transform(new System.Numerics.Vector4(worldPos, 1f), FpsCamera.Matrix * ProjectionMat);
+            if (clip.W <= 0.0001f) { screen = default; return false; }
+            var ndcX = clip.X / clip.W;
+            var ndcY = clip.Y / clip.W;
+            // NDC (-1..+1) → pixel (0..W, 0..H). Y flips because pixel space is top-down.
+            var px = (ndcX * 0.5f + 0.5f) * _engine.Width;
+            var py = (1f - (ndcY * 0.5f + 0.5f)) * _engine.Height;
+            screen = new Vector2(px, py);
+            return true;
         }
 
         public bool StartDrag(int mouseX, int mouseY)
@@ -190,9 +325,13 @@ namespace VisualEQ.Engine
             public Vector3 SceneCenter;
             public int Zrange;
             public int MaxZDiff;
+            public float MinVert;
+            public float MaxVert;
+            public byte UseNewZoning;
             // Callbacks so the editor never touches the domain object directly.
             public Action<Vector3> ApplyMove;      // live-move during center drag
             public Action<int, int> ApplyResize;   // (zrange, maxZDiff) during resize drag
+            public Action<float, float> ApplyPlaneBounds; // (minVert, maxVert) during end-cap drag
         }
 
         ZonePointLookup _lookup;
@@ -235,9 +374,34 @@ namespace VisualEQ.Engine
                 case HandleKind.FaceZp:
                     UpdateFaceDrag(eye, rayDir);
                     break;
+                case HandleKind.PlaneEndMinVert:
+                case HandleKind.PlaneEndMaxVert:
+                    UpdatePlaneEndDrag(eye, rayDir);
+                    break;
             }
 
             return true;
+        }
+
+        // Drag a plane-crossing end-cap. Mode 1 (X-plane) extends along DB Y = scene X;
+        // mode 2 (Y-plane) extends along DB X = scene Y. The new MinVert/MaxVert is the
+        // scene-projected coordinate along that perpendicular axis.
+        void UpdatePlaneEndDrag(Vector3 eye, Vector3 rayDir)
+        {
+            var groundNormal = new Vector3(0, 0, 1);
+            var tPlane = IntersectRayPlane(eye, rayDir, groundNormal, _dragStartCenter.Z);
+            if (tPlane <= 0) return;
+            var hit = eye + rayDir * tPlane;
+
+            // Which scene axis carries the perpendicular value? Mode 1 → scene X, mode 2 → scene Y.
+            float value;
+            if (_dragStartMode == 1) value = hit.X;
+            else                     value = hit.Y;
+
+            if (_selected.Value.Kind == HandleKind.PlaneEndMinVert) _currentMinVert = value;
+            else                                                    _currentMaxVert = value;
+
+            _target.ApplyPlaneBounds?.Invoke(_currentMinVert, _currentMaxVert);
         }
 
         void UpdateCenterDrag(Vector3 eye, Vector3 rayDir)
@@ -318,9 +482,14 @@ namespace VisualEQ.Engine
             _dragStartCenter   = _target.SceneCenter;
             _dragStartZrange   = _target.Zrange;
             _dragStartMaxZDiff = _target.MaxZDiff;
+            _dragStartMinVert  = _target.MinVert;
+            _dragStartMaxVert  = _target.MaxVert;
+            _dragStartMode     = _target.UseNewZoning;
             _currentCenter     = _dragStartCenter;
             _currentZrange     = _dragStartZrange;
             _currentMaxZDiff   = _dragStartMaxZDiff;
+            _currentMinVert    = _dragStartMinVert;
+            _currentMaxVert    = _dragStartMaxVert;
             _dragStartCornerPos = _selected.Value.ScenePos;
 
             _useCameraPlane = _engine.GetPressedKeys().Contains(OpenTK.Input.Key.AltLeft)
@@ -386,12 +555,21 @@ namespace VisualEQ.Engine
         {
             if (_isDragging && _selected.HasValue && _target != null)
             {
-                OnDragCompleted?.Invoke(
-                    _selected.Value.Kind,
-                    _selected.Value.ZonePointId,
-                    _dragStartCenter, _currentCenter,
-                    _dragStartZrange, _currentZrange,
-                    _dragStartMaxZDiff, _currentMaxZDiff);
+                OnDragCompleted?.Invoke(new DragResult
+                {
+                    Kind         = _selected.Value.Kind,
+                    ZonePointId  = _selected.Value.ZonePointId,
+                    FromCenter   = _dragStartCenter,
+                    ToCenter     = _currentCenter,
+                    FromZrange   = _dragStartZrange,
+                    ToZrange     = _currentZrange,
+                    FromMaxZDiff = _dragStartMaxZDiff,
+                    ToMaxZDiff   = _currentMaxZDiff,
+                    FromMinVert  = _dragStartMinVert,
+                    ToMinVert    = _currentMinVert,
+                    FromMaxVert  = _dragStartMaxVert,
+                    ToMaxVert    = _currentMaxVert,
+                });
             }
             _isDragging = false;
             _dragPending = false;
@@ -405,6 +583,7 @@ namespace VisualEQ.Engine
                 // Restore the live values.
                 _target.ApplyMove?.Invoke(_dragStartCenter);
                 _target.ApplyResize?.Invoke(_dragStartZrange, _dragStartMaxZDiff);
+                _target.ApplyPlaneBounds?.Invoke(_dragStartMinVert, _dragStartMaxVert);
             }
             _isDragging = false;
             _dragPending = false;

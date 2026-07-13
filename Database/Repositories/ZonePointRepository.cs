@@ -25,6 +25,15 @@ namespace VisualEQ.Database.Repositories
             }
         }
 
+        public async Task<IEnumerable<TrilogyZonePoint>> GetIncomingZonePointsAsync(string zoneName)
+        {
+            using (var connection = CreateConnection())
+            {
+                return await connection.QueryAsync<TrilogyZonePoint>(
+                    SqlQueries.GetIncomingZonePoints, new { ZoneName = zoneName });
+            }
+        }
+
         public async Task<IEnumerable<string>> GetAllZoneShortNamesAsync()
         {
             using (var connection = CreateConnection())
