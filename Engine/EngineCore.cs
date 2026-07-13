@@ -320,23 +320,26 @@ namespace VisualEQ.Engine
         public void AddRegion(string name, byte kind, Vector3 min, Vector3 max) =>
             Regions.Add(new LiquidRegion(name, kind, min, max));
 
-        // Given a DB-space (X, Y) query point, returns the top-Z of the highest region of
-        // the requested kind whose XY footprint contains the point. Multiple overlapping
+        // Given a SCENE-space (X, Y) query point, returns the top-Z of the highest region
+        // of the requested kind whose XY footprint contains the point. Multiple overlapping
         // pools use the highest surface — matches the intuition of a boat floating on the
         // topmost water. Returns false when no region contains the point.
         //
-        // Both inputs are DB coords (matching how spawn2.x/y and grid_entries.x/y are
-        // stored). The region AABBs live in DB coords too — set at convert time from raw
-        // WLD vertices, no scene-space swap.
-        public bool TryGetLiquidSurfaceZAt(float dbX, float dbY, byte kind, out float surfaceZ)
+        // IMPORTANT: inputs are SCENE coords, not DB coords. Region AABBs are stamped from
+        // raw WLD vertex positions loaded straight into scene space (Identity transform in
+        // Loader.LoadZoneFile), so their X/Y axes match sp.Model.Position, NOT spawn2.x/y.
+        // Callers with DB-space coords must swap X↔Y at the call site — e.g. for a waypoint
+        // whose fields are DB-space, pass (wp.Y, wp.X). See RenderSpawnSnapToWater and
+        // RenderWaypointSnapToWater for the axis dance.
+        public bool TryGetLiquidSurfaceZAt(float sceneX, float sceneY, byte kind, out float surfaceZ)
         {
             surfaceZ = float.MinValue;
             var found = false;
             foreach (var r in Regions)
             {
                 if (r.Kind != kind) continue;
-                if (dbX < r.Min.X || dbX > r.Max.X) continue;
-                if (dbY < r.Min.Y || dbY > r.Max.Y) continue;
+                if (sceneX < r.Min.X || sceneX > r.Max.X) continue;
+                if (sceneY < r.Min.Y || sceneY > r.Max.Y) continue;
                 if (!found || r.Max.Z > surfaceZ)
                 {
                     surfaceZ = r.Max.Z;
@@ -346,13 +349,12 @@ namespace VisualEQ.Engine
             return found;
         }
 
-        // Fallback for spawns/waypoints that sit outside every detected region's XY
-        // footprint but the user still wants to snap to water — e.g. classic EQ freporte,
-        // whose harbor has a proper water mesh but the surrounding "sea" is skybox with
-        // no walkable water plane. If a zone has ANY water regions at all, we return the
-        // top-Z of the region whose center is closest to the query XY (Chebyshev distance,
-        // fast and good enough for coarse "which pool is nearest").
-        public bool TryGetNearestLiquidSurfaceZ(float dbX, float dbY, byte kind,
+        // Fallback for entities outside every region's XY footprint. Classic EQ freporte
+        // only meshes the harbor water plane — the surrounding "sea" is skybox with no
+        // walkable water. If a zone has ANY water at all, return the top-Z of the region
+        // whose center is closest to the query point (Chebyshev distance). Inputs are
+        // SCENE coords, same as TryGetLiquidSurfaceZAt.
+        public bool TryGetNearestLiquidSurfaceZ(float sceneX, float sceneY, byte kind,
             out float surfaceZ, out string regionName, out float distance)
         {
             surfaceZ   = 0f;
@@ -364,7 +366,7 @@ namespace VisualEQ.Engine
                 if (r.Kind != kind) continue;
                 var cx = (r.Min.X + r.Max.X) * 0.5f;
                 var cy = (r.Min.Y + r.Max.Y) * 0.5f;
-                var d = System.MathF.Max(System.MathF.Abs(dbX - cx), System.MathF.Abs(dbY - cy));
+                var d = System.MathF.Max(System.MathF.Abs(sceneX - cx), System.MathF.Abs(sceneY - cy));
                 if (d < distance)
                 {
                     distance   = d;

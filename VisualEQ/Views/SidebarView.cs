@@ -860,9 +860,10 @@ namespace VisualEQ.Views
             }
         }
 
-        // Snap-Z-to-water for waypoints. Waypoint fields are DB coords already, so no
-        // axis swap. Same diagnostic-always-visible pattern as the spawn version so a
-        // user who expects the button but isn't over water can see why. Fires a
+        // Snap-Z-to-water for waypoints. Waypoint fields are DB coords, but the region
+        // query expects SCENE coords — so pass (wp.Y, wp.X) as the query XY (same swap
+        // spawn instances use at load: Vector3(spawn.Y, spawn.X, spawn.Z)). Same
+        // diagnostic-always-visible pattern as the spawn version. Fires a
         // GridEntryFieldEditAction on the Z field so undo/redo and buffer coalescing
         // behave exactly like a manual Z edit.
         void RenderWaypointSnapToWater(int gridId, int number, VisualEQ.Database.Models.GridEntry wp)
@@ -871,6 +872,10 @@ namespace VisualEQ.Views
             var waterCount = 0;
             foreach (var r in engine.Regions)
                 if (r.Kind == VisualEQ.Engine.LiquidRegion.KindWater) waterCount++;
+
+            // DB → scene swap for the query point.
+            var qx = wp.Y;
+            var qy = wp.X;
 
             ImGui.Separator();
             ImGui.Text($"Snap to water  (this zone has {waterCount} water region(s))");
@@ -884,12 +889,12 @@ namespace VisualEQ.Views
 
             string label;
             float surfaceZ;
-            if (engine.TryGetLiquidSurfaceZAt(wp.X, wp.Y, VisualEQ.Engine.LiquidRegion.KindWater, out surfaceZ))
+            if (engine.TryGetLiquidSurfaceZAt(qx, qy, VisualEQ.Engine.LiquidRegion.KindWater, out surfaceZ))
             {
                 label = $"Snap Z to water (surface Z = {surfaceZ:F1})";
                 ImGui.Text($"Over water. Current Z = {wp.Z:F1}");
             }
-            else if (engine.TryGetNearestLiquidSurfaceZ(wp.X, wp.Y, VisualEQ.Engine.LiquidRegion.KindWater,
+            else if (engine.TryGetNearestLiquidSurfaceZ(qx, qy, VisualEQ.Engine.LiquidRegion.KindWater,
                 out surfaceZ, out var nearestName, out var dist))
             {
                 label = $"Snap Z to nearest water plane (surface Z = {surfaceZ:F1})";
@@ -1271,10 +1276,9 @@ namespace VisualEQ.Views
         void RenderSpawnSnapToWater(SpawnPoint sp)
         {
             var engine = _view.Controller.Engine;
-            // Scene → DB coord swap: DB_X = scene.Y, DB_Y = scene.X.
+            // Region AABBs live in SCENE coords (WLD vertices loaded with Identity).
+            // sp.Model.Position is scene coords too, so pass it straight — no swap.
             var scenePos = sp.Model.Position;
-            var dbX = scenePos.Y;
-            var dbY = scenePos.X;
 
             var waterCount = 0;
             foreach (var r in engine.Regions)
@@ -1282,7 +1286,8 @@ namespace VisualEQ.Views
 
             ImGui.Separator();
             ImGui.Text($"Snap to water  (this zone has {waterCount} water region(s))");
-            ImGui.Text($"Spawn DB XY = ({dbX:F1}, {dbY:F1})");
+            // Display the DB coord un-swap so users can cross-reference with spawn2 rows.
+            ImGui.Text($"Spawn DB XY = ({scenePos.Y:F1}, {scenePos.X:F1})");
 
             if (waterCount == 0)
             {
@@ -1292,12 +1297,12 @@ namespace VisualEQ.Views
 
             string label;
             float surfaceZ;
-            if (engine.TryGetLiquidSurfaceZAt(dbX, dbY, VisualEQ.Engine.LiquidRegion.KindWater, out surfaceZ))
+            if (engine.TryGetLiquidSurfaceZAt(scenePos.X, scenePos.Y, VisualEQ.Engine.LiquidRegion.KindWater, out surfaceZ))
             {
                 label = $"Snap Z to water (surface Z = {surfaceZ:F1})";
                 ImGui.Text($"Over water. Current Z = {scenePos.Z:F1}");
             }
-            else if (engine.TryGetNearestLiquidSurfaceZ(dbX, dbY, VisualEQ.Engine.LiquidRegion.KindWater,
+            else if (engine.TryGetNearestLiquidSurfaceZ(scenePos.X, scenePos.Y, VisualEQ.Engine.LiquidRegion.KindWater,
                 out surfaceZ, out var nearestName, out var dist))
             {
                 label = $"Snap Z to nearest water plane (surface Z = {surfaceZ:F1})";
