@@ -65,7 +65,7 @@ namespace VisualEQ
                 // --list-models is a diagnostic path that never opens the window.
                 if (args.Length >= 2 && args[1].ToLower() == "--list-models")
                 {
-                    ListAvailableModels(args[0]);
+                    ListAvailableModels(args[0], controller.ConvertedAssetsDir);
                     return;
                 }
 
@@ -106,7 +106,7 @@ namespace VisualEQ
         }
 
         // New method to list all available models without loading them
-        private static void ListAvailableModels(string zoneName)
+        private static void ListAvailableModels(string zoneName, string assetsDir)
         {
             // Define possible character file prefixes to try
             string[] characterFilePrefixes = new string[] {
@@ -123,7 +123,7 @@ namespace VisualEQ
             // Try each prefix until one works
             foreach (string prefix in characterFilePrefixes)
             {
-                string characterPath = $"../ConverterApp/{prefix}_oes.zip";
+                string characterPath = Path.Combine(assetsDir, $"{prefix}_oes.zip");
 
                 if (File.Exists(characterPath))
                 {
@@ -218,7 +218,7 @@ namespace VisualEQ
             // Try each prefix until one works
             foreach (string prefix in characterFilePrefixes)
             {
-                string characterPath = $"../ConverterApp/{prefix}_oes.zip";
+                string characterPath = Path.Combine(controller.ConvertedAssetsDir, $"{prefix}_oes.zip");
 
                 if (File.Exists(characterPath))
                 {

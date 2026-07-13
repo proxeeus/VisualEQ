@@ -206,12 +206,11 @@ namespace VisualEQ.SpawnSystem
         //   1. `{zone}_chr_oes.zip`             — zone-specific art
         //   2. `global*_chr_oes.zip`            — canonical playable races + shared monsters
         //   3. any other `*_chr_oes.zip`        — best-effort fallback (previously-decoded zones)
-        internal static Dictionary<string, string> BuildAvailableModels(string zoneName)
+        internal static Dictionary<string, string> BuildAvailableModels(string zoneName, string dir)
         {
-            const string dir = "../ConverterApp";
             var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-            if (!Directory.Exists(dir))
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
             {
                 Console.WriteLine($"[SpawnManager] Directory '{dir}' does not exist.");
                 return result;

@@ -41,6 +41,11 @@ namespace VisualEQ
 
         public AppSettings Settings { get; }
 
+        // Resolved directory holding converted zone/chr `*_oes.zip` files. Sourced from
+        // AppSettings.ConvertedAssetsPath so views (MainMenuView) can read a single value
+        // without importing Settings directly.
+        public string ConvertedAssetsDir => Settings.ConvertedAssetsPath;
+
         // Non-null once the user has saved a valid DB connection.
         public MySqlConnectionFactory DbFactory { get; private set; }
 
@@ -403,6 +408,39 @@ namespace VisualEQ
         {
             Settings = settings;
 
+            // Make sure the assets dir exists so the in-app converter can write into it and
+            // so directory-scan sites (MainMenuView, SpawnManager.BuildAvailableModels)
+            // don't have to null-check the path on every call.
+            try
+            {
+                System.IO.Directory.CreateDirectory(settings.ConvertedAssetsPath);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Controller] Failed to create assets dir '{settings.ConvertedAssetsPath}': {ex.Message}");
+            }
+
+            // If the user has legacy assets sitting in the old ../ConverterApp location AND
+            // the new assets dir is empty, print a one-line hint. Manual move is safer than
+            // auto-migration (permissions, symlinks, partial copies). Upgrade to a Move button
+            // if this actually trips people up.
+            try
+            {
+                const string legacyDir = "../ConverterApp";
+                if (System.IO.Directory.Exists(legacyDir) &&
+                    System.IO.Directory.EnumerateFiles(legacyDir, "*_oes.zip").Any() &&
+                    !System.IO.Directory.EnumerateFiles(settings.ConvertedAssetsPath, "*_oes.zip").Any())
+                {
+                    Console.WriteLine(
+                        $"[Controller] Legacy assets detected in '{legacyDir}'. " +
+                        $"Move *_oes.zip into '{settings.ConvertedAssetsPath}' or re-run Decode from the main menu.");
+                }
+            }
+            catch
+            {
+                // Hint is best-effort — never let it interfere with startup.
+            }
+
             if (!string.IsNullOrEmpty(settings.Database?.Server) &&
                 !string.IsNullOrEmpty(settings.Database?.Database))
             {
@@ -717,7 +755,7 @@ namespace VisualEQ
         public void LoadZone(string name)
         {
             CurrentZoneName = name;
-            Loader.LoadZoneFile($"../ConverterApp/{name}_oes.zip", Engine);
+            Loader.LoadZoneFile(System.IO.Path.Combine(ConvertedAssetsDir, $"{name}_oes.zip"), Engine);
             Engine.RebuildCollision();
             // Start with a fresh buffer — the state-machine phase CheckRecovery may replace
             // it with one loaded from disk after prompting the user.
@@ -936,7 +974,7 @@ namespace VisualEQ
             var candidates = new[] { $"{zoneName}_chr", "gfaydark_chr" };
             foreach (var prefix in candidates)
             {
-                var path = $"../ConverterApp/{prefix}_oes.zip";
+                var path = System.IO.Path.Combine(ConvertedAssetsDir, $"{prefix}_oes.zip");
                 if (!System.IO.File.Exists(path)) continue;
 
                 var models = Loader.GetAvailableCharacterModels(path);
@@ -952,7 +990,7 @@ namespace VisualEQ
 
         public void LoadCharacter(string filename, string name)
         {
-            var model = LastModelLoaded = Loader.LoadCharacter($"../ConverterApp/{filename}_oes.zip", name);
+            var model = LastModelLoaded = Loader.LoadCharacter(System.IO.Path.Combine(ConvertedAssetsDir, $"{filename}_oes.zip"), name);
             var instance = new AniModelInstance(model) { Animation = "C05", Position = vec3(-153, 149, 80) };
             Engine.Add(instance);
             CharacterModels.Add(instance);
@@ -978,7 +1016,7 @@ namespace VisualEQ
                 var repo = new SpawnRepository(DbFactory);
                 var records = await repo.GetZoneSpawnsFullAsync(zoneName);
 
-                var availableModels = SpawnManager.BuildAvailableModels(zoneName);
+                var availableModels = SpawnManager.BuildAvailableModels(zoneName, ConvertedAssetsDir);
                 SpawnManager.LoadFromRecords(records, Engine, _modelCache, availableModels, LastModelLoaded);
 
                 // Register spawn instances with the model selector so they are clickable.
@@ -1020,7 +1058,7 @@ namespace VisualEQ
 
             var repo = new SpawnRepository(DbFactory);
             _spawnLoadRecords = repo.GetZoneSpawnsFullAsync(zoneName).GetAwaiter().GetResult().ToList();
-            _spawnLoadAvailable = SpawnManager.BuildAvailableModels(zoneName);
+            _spawnLoadAvailable = SpawnManager.BuildAvailableModels(zoneName, ConvertedAssetsDir);
             SpawnManager.PrepareForLoad();
             _spawnLoadIndex = 0;
             return true;
@@ -1075,7 +1113,7 @@ namespace VisualEQ
                 var repo = new SpawnRepository(DbFactory);
                 var records = repo.GetZoneSpawnsFullAsync(zoneName).GetAwaiter().GetResult();
 
-                var availableModels = SpawnManager.BuildAvailableModels(zoneName);
+                var availableModels = SpawnManager.BuildAvailableModels(zoneName, ConvertedAssetsDir);
                 SpawnManager.LoadFromRecords(records, Engine, _modelCache, availableModels, LastModelLoaded);
 
                 foreach (var sp in SpawnManager.SpawnPoints)

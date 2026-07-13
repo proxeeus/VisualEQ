@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
 using VisualEQ.Database.Configuration;
 
 namespace VisualEQ.Settings
@@ -20,6 +22,15 @@ namespace VisualEQ.Settings
 
         // Root of the user's EverQuest install (used by the in-app converter). Replaces eq_config.txt.
         public string EqInstallPath { get; set; } = @"C:\Program Files (x86)\EverQuest";
+
+        // Where the in-app converter writes `{zone}_oes.zip` / `{zone}_chr_oes.zip` and where
+        // the app looks for them at load time. Defaults to %APPDATA%\VisualEQ\zones\ so a
+        // packaged (self-contained) install doesn't try to write into Program Files. The old
+        // location (`../ConverterApp/`) is still honored if the user copies existing zips into
+        // this directory manually.
+        public string ConvertedAssetsPath { get; set; } = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "VisualEQ", "zones");
 
         // Sidebar layout persistence. Width in pixels. Section order is a list of section IDs
         // (see SidebarWidget.Section* constants) — empty list means "use default order".
