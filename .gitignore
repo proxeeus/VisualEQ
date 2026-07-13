@@ -5,6 +5,9 @@ appsettings.Development.json
 appsettings.Production.json
 **/database.config.json
 
+# publish-release.ps1 output directories (release/ is already covered by [Rr]elease/ below)
+publish/
+
 ## .NET Core
 *.swp
 *.*~
