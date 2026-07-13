@@ -445,10 +445,40 @@ namespace VisualEQ.ConverterCore
             return (ovb.ToArray(), oib);
         }
 
+        static string KindLabel(byte kind)
+        {
+            switch (kind)
+            {
+                case OESRegion.KindWater: return "water";
+                case OESRegion.KindLava:  return "lava";
+                case OESRegion.KindSlime: return "slime";
+                default: return "other";
+            }
+        }
+
         void CreateMeshAndSkin(Wld wld, ZipArchive zip, OESChunk target, IEnumerable<MeshPiece> pieces)
         {
             var mesh = new Mesh();
             pieces.ForEach(mesh.Add);
+
+            // Liquid region detection runs before Bake so it sees the original per-material
+            // polygon groups (Bake dedupes materials by texture properties, which would fold
+            // multiple named liquid regions using the same texture into one AABB).
+            //
+            // Only emit onto the top-level OESZone target — objects rarely define named
+            // water/lava/slime regions, and emitting per-object regions would pollute the
+            // list with false positives.
+            if (target is OESZone)
+            {
+                foreach (var (name, kind, min, max) in mesh.DetectLiquidRegions())
+                {
+                    WriteLine($"[Converter] Detected {KindLabel(kind)} region '{name}' " +
+                              $"min=({min.X:F1},{min.Y:F1},{min.Z:F1}) " +
+                              $"max=({max.X:F1},{max.Y:F1},{max.Z:F1})");
+                    target.Add(new OESRegion(name, kind, min, max));
+                }
+            }
+
             var baked = mesh.Bake();
             var skin = new OESSkin();
             target.Add(skin);

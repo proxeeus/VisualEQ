@@ -762,6 +762,9 @@ namespace VisualEQ.Views
             if (_view.Controller.EditModeEnabled)
                 RenderHeadingSlider(sp);
 
+            if (_view.Controller.EditModeEnabled)
+                RenderSpawnSnapToWater(sp);
+
             // Other entries in the spawngroup, if any.
             if (record.Entries.Count > 1)
             {
@@ -850,9 +853,31 @@ namespace VisualEQ.Views
 
             if (editable)
             {
+                RenderWaypointSnapToWater(gridId, number, wp);
                 ImGui.Separator();
                 RenderWaypointAddButton(gridId, zoneId, wp);
                 RenderWaypointDeleteButton(gridId, zoneId, number, wp, isPendingInsert);
+            }
+        }
+
+        // Snap-Z-to-water for waypoints. Waypoint fields are DB coords already, so no
+        // axis swap. Fires a GridEntryFieldEditAction on the Z field so undo/redo and
+        // buffer coalescing behave exactly like a manual Z edit.
+        void RenderWaypointSnapToWater(int gridId, int number, VisualEQ.Database.Models.GridEntry wp)
+        {
+            var engine = _view.Controller.Engine;
+            if (!engine.TryGetLiquidSurfaceZAt(wp.X, wp.Y, VisualEQ.Engine.LiquidRegion.KindWater, out var surfaceZ))
+                return;
+
+            ImGui.Separator();
+            ImGui.Text($"Water surface at Z = {surfaceZ:F1} (current Z = {wp.Z:F1})");
+            if (ImGui.Button($"Snap Z to water###{Id}wpSnapW{gridId}_{number}", new Vector2(200, 24)))
+            {
+                if (Math.Abs(wp.Z - surfaceZ) > 0.001f)
+                    _view.Controller.RecordAction(new VisualEQ.EditSystem.GridEntryFieldEditAction(
+                        gridId, number,
+                        VisualEQ.EditSystem.GridEntryFieldEditAction.Field.Z,
+                        wp.Z, surfaceZ));
             }
         }
 
@@ -1206,6 +1231,30 @@ namespace VisualEQ.Views
                 }
             }
             _wasHeadingSliderActive = sliderActive;
+        }
+
+        // Snap-Z-to-water affordance for spawns. Only shown when a water region contains
+        // the spawn's DB XY footprint. The button records a standard SpawnMoveAction with
+        // Z replaced by the region's top-Z so undo/redo, pending-buffer, and commit all
+        // work through the existing pipeline.
+        void RenderSpawnSnapToWater(SpawnPoint sp)
+        {
+            var engine = _view.Controller.Engine;
+            // Scene → DB coord swap: DB_X = scene.Y, DB_Y = scene.X.
+            var scenePos = sp.Model.Position;
+            var dbX = scenePos.Y;
+            var dbY = scenePos.X;
+            if (!engine.TryGetLiquidSurfaceZAt(dbX, dbY, VisualEQ.Engine.LiquidRegion.KindWater, out var surfaceZ))
+                return; // No water under this spawn — silent, keeps the panel clean.
+
+            ImGui.Separator();
+            ImGui.Text($"Water surface at Z = {surfaceZ:F1} (current Z = {scenePos.Z:F1})");
+            if (ImGui.Button($"Snap Z to water###{Id}siSnapW{sp.Record.Spawn.Id}", new Vector2(200, 24)))
+            {
+                var newScenePos = new Vector3(scenePos.X, scenePos.Y, surfaceZ);
+                if (Vector3.DistanceSquared(scenePos, newScenePos) > 0.0001f)
+                    _view.Controller.RecordAction(new SpawnMoveAction(sp, scenePos, newScenePos));
+            }
         }
 
         void RenderPendingChangesSection(int index)

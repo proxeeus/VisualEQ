@@ -27,6 +27,10 @@ namespace VisualEQ.Engine
         readonly List<AniModelInstance> AniModels = new List<AniModelInstance>();
         readonly List<double> FrameTimes = new List<double>();
         readonly List<PointLight> Lights = new List<PointLight>();
+        // Named water/lava/slime regions loaded from the zone's OES `regn` chunks. Empty
+        // for zones that predate liquid-region detection. Public list — callers iterate
+        // to render debug volumes, run point-in-region queries, or snap NPC Z to a surface.
+        public readonly List<LiquidRegion> Regions = new List<LiquidRegion>();
 
         public double FPS => FrameTimes.Count == 0 ? 0 : 1 / (FrameTimes.Sum() / FrameTimes.Count);
 
@@ -313,6 +317,36 @@ namespace VisualEQ.Engine
         public void Add(Model model) => Models.Add(model);
         public void Add(AniModelInstance modelInstance) => AniModels.Add(modelInstance);
 
+        public void AddRegion(string name, byte kind, Vector3 min, Vector3 max) =>
+            Regions.Add(new LiquidRegion(name, kind, min, max));
+
+        // Given a DB-space (X, Y) query point, returns the top-Z of the highest region of
+        // the requested kind whose XY footprint contains the point. Multiple overlapping
+        // pools use the highest surface — matches the intuition of a boat floating on the
+        // topmost water. Returns false when no region contains the point, so the sidebar
+        // can disable the snap button.
+        //
+        // Both inputs are DB coords (matching how spawn2.x/y and grid_entries.x/y are
+        // stored). The region AABBs live in DB coords too — set at convert time from raw
+        // WLD vertices, no scene-space swap.
+        public bool TryGetLiquidSurfaceZAt(float dbX, float dbY, byte kind, out float surfaceZ)
+        {
+            surfaceZ = float.MinValue;
+            var found = false;
+            foreach (var r in Regions)
+            {
+                if (r.Kind != kind) continue;
+                if (dbX < r.Min.X || dbX > r.Max.X) continue;
+                if (dbY < r.Min.Y || dbY > r.Max.Y) continue;
+                if (!found || r.Max.Z > surfaceZ)
+                {
+                    surfaceZ = r.Max.Z;
+                    found = true;
+                }
+            }
+            return found;
+        }
+
         public void Start()
         {
             // Boot with an empty collider so the engine can run before a zone is loaded.
@@ -353,6 +387,7 @@ namespace VisualEQ.Engine
             Models.Clear();
             AniModels.Clear();
             Lights.Clear();
+            Regions.Clear();
         }
 
         // Projects a screen-space mouse position onto the "ground" — a downward probe
