@@ -9,36 +9,51 @@ A visual editor for managing EQEmu zone spawn data. This tool allows server admi
 - Edit spawn properties, groups, and paths
 - Save changes directly to the EQEmu database
 
-## Prerequisites
+## For end users
+
+1. Grab the latest zip from the [Releases page](https://github.com/proxeeus/VisualEQ/releases). It's a self-contained Windows x64 build — no .NET install required.
+2. Unzip anywhere and run `VisualEQ.exe`.
+3. In the main menu, open **Settings**:
+   - Set your **EverQuest install path** (used by the in-app decoder to read the game's S3D/WLD assets).
+   - Optionally set **Database Connection** for spawn editing. Without a DB, the app is a viewer only.
+4. Click **Decode New Zone** to convert a zone from your EQ install. Converted zips land in `%APPDATA%\VisualEQ\zones\`.
+5. Load a zone from the main menu list.
+
+Press **F10** while a zone is loaded to return to the main menu and swap zones.
+
+## For contributors
+
+### Prerequisites
 
 - .NET 8.0 SDK
-- Access to an EQEmu database (MySQL/MariaDB)
+- Access to an EQEmu database (MySQL/MariaDB) — optional if you only want to render zones without spawn data
 - EverQuest game client files (for model and zone data)
 
-Windows-on-ARM (Parallels / Apple Silicon) needs both the ARM64 SDK and the x64 runtime installed side-by-side. See `CLAUDE.md` §4 for details.
+Windows-on-ARM (Parallels / Apple Silicon) needs both the ARM64 SDK and the x64 runtime installed side-by-side, because `cimgui.dll` is x64-native. See [dev/README.md](dev/README.md) and `CLAUDE.md` §4.
 
-## Setup
+### Build & run
 
-1. Clone the repository:
+```bash
+git clone https://github.com/proxeeus/VisualEQ.git
+cd VisualEQ
+dotnet build
+```
 
-   ```bash
-   git clone https://github.com/proxeeus/VisualEQ.git
-   cd VisualEQ
-   ```
+Then:
 
-2. Build the solution:
+```bat
+dev\visualeq.bat
+```
 
-   ```bash
-   dotnet build
-   ```
+This opens the in-app main menu. Legacy CLI-style launchers (`dev\load_zone.bat`, `dev\list_models.bat`) are kept for reference but reference the pre-`%APPDATA%\VisualEQ\zones\` layout — see [dev/README.md](dev/README.md) for caveats.
 
-3. Launch the app:
+### Build a release zip locally
 
-   ```bat
-   visualeq.bat
-   ```
+```powershell
+./publish-release.ps1 -Version 0.1.0-dev
+```
 
-   This opens the in-app main menu. From there you can list zones, decode a new zone from your EverQuest install, or edit settings. `load_zone.bat [eq_path] [zone_name]` skips the menu and loads a zone directly.
+Produces `release/VisualEQ-<version>-win-x64.zip`. Same script CI runs on a `v*` tag push (see [.github/workflows/release.yml](.github/workflows/release.yml)).
 
 ## Configuration
 

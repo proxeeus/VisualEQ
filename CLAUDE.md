@@ -55,19 +55,21 @@ Runtime loop (per frame):
 - `C:\Program Files\dotnet\dotnet.exe` — ARM64 SDK + runtime. Used for **building** and for the converter/lister CLIs.
 - `C:\Program Files\dotnet\x64\dotnet.exe` — x64 **runtime only** (no SDK). Used for **running** `VisualEQ.dll` because `cimgui.dll` is x64-native and won't load into an ARM64 process.
 
-Do **not** try to switch to `dotnet run` for the main app; it will pick the ARM64 runtime and crash on `cimgui.dll`. Always launch the built DLL through the x64 runtime with `dotnet exec`. `load_zone.bat` and `list_models.bat` already do this — extend them if the launch pattern changes.
+Do **not** try to switch to `dotnet run` for the main app; it will pick the ARM64 runtime and crash on `cimgui.dll`. Always launch the built DLL through the x64 runtime with `dotnet exec`. The scripts in `dev/` already do this — extend them if the launch pattern changes.
 
 Build everything: `dotnet build` at the repo root.
 
-Run: `.\visualeq.bat` (opens the in-app main menu — zone browser, in-app decoder, settings). Legacy CLI: `.\load_zone.bat` or `.\load_zone.bat "C:\Program Files (x86)\EverQuest" gfaydark` skips the menu and loads a zone directly. Both invoke `"%DOTNET_X64%" exec "bin\Debug\net8.0\VisualEQ.dll" [<zone>]` inside `VisualEQ/`.
+Run: `.\dev\visualeq.bat` (opens the in-app main menu — zone browser, in-app decoder, settings). Legacy CLI: `.\dev\load_zone.bat` or `.\dev\load_zone.bat "C:\Program Files (x86)\EverQuest" gfaydark` skips the menu and loads a zone directly. Both invoke `"%DOTNET_X64%" exec "bin\Debug\net8.0\VisualEQ.dll" [<zone>]` inside `VisualEQ/`. Each dev script starts with `cd /d "%~dp0.."` so their internal relative paths keep resolving.
 
 From the main menu you can list available zones, decode a new zone (in-process — no external bat needed), and edit settings (EQ install path, DB). Once a zone is loaded, **F10** clears the scene and returns to the menu so you can swap zones without restarting.
 
-List models in a chr zip: `.\list_models.bat` (interactive) or `.\list_models.bat <zone> <MODEL>` to dump a single model's animations.
+List models in a chr zip: `.\dev\list_models.bat` (interactive) or `.\dev\list_models.bat <zone> <MODEL>` to dump a single model's animations. `VisualEQ.exe --list-models` also works from a packaged build.
 
-Working directory when running: `VisualEQ/`. All zone/chr zip lookups are `../ConverterApp/<name>_oes.zip`. If you change that relative path, update `Loader.LoadZoneFile`, `Loader.LoadCharacter`, `App.ListAvailableModels`, `App.LoadCharacters`, `SpawnManager.BuildAvailableModels`, and `MainMenuWidget.ConvertedZoneDir` together.
+**Zone/chr zip location:** the app reads and writes converted assets to the path in `AppSettings.ConvertedAssetsPath` (default `%APPDATA%\VisualEQ\zones\`). The value is exposed on the controller as `Controller.ConvertedAssetsDir` — every runtime lookup uses that (see [Controller.cs](VisualEQ/Controller.cs), [App.cs](VisualEQ/App.cs), [MainMenuView.cs](VisualEQ/Views/MainMenuView.cs), [SpawnManager.cs](VisualEQ/SpawnSystem/SpawnManager.cs)). `SpawnManager.BuildAvailableModels(zoneName, dir)` takes the directory as a parameter — pass `Controller.ConvertedAssetsDir` at call sites. The legacy `dev\load_zone.bat` and `dev\list_models.bat` still reference the pre-2026-07 `ConverterApp/` layout and won't find zips in the new location without a manual copy.
 
-`eq_config.txt` stored the EQ install path for the pre-menu bat workflow. The in-app menu writes to `AppSettings.EqInstallPath` (`%APPDATA%\VisualEQ\settings.json`) instead — `eq_config.txt` still exists for `load_zone.bat` compatibility.
+`eq_config.txt` stored the EQ install path for the pre-menu bat workflow. The in-app menu writes to `AppSettings.EqInstallPath` (`%APPDATA%\VisualEQ\settings.json`) instead — `eq_config.txt` still exists for `dev\load_zone.bat` compatibility.
+
+**Building a release zip:** `./publish-release.ps1 -Version <version>` at repo root produces `release/VisualEQ-<version>-win-x64.zip` — a self-contained portable Windows build (no .NET install needed on the user side). CI runs the same script on `v*` tag push via [.github/workflows/release.yml](.github/workflows/release.yml) and uploads the zip to a GitHub Release. `cimgui.dll` is force-copied next to the exe on Publish via the `CopyNativeLibsOnPublish` MSBuild target ([VisualEQ.csproj](VisualEQ/VisualEQ.csproj)) — do not remove.
 
 Database credentials: **not** committed. `database.config.template.json` is a template — the app actually reads/writes `%APPDATA%\VisualEQ\settings.json` via `SettingsManager`. Users configure DB through the `DatabaseConnectionView` window.
 
@@ -142,3 +144,4 @@ If the plan and the code disagree, **the code is authoritative** — update the 
 - The default UI pattern is `NsimGui.Widgets` declarative (`new Window("...") { new Text(...) }`) — reach for a raw `BaseWidget + ImGui.*` calls only when you need mutable byte-buffer input, async feedback, or conditional layout (as `DatabaseConnectionView` does).
 - Avoid new dependencies without a strong reason — the whole stack (OpenTK 1.x, ImGui.NET 0.4.6, Dapper, MySqlConnector, StyleCop, LangVersion 7.3) is stable and any bump is a rabbit hole.
 - Prefer editing existing files; keep new files inside the appropriate subsystem folder (`SpawnSystem/`, `Views/`, `Database/*`, `Engine/`).
+- Always assume a "pull request-first" approach.

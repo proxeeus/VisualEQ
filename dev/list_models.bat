@@ -3,6 +3,10 @@ setlocal enabledelayedexpansion
 
 REM VisualEQ Character Model Lister Helper Script
 
+REM Script lives in dev/ — jump to repo root so all ModelLister/, ConverterApp/, VisualEQ/
+REM relative paths inside this script keep resolving.
+cd /d "%~dp0.."
+
 REM On Windows ARM64 (Parallels/M-series Mac) use x64 dotnet to load cimgui.dll correctly.
 set "DOTNET_X64=C:\Program Files\dotnet\x64\dotnet.exe"
 
