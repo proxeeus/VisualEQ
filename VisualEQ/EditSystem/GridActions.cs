@@ -50,11 +50,29 @@ namespace VisualEQ.EditSystem
 
         void ApplyValue(Controller controller, object value)
         {
-            // Snapshot pre-mutation values so first-touch buffer seeding preserves the
-            // true baseline (mirrors GridWaypointMoveAction's snapshot pattern).
-            var snapshot = GridActionHelpers.FindWaypoint(controller, GridId, Number);
-            if (snapshot == null) return;
-            var orig = GridActionHelpers.SnapshotWaypoint(snapshot);
+            var live = GridActionHelpers.FindWaypoint(controller, GridId, Number);
+            if (live == null) return;
+
+            // Build the pre-mutation snapshot used to seed a first-touch GridEntryEdit.
+            // The inspector's DragFloat write-callback has already mutated the live wp for
+            // this field during the drag (that's how the polyline/arrow track the drag in
+            // real time). So reading it back here yields the post-mutation value — we'd
+            // record OriginalField == CurrentField, the entry would be immediately
+            // dropped as "clean", and the buffer would never show a pending change.
+            //
+            // Override the specific field with FromValue (this action's authoritative
+            // baseline). Other fields have not been touched by THIS action; their live
+            // values are their pre-mutation values by definition.
+            var pre = GridActionHelpers.SnapshotWaypoint(live);
+            switch (Which)
+            {
+                case Field.X:           pre.X           = Convert.ToSingle(FromValue); break;
+                case Field.Y:           pre.Y           = Convert.ToSingle(FromValue); break;
+                case Field.Z:           pre.Z           = Convert.ToSingle(FromValue); break;
+                case Field.Heading:     pre.Heading     = Convert.ToSingle(FromValue); break;
+                case Field.Pause:       pre.Pause       = Convert.ToInt32(FromValue); break;
+                case Field.Centerpoint: pre.Centerpoint = Convert.ToByte(FromValue); break;
+            }
 
             GridActionHelpers.MutateEveryWaypoint(controller, GridId, Number, wp =>
             {
@@ -71,7 +89,7 @@ namespace VisualEQ.EditSystem
 
             var post = GridActionHelpers.FindWaypoint(controller, GridId, Number);
             if (post == null) return;
-            GridActionHelpers.SyncBufferForWaypoint(controller, GridId, Number, orig, post);
+            GridActionHelpers.SyncBufferForWaypoint(controller, GridId, Number, pre, post);
         }
     }
 
