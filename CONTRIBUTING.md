@@ -15,13 +15,12 @@ This project uses StyleCop for maintaining consistent code style. The rules are 
 ## Development Setup
 
 1. Install Prerequisites:
-   - .NET 6.0 SDK or higher
+   - .NET 8.0 SDK
    - Visual Studio 2022 or VS Code with C# extensions
    - MySQL/MariaDB for local development
 
 2. Configure Development Environment:
-   - Copy `database.config.template.json` to `database.config.json`
-   - Configure your local database settings
+   - Launch the app (`visualeq.bat`) and use the Database Connection view to enter your local credentials. They are persisted to `%APPDATA%\VisualEQ\settings.json`.
 
 ## Pull Request Process
 
@@ -41,8 +40,7 @@ This project uses StyleCop for maintaining consistent code style. The rules are 
 
 ## Security
 
-- Never commit sensitive information (passwords, API keys, etc.)
-- Don't commit the `database.config.json` file
+- Never commit sensitive information (passwords, API keys, etc.). Credentials live in `%APPDATA%\VisualEQ\settings.json`, which is outside the repo.
 - Report security vulnerabilities privately to the maintainers
 
 ## Testing
