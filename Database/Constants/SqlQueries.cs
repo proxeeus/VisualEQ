@@ -53,8 +53,29 @@ namespace VisualEQ.Database.Constants
         // (gridid, number, zoneid) — grid_entries has no primary key beyond that composite.
         public const string UpdateGridEntry = @"
             UPDATE grid_entries
-            SET x = @X, y = @Y, z = @Z, heading = @Heading, pause = @Pause
+            SET x = @X, y = @Y, z = @Z, heading = @Heading, pause = @Pause, centerpoint = @Centerpoint
             WHERE gridid = @GridId AND number = @Number AND zoneid = @ZoneId";
+
+        // Waypoint INSERT/DELETE for the add/delete affordance. Composite PK is
+        // (gridid, number, zoneid) so the WHERE is deterministic.
+        public const string InsertGridEntry = @"
+            INSERT INTO grid_entries (gridid, zoneid, number, x, y, z, heading, pause, centerpoint)
+            VALUES (@GridId, @ZoneId, @Number, @X, @Y, @Z, @Heading, @Pause, @Centerpoint)";
+
+        public const string DeleteGridEntry = @"
+            DELETE FROM grid_entries
+            WHERE gridid = @GridId AND number = @Number AND zoneid = @ZoneId";
+
+        // Grid-level metadata (wander / pause behavior). PK is (id, zoneid).
+        public const string GetGridsBatch = @"
+            SELECT id AS Id, zoneid AS ZoneId, type AS Type, type2 AS Type2
+            FROM grid
+            WHERE id IN @GridIds AND zoneid = @ZoneId";
+
+        public const string UpdateGrid = @"
+            UPDATE grid
+            SET type = @Type, type2 = @Type2
+            WHERE id = @Id AND zoneid = @ZoneId";
 
         // Look up the numeric zone ID — required for filtering grid/grid_entries by zone.
         public const string GetZoneId = @"

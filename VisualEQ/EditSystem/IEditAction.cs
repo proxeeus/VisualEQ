@@ -228,85 +228,26 @@ namespace VisualEQ.EditSystem
             // (GridId, Number), the buffer entry's Original* reflects the true baseline.
             var snapshot = FindWaypoint(controller);
             if (snapshot == null) return;
-            var origX = snapshot.X;
-            var origY = snapshot.Y;
-            var origZ = snapshot.Z;
-            var origHeading = snapshot.Heading;
-            var origPause = snapshot.Pause;
+            var pre = GridActionHelpers.SnapshotWaypoint(snapshot);
 
-            // Mutate every SpawnRecord.Waypoints copy that references this waypoint so grid
-            // rendering stays consistent regardless of which spawn is selected.
             // scenePos → DB: DB_X = scene.Y, DB_Y = scene.X, DB_Z = scene.Z.
             var newDbX = targetScenePos.Y;
             var newDbY = targetScenePos.X;
             var newDbZ = targetScenePos.Z;
 
-            foreach (var sp in controller.SpawnManager.SpawnPoints)
+            GridActionHelpers.MutateEveryWaypoint(controller, GridId, Number, wp =>
             {
-                foreach (var wp in sp.Record.Waypoints)
-                {
-                    if (wp.GridId != GridId || wp.Number != Number) continue;
-                    wp.X = newDbX;
-                    wp.Y = newDbY;
-                    wp.Z = newDbZ;
-                }
-            }
+                wp.X = newDbX;
+                wp.Y = newDbY;
+                wp.Z = newDbZ;
+            });
 
-            UpdateBufferEntry(controller, origX, origY, origZ, origHeading, origPause, newDbX, newDbY, newDbZ);
-            controller.MarkBufferDirty();
+            var post = FindWaypoint(controller);
+            if (post == null) return;
+            GridActionHelpers.SyncBufferForWaypoint(controller, GridId, Number, pre, post);
         }
 
-        void UpdateBufferEntry(
-            Controller controller,
-            float origX, float origY, float origZ, float origHeading, int origPause,
-            float newDbX, float newDbY, float newDbZ)
-        {
-            var buffer = controller.PendingBuffer;
-            if (buffer == null) return;
-
-            var key = EditBuffer.GridEntryKey(GridId, Number);
-            if (!buffer.GridEntries.TryGetValue(key, out var edit))
-            {
-                // First edit for this waypoint — seed from the pre-mutation snapshot.
-                edit = new GridEntryEdit
-                {
-                    GridId          = GridId,
-                    Number          = Number,
-                    OriginalX       = origX,
-                    OriginalY       = origY,
-                    OriginalZ       = origZ,
-                    OriginalHeading = origHeading,
-                    OriginalPause   = origPause,
-                    CurrentHeading  = origHeading,
-                    CurrentPause    = origPause,
-                };
-                buffer.GridEntries[key] = edit;
-            }
-
-            edit.CurrentX       = newDbX;
-            edit.CurrentY       = newDbY;
-            edit.CurrentZ       = newDbZ;
-            edit.LastModifiedAt = DateTime.UtcNow;
-
-            // Back to original — drop the entry so commit doesn't emit a no-op UPDATE.
-            const float eps = 0.001f;
-            if (Math.Abs(edit.CurrentX - edit.OriginalX) < eps &&
-                Math.Abs(edit.CurrentY - edit.OriginalY) < eps &&
-                Math.Abs(edit.CurrentZ - edit.OriginalZ) < eps &&
-                Math.Abs(edit.CurrentHeading - edit.OriginalHeading) < eps &&
-                edit.CurrentPause == edit.OriginalPause)
-            {
-                buffer.GridEntries.Remove(key);
-            }
-        }
-
-        Database.Models.GridEntry FindWaypoint(Controller controller)
-        {
-            foreach (var sp in controller.SpawnManager.SpawnPoints)
-                foreach (var wp in sp.Record.Waypoints)
-                    if (wp.GridId == GridId && wp.Number == Number)
-                        return wp;
-            return null;
-        }
+        Database.Models.GridEntry FindWaypoint(Controller controller) =>
+            GridActionHelpers.FindWaypoint(controller, GridId, Number);
     }
 }

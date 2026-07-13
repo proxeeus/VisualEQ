@@ -21,7 +21,9 @@ namespace VisualEQ.EditSystem
         //   v2 — adds ZonePoints (trilogy_zone_points edits, position + size only)
         //   v3 — adds scalar fields to ZonePointEdit (target/heading/mode/keep*/plane bounds)
         //   v4 — adds ZonePointInserts + ZonePointDeletes for new-row / delete-row support
-        public int SchemaVersion { get; set; } = 4;
+        //   v5 — adds Centerpoint on GridEntryEdit, plus Grids + GridEntryInserts +
+        //        GridEntryDeletes for grid metadata edits and per-waypoint add/delete
+        public int SchemaVersion { get; set; } = 5;
 
         public Dictionary<int, SpawnEdit> Spawns { get; set; } = new Dictionary<int, SpawnEdit>();
         public Dictionary<string, GridEntryEdit> GridEntries { get; set; } = new Dictionary<string, GridEntryEdit>();
@@ -36,20 +38,36 @@ namespace VisualEQ.EditSystem
         // (those are dropped straight from ZonePointInserts instead of being tracked here).
         public HashSet<int> ZonePointDeletes { get; set; } = new HashSet<int>();
 
+        // Grid metadata edits (grid.type / grid.type2). Key = "gridId:zoneId".
+        public Dictionary<string, GridEdit> Grids { get; set; } = new Dictionary<string, GridEdit>();
+
+        // Pending waypoint inserts. Key = "gridId:number". Number for a pending insert is
+        // determined at edit time (append at max+1 within the grid).
+        public Dictionary<string, GridEntryInsert> GridEntryInserts { get; set; } = new Dictionary<string, GridEntryInsert>();
+
+        // Pending waypoint deletes. Key = "gridId:number". Row snapshot is preserved so
+        // Discard/Revert can restore the waypoint into the scene.
+        public Dictionary<string, GridEntryDelete> GridEntryDeletes { get; set; } = new Dictionary<string, GridEntryDelete>();
+
         // Reserved for Phase 5.9+ (npc_types edits).
         public Dictionary<int, NpcEdit> Npcs { get; set; } = new Dictionary<int, NpcEdit>();
 
         public bool IsEmpty =>
             Spawns.Count == 0 && GridEntries.Count == 0 &&
             ZonePoints.Count == 0 && ZonePointInserts.Count == 0 && ZonePointDeletes.Count == 0 &&
+            Grids.Count == 0 && GridEntryInserts.Count == 0 && GridEntryDeletes.Count == 0 &&
             Npcs.Count == 0;
         public int TotalPending =>
             Spawns.Count + GridEntries.Count +
             ZonePoints.Count + ZonePointInserts.Count + ZonePointDeletes.Count +
+            Grids.Count + GridEntryInserts.Count + GridEntryDeletes.Count +
             Npcs.Count;
 
         // Composite key helper for grid entries: (gridId, number).
         public static string GridEntryKey(int gridId, int number) => $"{gridId}:{number}";
+
+        // Composite key helper for grid metadata: (gridId, zoneId).
+        public static string GridKey(int gridId, int zoneId) => $"{gridId}:{zoneId}";
     }
 
     public class SpawnEdit
@@ -83,14 +101,60 @@ namespace VisualEQ.EditSystem
         public float OriginalZ { get; set; }
         public float OriginalHeading { get; set; }
         public int OriginalPause { get; set; }
+        public byte OriginalCenterpoint { get; set; }
 
         public float CurrentX { get; set; }
         public float CurrentY { get; set; }
         public float CurrentZ { get; set; }
         public float CurrentHeading { get; set; }
         public int CurrentPause { get; set; }
+        public byte CurrentCenterpoint { get; set; }
 
         public DateTime LastModifiedAt { get; set; }
+    }
+
+    // Grid-level metadata edits (grid.type / grid.type2). ZoneId is stored so the commit
+    // WHERE clause can key on the composite PK; the runtime grid revert uses (gridId, zoneId).
+    public class GridEdit
+    {
+        public int Id { get; set; }
+        public int ZoneId { get; set; }
+        public int OriginalType { get; set; }
+        public int OriginalType2 { get; set; }
+        public int CurrentType { get; set; }
+        public int CurrentType2 { get; set; }
+        public DateTime LastModifiedAt { get; set; }
+    }
+
+    // Pending waypoint insert. Number is chosen at edit time (append at max+1). ZoneId is
+    // carried so the commit doesn't need to re-resolve it from the zone lookup.
+    public class GridEntryInsert
+    {
+        public int GridId { get; set; }
+        public int ZoneId { get; set; }
+        public int Number { get; set; }
+        public float X { get; set; }
+        public float Y { get; set; }
+        public float Z { get; set; }
+        public float Heading { get; set; }
+        public int Pause { get; set; }
+        public byte Centerpoint { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
+
+    // Pending waypoint delete. Snapshot of the removed row so Discard/Revert can restore it.
+    public class GridEntryDelete
+    {
+        public int GridId { get; set; }
+        public int ZoneId { get; set; }
+        public int Number { get; set; }
+        public float X { get; set; }
+        public float Y { get; set; }
+        public float Z { get; set; }
+        public float Heading { get; set; }
+        public int Pause { get; set; }
+        public byte Centerpoint { get; set; }
+        public DateTime DeletedAt { get; set; }
     }
 
     public class NpcEdit

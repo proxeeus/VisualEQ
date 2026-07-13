@@ -70,6 +70,13 @@ namespace VisualEQ.Database.Repositories
                         SqlQueries.GetGridEntriesBatch, new { GridIds = gridIds, ZoneId = zoneId })).ToList()
                     : new List<GridEntry>();
 
+                // 5b. Batch grid metadata for the same set of grid ids.
+                var grids = gridIds.Length > 0
+                    ? (await connection.QueryAsync<Grid>(
+                        SqlQueries.GetGridsBatch, new { GridIds = gridIds, ZoneId = zoneId })).ToList()
+                    : new List<Grid>();
+                var gridById = grids.ToDictionary(g => g.Id);
+
                 // 6. Index for O(1) assembly.
                 var entriesByGroup = entries
                     .GroupBy(e => e.SpawnGroupId)
@@ -94,7 +101,8 @@ namespace VisualEQ.Database.Repositories
                         : new List<SpawnEntryWithNpc>(),
                     Waypoints = s.PathGrid > 0 && waypointsByGrid.TryGetValue(s.PathGrid, out var wps)
                         ? wps
-                        : new List<GridEntry>()
+                        : new List<GridEntry>(),
+                    Grid = s.PathGrid > 0 && gridById.TryGetValue(s.PathGrid, out var gr) ? gr : null
                 }).ToList();
             }
         }
