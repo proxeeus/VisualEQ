@@ -35,8 +35,11 @@ namespace VisualEQ.ZonePointSystem
         // Fill alpha keeps volumes readable while not obscuring the scene underneath.
         const float FillAlpha = 0.15f;
         // Fallback Z half-extent when maxZDiff == 0 (spec: "effectively unbounded 50000").
-        // Cap much lower so the tall column is visible without swamping the depth buffer.
-        const float InfiniteZHalfExtent = 2000f;
+        // Kept small on purpose — multi-level zones (dungeons especially) get unreadable
+        // when boxes span the full zone height and stack vertically. Users read the
+        // "MaxZDiff=∞" state from the inspector badge; the 3D volume just marks the
+        // trigger's location, not its true logical extent.
+        const float InfiniteZHalfExtent = 20f;
         // Plane-crossing wall Z half-extent when zone bounds aren't available.
         const float PlaneWallHalfHeight = 2000f;
         // Wildcard slab Z half-extent when maxZDiff == 0. Fall-through triggers care about
@@ -47,11 +50,21 @@ namespace VisualEQ.ZonePointSystem
 
         public static Output Build(
             IReadOnlyList<ZonePoint> zonePoints,
+            IReadOnlyList<ZonePoint> incomingPoints,
             ZonePoint selected,
             (Vector3 Min, Vector3 Max)? zoneBounds)
         {
-            var lines = new List<Line>(zonePoints.Count * 24);
-            var tris  = new List<Tri>(zonePoints.Count * 12);
+            var lines = new List<Line>(zonePoints.Count * 24 + (incomingPoints?.Count ?? 0) * 12);
+            var tris  = new List<Tri>(zonePoints.Count * 12 + (incomingPoints?.Count ?? 0) * 6);
+
+            if (incomingPoints != null)
+            {
+                foreach (var zp in incomingPoints)
+                {
+                    var isSelected = ReferenceEquals(zp, selected);
+                    EmitIncomingPad(zp, isSelected, lines, tris);
+                }
+            }
 
             foreach (var zp in zonePoints)
             {
@@ -69,7 +82,7 @@ namespace VisualEQ.ZonePointSystem
                 switch (zp.Row.UseNewZoning)
                 {
                     case 0:
-                        EmitBox(zp, wireColor, fillColor, lines, tris);
+                        EmitBox(zp, wireColor, fillColor, zoneBounds, lines, tris);
                         break;
                     case 1:
                         EmitPlaneCrossing(zp, wireColor, fillColor, axisIsX: true,  zoneBounds, lines, tris);
@@ -78,7 +91,7 @@ namespace VisualEQ.ZonePointSystem
                         EmitPlaneCrossing(zp, wireColor, fillColor, axisIsX: false, zoneBounds, lines, tris);
                         break;
                     default:
-                        EmitBox(zp, wireColor, fillColor, lines, tris);
+                        EmitBox(zp, wireColor, fillColor, zoneBounds, lines, tris);
                         break;
                 }
 
@@ -108,14 +121,44 @@ namespace VisualEQ.ZonePointSystem
             string.Equals(zp.Row.Zone, zp.Row.TargetZone, System.StringComparison.OrdinalIgnoreCase);
 
         // ─── Box mode ────────────────────────────────────────────────────────────────
-        static void EmitBox(ZonePoint zp, Vector4 wire, Vector4 fill, List<Line> lines, List<Tri> tris)
+        // Public so the interactive hit-test in ZonePointEditor can compute the exact
+        // same AABB the renderer draws — click-and-visual stay in sync when MaxZDiff==0
+        // (infinite Z) is clamped to zone bounds.
+        public static (Vector3 Min, Vector3 Max)? TryGetBoxSceneAabb(
+            ZonePoint zp, (Vector3 Min, Vector3 Max)? zoneBounds)
         {
+            if (zp.HasSourceWildcard) return null;
+            if (zp.Row.UseNewZoning != 0) return null;
+
             var c = zp.SceneCenter;
             var xy = System.MathF.Max(1f, zp.Row.Zrange);
-            var zHalf = zp.Row.MaxZDiff == 0 ? InfiniteZHalfExtent : System.MathF.Max(1f, zp.Row.MaxZDiff);
+            float zMinAbs, zMaxAbs;
+            if (zp.Row.MaxZDiff == 0)
+            {
+                // Infinite Z → compact stub around the real trigger Z so multi-level
+                // zones stay readable. See InfiniteZHalfExtent comment for rationale.
+                zMinAbs = c.Z - InfiniteZHalfExtent;
+                zMaxAbs = c.Z + InfiniteZHalfExtent;
+            }
+            else
+            {
+                var zHalf = System.MathF.Max(1f, zp.Row.MaxZDiff);
+                zMinAbs = c.Z - zHalf;
+                zMaxAbs = c.Z + zHalf;
+            }
+            return (new Vector3(c.X - xy, c.Y - xy, zMinAbs), new Vector3(c.X + xy, c.Y + xy, zMaxAbs));
+        }
 
-            var min = new Vector3(c.X - xy, c.Y - xy, c.Z - zHalf);
-            var max = new Vector3(c.X + xy, c.Y + xy, c.Z + zHalf);
+        static void EmitBox(
+            ZonePoint zp, Vector4 wire, Vector4 fill,
+            (Vector3 Min, Vector3 Max)? zoneBounds,
+            List<Line> lines, List<Tri> tris)
+        {
+            var aabb = TryGetBoxSceneAabb(zp, zoneBounds);
+            if (!aabb.HasValue) return;
+            var c   = zp.SceneCenter;
+            var min = aabb.Value.Min;
+            var max = aabb.Value.Max;
 
             EmitAabbLines(min, max, wire, lines);
             EmitAabbTris (min, max, fill, tris);
@@ -261,6 +304,70 @@ namespace VisualEQ.ZonePointSystem
             var max = new Vector3(xMax, yMax, zMax);
             EmitAabbLines(min, max, wire, lines);
             EmitAabbTris (min, max, fill, tris);
+        }
+
+        // ─── Incoming landing pad (foreign row landing INTO this zone) ───────────────
+        // Renders a hexagonal ground pad at the landing coord + an arrow oriented by the
+        // row's heading (the direction arriving players face). Cyan tint distinguishes
+        // it from the current zone's owned rows.
+        //
+        // trilogy_zone_points.heading is on the 0-255 Trilogy scale; scale to the 0-512
+        // EQEmu convention SpawnManager uses so both spawns and incoming pads read the
+        // same "facing this direction" cue at a given heading value.
+        static void EmitIncomingPad(ZonePoint zp, bool selected, List<Line> lines, List<Tri> tris)
+        {
+            var center = zp.SceneTarget;
+            const float padRadius   = 6f;
+            const float padLiftZ    = 0.5f;  // float slightly above ground so the fill isn't z-fighting
+            const float arrowLength = 20f;
+
+            Vector4 wire, fill;
+            if (selected)
+            {
+                wire = new Vector4(0.55f, 1.00f, 1.00f, 1.00f);
+                fill = new Vector4(0.30f, 0.95f, 1.00f, 0.45f);
+            }
+            else
+            {
+                wire = new Vector4(0.30f, 0.90f, 1.00f, 0.85f);
+                fill = new Vector4(0.20f, 0.85f, 1.00f, 0.30f);
+            }
+
+            // Hexagon vertices in scene space.
+            var padCenter = new Vector3(center.X, center.Y, center.Z + padLiftZ);
+            var padVerts = new Vector3[6];
+            for (int i = 0; i < 6; i++)
+            {
+                var a = i * (System.MathF.PI * 2f / 6f);
+                padVerts[i] = padCenter + new Vector3(padRadius * System.MathF.Cos(a), padRadius * System.MathF.Sin(a), 0);
+            }
+            for (int i = 0; i < 6; i++)
+            {
+                var next = padVerts[(i + 1) % 6];
+                lines.Add(new Line(padVerts[i], next, wire));
+                tris.Add(new Tri(padCenter, padVerts[i], next, fill));
+            }
+
+            // Heading arrow. Trilogy heading 0-255 → scale up to the 0-512 quaternion
+            // convention so the arrow's "0 = default forward" matches spawn model rotation
+            // (users navigate spawns by heading in the sidebar; this stays consistent).
+            var scaledHeading = zp.Row.Heading * (512f / 255f);
+            var rot           = VisualEQ.SpawnSystem.SpawnManager.HeadingToRotation(scaledHeading);
+            var forward       = Vector3.Normalize(Vector3.Transform(new Vector3(0, 1, 0), rot));
+            var arrowStart    = padCenter;
+            var arrowEnd      = arrowStart + forward * arrowLength;
+
+            lines.Add(new Line(arrowStart, arrowEnd, wire));
+            // Simple arrowhead: two short lines splaying back from the tip.
+            var perp = new Vector3(-forward.Y, forward.X, 0);   // 90° CCW around Z
+            var head = arrowLength * 0.28f;
+            lines.Add(new Line(arrowEnd, arrowEnd - forward * head + perp * head, wire));
+            lines.Add(new Line(arrowEnd, arrowEnd - forward * head - perp * head, wire));
+
+            // Vertical stalk above the pad so it's visible from far away and gives the
+            // sidebar list a hoverable/click-anchor point.
+            var stalkColor = new Vector4(wire.X, wire.Y, wire.Z, 0.60f);
+            lines.Add(new Line(padCenter, padCenter + new Vector3(0, 0, 18f), stalkColor));
         }
 
         // ─── AABB helpers ────────────────────────────────────────────────────────────

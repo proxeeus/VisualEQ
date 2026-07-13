@@ -969,24 +969,60 @@ namespace VisualEQ.Views
         {
             RenderReorderHandles(index, "zp");
             var ctrl = _view.Controller;
-            var count = ctrl.ZonePointManager.ZonePoints.Count;
-            if (!ImGui.CollapsingHeader($"Zone Points ({count})###{Id}zp", 0))
+            var owned = ctrl.ZonePointManager.ZonePoints.Count;
+            var incoming = ctrl.ZonePointManager.IncomingPoints.Count;
+            var header = incoming > 0
+                ? $"Zone Points ({owned} owned + {incoming} incoming)###{Id}zp"
+                : $"Zone Points ({owned})###{Id}zp";
+            if (!ImGui.CollapsingHeader(header, 0))
                 return;
 
-            // Creation buttons — always visible; when edit mode is off they're hidden
-            // (matching the drag-editor's gate). Both spawn at the camera's XY.
+            // Creation controls — quick camera-XY spawn + drag-to-draw. Only visible in
+            // edit mode.
             if (ctrl.EditModeEnabled)
             {
-                if (ImGui.Button($"+ New Box###{Id}zpNewBox", new Vector2(110, 24)))
+                if (ImGui.Button($"+ New Box###{Id}zpNewBox", new Vector2(110, 22)))
                     ctrl.CreateZonePoint(0);
                 ImGui.SameLine();
-                if (ImGui.Button($"+ New Plane###{Id}zpNewPlane", new Vector2(110, 24)))
+                if (ImGui.Button($"+ New Plane###{Id}zpNewPlane", new Vector2(110, 22)))
                     ctrl.CreateZonePoint(1); // default to X-plane; user flips to Y in inspector
-                ImGui.Text("Spawns at camera position; select mode + tune in the inspector.");
+
+                // Drag-to-create buttons. Toggle the Controller's active creation mode;
+                // when active, EngineCore intercepts left-click-drag on the ground plane
+                // to draw a preview + commit an INSERT on release. Escape cancels.
+                var boxActive   = ctrl.ActiveCreation == Controller.CreationMode.DrawBox;
+                var planeActive = ctrl.ActiveCreation == Controller.CreationMode.DrawPlane;
+
+                if (boxActive)
+                {
+                    if (ImGui.Button($"Cancel draw###{Id}zpDrawCancel", new Vector2(110, 22)))
+                        ctrl.CancelCreation();
+                }
+                else
+                {
+                    if (ImGui.Button($"Draw Box###{Id}zpDrawBox", new Vector2(110, 22)))
+                        ctrl.EnterCreationMode(Controller.CreationMode.DrawBox);
+                }
+                ImGui.SameLine();
+                if (planeActive)
+                {
+                    if (ImGui.Button($"Cancel draw###{Id}zpDrawCancelP", new Vector2(110, 22)))
+                        ctrl.CancelCreation();
+                }
+                else
+                {
+                    if (ImGui.Button($"Draw Plane###{Id}zpDrawPlane", new Vector2(110, 22)))
+                        ctrl.EnterCreationMode(Controller.CreationMode.DrawPlane);
+                }
+
+                if (boxActive)   ImGui.Text("Left-click-drag on the ground → new box. Esc cancels.");
+                if (planeActive) ImGui.Text("Left-click-drag a line → new plane. Esc cancels.");
+                if (!boxActive && !planeActive)
+                    ImGui.Text("+ New: at camera position.  Draw: click-and-drag in world.");
                 ImGui.Separator();
             }
 
-            if (count == 0)
+            if (owned == 0 && incoming == 0)
             {
                 ImGui.Text("No trilogy_zone_points rows for this zone.");
                 if (ctrl.EditModeEnabled)
@@ -995,7 +1031,19 @@ namespace VisualEQ.Views
             }
 
             var selected = ctrl.ZonePointManager.Selected;
-            ImGui.BeginChild($"###{Id}zpList", new Vector2(0, 140), true, WindowFlags.Default);
+            ImGui.BeginChild($"###{Id}zpList", new Vector2(0, 160), true, WindowFlags.Default);
+
+            // Incoming rows first — small `[IN]` badge + "← <source>" so users can spot
+            // arrival pads before scrolling through owned rows.
+            foreach (var zp in ctrl.ZonePointManager.IncomingPoints)
+            {
+                var dirty  = zp.IsDirty ? " *" : "";
+                var label  = $"[IN] #{zp.Row.Id} ← {zp.Row.Zone}{dirty}###{Id}zpItemIN{zp.Row.Id}";
+                if (ImGui.Selectable(label, ReferenceEquals(zp, selected)))
+                    FlyToZonePoint(zp);
+            }
+            if (incoming > 0 && owned > 0) ImGui.Separator();
+
             foreach (var zp in ctrl.ZonePointManager.ZonePoints)
             {
                 string badge;
@@ -1041,6 +1089,16 @@ namespace VisualEQ.Views
         // one keystroke doesn't spawn a hundred undo entries).
         void RenderZonePointInspector(VisualEQ.ZonePointSystem.ZonePoint zp, bool editable)
         {
+            // Incoming rows get a simpler read-mostly view — the row physically belongs to
+            // another zone (trilogy_zone_points.zone = source), so most fields don't make
+            // sense to edit from this zone's perspective. Only the heading (which direction
+            // arriving players face on landing) is exposed for editing.
+            if (zp.IsIncoming)
+            {
+                RenderIncomingInspector(zp, editable);
+                return;
+            }
+
             ImGui.Separator();
             var idLabel = zp.IsPendingInsert ? "new" : zp.Row.Id.ToString();
             var suffix  = zp.IsPendingInsert ? " [NEW — will INSERT on commit]" : "";
@@ -1139,6 +1197,100 @@ namespace VisualEQ.Views
                 ImGui.Separator();
                 ImGui.Text("Unsaved edits (see Pending Changes).");
             }
+        }
+
+        // Compact inspector for incoming rows. The row lives in another zone (Row.Zone =
+        // the source shortname); we can still UPDATE it by id at commit time, but the only
+        // field that's meaningful to edit from the arrival-zone's perspective is the
+        // landing heading. Everything else renders as read-only context.
+        void RenderIncomingInspector(VisualEQ.ZonePointSystem.ZonePoint zp, bool editable)
+        {
+            ImGui.Separator();
+            var dirty = zp.IsDirty ? "  *" : "";
+            ImGui.Text($"Selected: #{zp.Row.Id}  (incoming from {zp.Row.Zone}){dirty}");
+            ImGui.Text("Arriving players land here from another zone. Read-only except heading.");
+
+            ImGui.Separator();
+            ImGui.Text("Landing coord (target_x / y / z)");
+            ImGui.Text($"  ({zp.Row.TargetX:F1}, {zp.Row.TargetY:F1}, {zp.Row.TargetZ:F1})");
+
+            ImGui.Text("Source coord in " + zp.Row.Zone + " (context)");
+            ImGui.Text($"  ({zp.Row.X:F1}, {zp.Row.Y:F1}, {zp.Row.Z:F1})");
+
+            ImGui.Separator();
+            ImGui.Text("Landing heading (0–255)");
+            RenderIncomingHeadingSlider(zp, editable);
+            ImGui.Text("Angle the arriving character faces on entry.");
+
+            if (zp.IsDirty)
+            {
+                ImGui.Separator();
+                ImGui.Text("Unsaved edits (see Pending Changes).");
+            }
+        }
+
+        // Per-incoming heading slider — its own buffered state so a drag records a single
+        // action on release, matching the SpawnRotateAction / regular heading edit pattern.
+        private float _zpIncHeadingBuffer;
+        private float _zpIncHeadingBeforeEdit;
+        private int? _zpIncHeadingRowId;
+        private bool _zpIncHeadingSliderWasActive;
+
+        void RenderIncomingHeadingSlider(VisualEQ.ZonePointSystem.ZonePoint zp, bool editable)
+        {
+            if (!editable)
+            {
+                ImGui.Text($"  heading = {zp.Row.Heading:F0}");
+                return;
+            }
+
+            // Resync the buffer with the row when:
+            //   • selection changed (different row id), OR
+            //   • slider isn't being held (user is not mid-drag), OR
+            //   • the row's live value has drifted from the buffer (undo/redo/discard/
+            //     external revert while the slider was believed active by a stale flag).
+            // Third condition is a belt-and-suspenders catch that guarantees the slider
+            // always reflects Row.Heading when the user isn't touching it.
+            var isSameRow = _zpIncHeadingRowId == zp.Row.Id;
+            var drifted   = System.MathF.Abs(_zpIncHeadingBuffer - zp.Row.Heading) > 0.5f;
+            if (!isSameRow || !_zpIncHeadingSliderWasActive || drifted)
+            {
+                _zpIncHeadingBuffer = zp.Row.Heading;
+                _zpIncHeadingRowId  = zp.Row.Id;
+            }
+
+            var changed = ImGui.SliderFloat($"###{Id}zpIncHead", ref _zpIncHeadingBuffer, 0f, 255f, "%.0f", 1f);
+            var sliderActive = ImGui.IsAnyItemActive();
+
+            if (changed)
+            {
+                // Live-update the row so the arrow re-renders in-scene as the user drags.
+                zp.Row.Heading = _zpIncHeadingBuffer;
+            }
+
+            if (!_zpIncHeadingSliderWasActive && sliderActive)
+                _zpIncHeadingBeforeEdit = zp.Row.Heading;
+
+            if (_zpIncHeadingSliderWasActive && !sliderActive)
+            {
+                if (System.MathF.Abs(_zpIncHeadingBeforeEdit - _zpIncHeadingBuffer) > 0.5f)
+                {
+                    _view.Controller.RecordAction(
+                        new VisualEQ.EditSystem.ZonePointFieldEditAction(
+                            zp,
+                            VisualEQ.EditSystem.ZonePointFieldEditAction.Field.Heading,
+                            _zpIncHeadingBeforeEdit, _zpIncHeadingBuffer));
+                }
+                else
+                {
+                    // Snap live-updated row back to the pre-edit value if the slider only
+                    // nudged below threshold — otherwise the row is dirty but no action was
+                    // recorded, and the buffer flush would drop the entry as clean but the
+                    // scene would still show the sub-threshold change until next reload.
+                    zp.Row.Heading = _zpIncHeadingBeforeEdit;
+                }
+            }
+            _zpIncHeadingSliderWasActive = sliderActive;
         }
 
         // ─── Field render helpers ────────────────────────────────────────────────────

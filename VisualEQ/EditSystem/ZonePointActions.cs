@@ -80,6 +80,44 @@ namespace VisualEQ.EditSystem
         }
     }
 
+    // Center-drag on an INCOMING zone_point → moves the landing coord (target_x/y/z) via
+    // one atomic undo entry. Regular ZonePointMoveAction mutates x/y/z; this one mutates
+    // target_x/y/z. Buffer sync + revert-to-baseline are handled by the shared helpers.
+    public sealed class ZonePointTargetMoveAction : IEditAction
+    {
+        public int ZonePointId { get; }
+        public Vector3 FromSceneTarget { get; }
+        public Vector3 ToSceneTarget { get; }
+        public string DisplayName { get; }
+        public DateTime Timestamp { get; }
+
+        public string Description => $"Moved landing pad of zone_point #{ZonePointId} (from {DisplayName})";
+        public string TargetKey   => $"zonepoint:{ZonePointId}:target";
+
+        public ZonePointTargetMoveAction(ZonePoint zp, Vector3 fromScene, Vector3 toScene)
+        {
+            ZonePointId     = zp.Row.Id;
+            FromSceneTarget = fromScene;
+            ToSceneTarget   = toScene;
+            DisplayName     = zp.Row.Zone ?? "?";
+            Timestamp       = DateTime.UtcNow;
+        }
+
+        public void Apply(Controller controller)  => Move(controller, ToSceneTarget);
+        public void Revert(Controller controller) => Move(controller, FromSceneTarget);
+
+        void Move(Controller controller, Vector3 sceneTarget)
+        {
+            var zp = ZonePointActionHelpers.Find(controller, ZonePointId);
+            if (zp == null) return;
+            // Scene → DB axis swap, same as Move (Y ↔ X).
+            zp.SetTargetX(sceneTarget.Y);
+            zp.SetTargetY(sceneTarget.X);
+            zp.SetTargetZ(sceneTarget.Z);
+            ZonePointActionHelpers.SyncBufferForCurrentState(controller, zp);
+        }
+    }
+
     // Inspector field-edit action. One instance per field-commit boundary (fires when an
     // ImGui field transitions from active to inactive after a value change — same trigger
     // the heading slider on SpawnRotateAction uses). Serialisable state is enough to
@@ -356,7 +394,7 @@ namespace VisualEQ.EditSystem
     internal static class ZonePointActionHelpers
     {
         public static ZonePoint Find(Controller controller, int id) =>
-            controller.ZonePointManager.ZonePoints.FirstOrDefault(z => z.Row.Id == id);
+            controller.ZonePointManager.AllPoints().FirstOrDefault(z => z.Row.Id == id);
 
         // Post-mutation buffer sync. For persisted rows: ensures a ZonePointEdit exists,
         // mirrors every Current* from zp.Row, runs MaybeDropIfCleanNow. For pending-insert

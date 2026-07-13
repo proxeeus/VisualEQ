@@ -34,5 +34,20 @@ namespace VisualEQ.Engine
         // Wired to F — camera flies to the currently-selected spawn (wall-aware placement).
         // No-op when nothing is selected.
         void FrameSelection();
+
+        // ─── Drag-to-create pipeline hooks ───────────────────────────────────────────
+        // When true, EngineCore intercepts mouse input BEFORE the normal selector chain
+        // (zone-point / waypoint / spawn) so left-click-drag can draw a preview + commit
+        // a new zone_point on release. False → normal mouse flow.
+        bool IsCreationActive { get; }
+
+        // groundHit is the mouse ray's intersection with the ground plane (Z from the
+        // collider probe, or a fallback if no hit).
+        void OnCreationMouseDown(System.Numerics.Vector3 groundHit);
+        void OnCreationMouseMove(System.Numerics.Vector3 groundHit);
+        void OnCreationMouseUp();
+
+        // Wired to Escape when creation is active — abandons the drag without commit.
+        void CancelCreation();
     }
 }
