@@ -5,12 +5,17 @@ REM VisualEQ Zone Loader Helper Script
 REM Usage: load_zone.bat [path_to_everquest] [zone_name]
 REM If no arguments are provided, it will show a menu of available zones
 
+REM Script lives in dev/ — jump to repo root so all the ConverterApp/, VisualEQ/,
+REM ModelLister/ etc. relative paths inside this script keep resolving.
+cd /d "%~dp0.."
+
 REM On Windows ARM64 (Parallels/M-series Mac) the default dotnet is ARM64 but cimgui.dll is x64.
 REM Use the x64 dotnet runtime (exec, not run) to launch VisualEQ so native DLLs load correctly.
 set "DOTNET_X64=C:\Program Files\dotnet\x64\dotnet.exe"
 
-REM Config file for storing EQ path
-set "CONFIG_FILE=%~dp0eq_config.txt"
+REM Config file for storing EQ path — kept at repo root for backwards compatibility with
+REM the pre-menu workflow (the in-app menu writes to %APPDATA%\VisualEQ\settings.json).
+set "CONFIG_FILE=%~dp0..\eq_config.txt"
 
 REM Check if we're loading directly with arguments
 if NOT "%~1"=="" (

@@ -1,0 +1,65 @@
+name: Release
+
+# Fires on a `v*` tag push (the tag name becomes the version — `v0.1.0` → `0.1.0`)
+# and drops the built zip into a GitHub Release. `workflow_dispatch` supports manual
+# dry-runs without cutting a tag; those runs produce an artifact but do not touch
+# any release page.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version (without leading v) for manual runs"
+        default: "0.0.0-manual"
+
+permissions:
+  contents: write  # needed by softprops/action-gh-release to publish the release
+
+jobs:
+  build:
+    # windows-latest because packaging a self-contained win-x64 build with a native
+    # x64 dep (cimgui.dll) is most reliable when the host RID matches. Linux/mac
+    # cross-publish is possible but has more edge cases.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+          cache: true
+          cache-dependency-path: '**/*.csproj'
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $v = $env:GITHUB_REF -replace '^refs/tags/v',''
+          } else {
+            $v = '${{ github.event.inputs.version }}'
+          }
+          Write-Host "Resolved version: $v"
+          "value=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Build release zip
+        shell: pwsh
+        # Same script contributors run locally — one code path, no CI/local drift.
+        run: ./publish-release.ps1 -Version '${{ steps.version.outputs.value }}'
+
+      - name: Upload artifact (available on every run)
+        uses: actions/upload-artifact@v4
+        with:
+          name: VisualEQ-${{ steps.version.outputs.value }}-win-x64
+          path: release/*.zip
+          retention-days: 30
+
+      - name: Publish GitHub Release (tag pushes only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.zip
+          generate_release_notes: true
+          draft: false
+          prerelease: false
