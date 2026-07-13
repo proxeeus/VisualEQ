@@ -479,6 +479,20 @@ namespace VisualEQ.ConverterCore
         string ConvertTexture(S3D s3d, ZipArchive zip, string fn)
         {
             fn = fn.Substring(0, fn.IndexOf('.') + 4);
+
+            // Some WLDs reference textures the S3D doesn't actually contain — fearplane's
+            // `maywall.bmp` is a known case. Without this guard, `s3d[fn]` throws
+            // KeyNotFoundException, which kills the whole AsParallel().ToDictionary() up in
+            // ConvertWldZone. The enclosing `using(zip)` still runs Dispose, flushing a
+            // partial output zip with no main.oes to disk — silent load failure at runtime.
+            // Emit a bright placeholder instead so the zone is still usable with visible
+            // holes where the texture was.
+            if (!s3d.Contains(fn))
+            {
+                WriteLine($"[Converter] Texture '{fn}' missing from {s3d.Filename} — writing placeholder");
+                return WriteMissingTexturePlaceholder(s3d, zip, fn);
+            }
+
             byte[] data;
             lock (s3d) data = s3d[fn];
 
@@ -504,6 +518,25 @@ namespace VisualEQ.ConverterCore
                 entry.Close();
             }
 
+            return ofn;
+        }
+
+        // 1x1 yellow placeholder for a texture the S3D didn't have. Same tint ConvertTexture
+        // falls back to when a BMP/DDS payload fails to decode. Named per (S3D, texture) so
+        // parallel writes don't collide and so the two-S3Ds-share-a-missing-name case doesn't
+        // clobber. Note: the zip is in ZipArchiveMode.Create, so `GetEntry` isn't available —
+        // we rely on the caller's `.Distinct()` upstream to guarantee we're invoked at most
+        // once per (S3D, texture) pair.
+        static string WriteMissingTexturePlaceholder(S3D s3d, ZipArchive zip, string fn)
+        {
+            var s3dSlug = System.IO.Path.GetFileNameWithoutExtension(s3d.Filename);
+            var ofn = $"{fn.Split('.', 2)[0]}-{s3dSlug}-MISSING.png";
+            lock (zip)
+            {
+                var image = new Image(ColorMode.Rgb, (1, 1), new byte[] { 0xff, 0xff, 0 });
+                using (var entry = zip.CreateEntry(ofn, CompressionLevel.Optimal).Open())
+                    Png.Encode(image, entry);
+            }
             return ofn;
         }
 
