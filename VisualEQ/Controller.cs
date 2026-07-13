@@ -910,6 +910,28 @@ namespace VisualEQ
             PendingBuffer = null;
             UndoStack.Clear();
 
+            // Drop selections BEFORE the SpawnPoints list is emptied. Otherwise SpawnManager.
+            // Selected keeps a dangling reference and UpdatePathGrids happily renders the
+            // dead record's waypoints against the black post-clear scene until a new zone
+            // loads. Same story for WaypointEditor's selected handle.
+            modelSelector?.ClearSelection();
+            Engine.WaypointEditor?.ClearSelection();
+            Engine.WaypointEditor?.SetCandidates(System.Array.Empty<Engine.WaypointEditor.Handle>());
+            Engine.ZonePointEditor?.SetCandidates(System.Array.Empty<Engine.ZonePointEditor.Handle>());
+            // Belt-and-suspenders: some code paths (Escape from the sidebar list) don't
+            // route through ModelSelector, so hard-null SpawnManager.Selected too.
+            SpawnManager.Select(null);
+
+            // Empty every dynamic line/tri VBO the renderer owns so the last frame's
+            // primitives don't render on top of the cleared scene. UpdatePathGrids /
+            // UpdateSpawnMarkers / UpdateZonePoints would zero these next frame anyway,
+            // but a stale render can flash between clear and next frame boot.
+            var emptyLines = System.Array.Empty<(Vector3, Vector3, Vector4)>();
+            var emptyTris  = System.Array.Empty<(Vector3, Vector3, Vector3, Vector4)>();
+            Engine.SetSpawnMarkerLines(emptyLines);
+            Engine.SetPathGridLines(emptyLines);
+            Engine.SetZonePointPrimitives(emptyLines, emptyTris);
+
             Engine.ClearScene();
             CharacterModels.Clear();
             _modelCache.Clear();
