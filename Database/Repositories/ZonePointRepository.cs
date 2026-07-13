@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Dapper;
 using VisualEQ.Database.Configuration;
@@ -31,6 +32,17 @@ namespace VisualEQ.Database.Repositories
             {
                 return await connection.QueryAsync<TrilogyZonePoint>(
                     SqlQueries.GetIncomingZonePoints, new { ZoneName = zoneName });
+            }
+        }
+
+        public async Task<IEnumerable<TrilogyZonePoint>> GetZonePointsForZonesAsync(IEnumerable<string> zoneNames)
+        {
+            var names = zoneNames.Where(n => !string.IsNullOrEmpty(n)).Distinct(System.StringComparer.OrdinalIgnoreCase).ToArray();
+            if (names.Length == 0) return System.Linq.Enumerable.Empty<TrilogyZonePoint>();
+            using (var connection = CreateConnection())
+            {
+                return await connection.QueryAsync<TrilogyZonePoint>(
+                    SqlQueries.GetZonePointsForZones, new { ZoneNames = names });
             }
         }
 

@@ -48,6 +48,13 @@ namespace VisualEQ
 
         public ZonePointManager ZonePointManager { get; } = new ZonePointManager();
 
+        // Sandwich detection results keyed by owned row id. Recomputed each frame from
+        // ZonePointManager.PeerZoneRows so edits (drag, inspector field changes) reflect
+        // instantly without an explicit invalidation step. Detection is cheap — dozens of
+        // rows × dozens of peer rows per zone — so per-frame is fine.
+        public Dictionary<int, ZonePointSystem.SandwichDetector.Result> SandwichResults { get; }
+            = new Dictionary<int, ZonePointSystem.SandwichDetector.Result>();
+
         // Cached list of every zone shortname in the DB — populated on zone load,
         // powers the target-zone dropdown in the inspector. Empty when no DB is
         // configured; the inspector falls back to a free-text field in that case.
@@ -790,6 +797,21 @@ namespace VisualEQ
                 var incoming = repo.GetIncomingZonePointsAsync(zoneName).GetAwaiter().GetResult();
                 ZonePointManager.LoadIncomingFromRows(incoming);
 
+                // Peer-zone rows — every row in each destination zone reached by an
+                // owned outgoing row. Used only by the sandwich detector.
+                var destinations = ZonePointManager.ZonePoints
+                    .Select(z => z.Row.TargetZone)
+                    .Where(t => !string.IsNullOrEmpty(t)
+                                && !string.Equals(t, zoneName, StringComparison.OrdinalIgnoreCase))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                if (destinations.Count > 0)
+                {
+                    var peers = repo.GetZonePointsForZonesAsync(destinations).GetAwaiter().GetResult();
+                    ZonePointManager.LoadPeerRows(peers);
+                    Console.WriteLine($"[Controller] Loaded peer-zone rows for {ZonePointManager.PeerZoneRows.Count} destination zones (sandwich detector).");
+                }
+
                 // Populate the dropdown-backing list once per zone load. Cached because
                 // it's used every inspector-render frame.
                 if (ZoneShortNames.Count == 0)
@@ -869,6 +891,41 @@ namespace VisualEQ
             var zp = ZonePointManager.Selected;
             if (zp == null) return;
             RecordAction(new EditSystem.ZonePointDeleteAction(zp));
+        }
+
+        // Sandwich fix: shift the landing coord (target_x/y) 50 units directly away from
+        // the offending peer row's source coord. Uses ZonePointFieldEditAction on TargetX
+        // + TargetY so the edit shows up as two undoable steps (fine per existing
+        // convention — user hits Ctrl+Z twice to fully revert).
+        public void ShiftLandingAwayFromSandwich(int zonePointId)
+        {
+            if (!SandwichResults.TryGetValue(zonePointId, out var r) || !r.Sandwiched) return;
+            var zp = ZonePointManager.ZonePoints.FirstOrDefault(z => z.Row.Id == zonePointId);
+            if (zp == null) return;
+
+            var lx = zp.Row.TargetX;
+            var ly = zp.Row.TargetY;
+            var ox = r.OffendingRow.X;
+            var oy = r.OffendingRow.Y;
+            var dx = lx - ox;
+            var dy = ly - oy;
+            var len = System.MathF.Sqrt(dx * dx + dy * dy);
+            if (len < 0.001f)
+            {
+                // Landing sits exactly on the offender — pick an arbitrary +X direction so
+                // the shift is deterministic.
+                dx = 1f; dy = 0f; len = 1f;
+            }
+            const float ShiftDistance = 50f;
+            var nx = dx / len;
+            var ny = dy / len;
+            var newX = lx + nx * ShiftDistance;
+            var newY = ly + ny * ShiftDistance;
+
+            RecordAction(new EditSystem.ZonePointFieldEditAction(
+                zp, EditSystem.ZonePointFieldEditAction.Field.TargetX, lx, newX));
+            RecordAction(new EditSystem.ZonePointFieldEditAction(
+                zp, EditSystem.ZonePointFieldEditAction.Field.TargetY, ly, newY));
         }
 
         // Preloads the placeholder-fallback model for the zone. Sets LastModelLoaded so
@@ -1212,11 +1269,23 @@ namespace VisualEQ
             }
 
             var selected = ZonePointManager.Selected;
+
+            // Recompute sandwich status for every owned row. Cheap enough to run per frame
+            // (dozens × dozens ≤ a few hundred comparisons); avoids invalidation bookkeeping
+            // and reflects target-coord edits immediately.
+            SandwichResults.Clear();
+            foreach (var zp in ZonePointManager.ZonePoints)
+            {
+                var r = ZonePointSystem.SandwichDetector.Check(zp, ZonePointManager.PeerZoneRows);
+                if (r.Sandwiched) SandwichResults[zp.Row.Id] = r;
+            }
+
             var built = ZonePointSystem.ZonePointPrimitiveBuilder.Build(
                 ZonePointManager.ZonePoints,
                 ZonePointManager.IncomingPoints,
                 selected,
-                Engine.ZoneBounds);
+                Engine.ZoneBounds,
+                SandwichResults);
 
             // Handle-glyph lines + candidates. Small crosses at center handles for every
             // zone point; larger contrast crosses at corner/face handles for the selected.
