@@ -323,8 +323,7 @@ namespace VisualEQ.Engine
         // Given a DB-space (X, Y) query point, returns the top-Z of the highest region of
         // the requested kind whose XY footprint contains the point. Multiple overlapping
         // pools use the highest surface — matches the intuition of a boat floating on the
-        // topmost water. Returns false when no region contains the point, so the sidebar
-        // can disable the snap button.
+        // topmost water. Returns false when no region contains the point.
         //
         // Both inputs are DB coords (matching how spawn2.x/y and grid_entries.x/y are
         // stored). The region AABBs live in DB coords too — set at convert time from raw
@@ -345,6 +344,37 @@ namespace VisualEQ.Engine
                 }
             }
             return found;
+        }
+
+        // Fallback for spawns/waypoints that sit outside every detected region's XY
+        // footprint but the user still wants to snap to water — e.g. classic EQ freporte,
+        // whose harbor has a proper water mesh but the surrounding "sea" is skybox with
+        // no walkable water plane. If a zone has ANY water regions at all, we return the
+        // top-Z of the region whose center is closest to the query XY (Chebyshev distance,
+        // fast and good enough for coarse "which pool is nearest").
+        public bool TryGetNearestLiquidSurfaceZ(float dbX, float dbY, byte kind,
+            out float surfaceZ, out string regionName, out float distance)
+        {
+            surfaceZ   = 0f;
+            regionName = null;
+            distance   = float.MaxValue;
+            LiquidRegion best = null;
+            foreach (var r in Regions)
+            {
+                if (r.Kind != kind) continue;
+                var cx = (r.Min.X + r.Max.X) * 0.5f;
+                var cy = (r.Min.Y + r.Max.Y) * 0.5f;
+                var d = System.MathF.Max(System.MathF.Abs(dbX - cx), System.MathF.Abs(dbY - cy));
+                if (d < distance)
+                {
+                    distance   = d;
+                    best       = r;
+                }
+            }
+            if (best == null) return false;
+            surfaceZ   = best.Max.Z;
+            regionName = best.Name;
+            return true;
         }
 
         public void Start()

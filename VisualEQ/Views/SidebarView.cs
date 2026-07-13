@@ -882,14 +882,26 @@ namespace VisualEQ.Views
                 return;
             }
 
-            if (!engine.TryGetLiquidSurfaceZAt(wp.X, wp.Y, VisualEQ.Engine.LiquidRegion.KindWater, out var surfaceZ))
+            string label;
+            float surfaceZ;
+            if (engine.TryGetLiquidSurfaceZAt(wp.X, wp.Y, VisualEQ.Engine.LiquidRegion.KindWater, out surfaceZ))
             {
-                ImGui.Text("Waypoint is not over a water region.");
+                label = $"Snap Z to water (surface Z = {surfaceZ:F1})";
+                ImGui.Text($"Over water. Current Z = {wp.Z:F1}");
+            }
+            else if (engine.TryGetNearestLiquidSurfaceZ(wp.X, wp.Y, VisualEQ.Engine.LiquidRegion.KindWater,
+                out surfaceZ, out var nearestName, out var dist))
+            {
+                label = $"Snap Z to nearest water plane (surface Z = {surfaceZ:F1})";
+                ImGui.Text($"Outside water AABB — nearest region '{nearestName}' (~{dist:F0} units away)");
+                ImGui.Text($"Current Z = {wp.Z:F1}");
+            }
+            else
+            {
                 return;
             }
 
-            ImGui.Text($"Water surface at Z = {surfaceZ:F1} (current Z = {wp.Z:F1})");
-            if (ImGui.Button($"Snap Z to water###{Id}wpSnapW{gridId}_{number}", new Vector2(200, 24)))
+            if (ImGui.Button($"{label}###{Id}wpSnapW{gridId}_{number}", new Vector2(280, 24)))
             {
                 if (Math.Abs(wp.Z - surfaceZ) > 0.001f)
                     _view.Controller.RecordAction(new VisualEQ.EditSystem.GridEntryFieldEditAction(
@@ -1278,19 +1290,26 @@ namespace VisualEQ.Views
                 return;
             }
 
-            if (!engine.TryGetLiquidSurfaceZAt(dbX, dbY, VisualEQ.Engine.LiquidRegion.KindWater, out var surfaceZ))
+            string label;
+            float surfaceZ;
+            if (engine.TryGetLiquidSurfaceZAt(dbX, dbY, VisualEQ.Engine.LiquidRegion.KindWater, out surfaceZ))
             {
-                ImGui.Text("Spawn is not over a water region. Nearest region(s):");
-                foreach (var r in engine.Regions)
-                {
-                    if (r.Kind != VisualEQ.Engine.LiquidRegion.KindWater) continue;
-                    ImGui.Text($"  '{r.Name}': X∈[{r.Min.X:F0},{r.Max.X:F0}] Y∈[{r.Min.Y:F0},{r.Max.Y:F0}] surfaceZ={r.Max.Z:F1}");
-                }
-                return;
+                label = $"Snap Z to water (surface Z = {surfaceZ:F1})";
+                ImGui.Text($"Over water. Current Z = {scenePos.Z:F1}");
+            }
+            else if (engine.TryGetNearestLiquidSurfaceZ(dbX, dbY, VisualEQ.Engine.LiquidRegion.KindWater,
+                out surfaceZ, out var nearestName, out var dist))
+            {
+                label = $"Snap Z to nearest water plane (surface Z = {surfaceZ:F1})";
+                ImGui.Text($"Outside water AABB — nearest region '{nearestName}' (~{dist:F0} units away)");
+                ImGui.Text($"Current Z = {scenePos.Z:F1}");
+            }
+            else
+            {
+                return; // No water at all — shouldn't hit this since waterCount > 0.
             }
 
-            ImGui.Text($"Water surface at Z = {surfaceZ:F1} (current Z = {scenePos.Z:F1})");
-            if (ImGui.Button($"Snap Z to water###{Id}siSnapW{sp.Record.Spawn.Id}", new Vector2(200, 24)))
+            if (ImGui.Button($"{label}###{Id}siSnapW{sp.Record.Spawn.Id}", new Vector2(280, 24)))
             {
                 var newScenePos = new Vector3(scenePos.X, scenePos.Y, surfaceZ);
                 if (Vector3.DistanceSquared(scenePos, newScenePos) > 0.0001f)

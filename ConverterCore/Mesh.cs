@@ -81,14 +81,24 @@ namespace VisualEQ.ConverterCore
                 {
                     var idx = (int)ti;
                     var matName = idx < piece.MaterialNames.Count ? piece.MaterialNames[idx] : "";
-                    var kind = ClassifyLiquid(matName);
+                    var texName = idx < piece.Textures.Count
+                                  && piece.Textures[idx].Filenames != null
+                                  && piece.Textures[idx].Filenames.Count > 0
+                                    ? piece.Textures[idx].Filenames[0]
+                                    : "";
+                    var kind = ClassifyLiquid(matName, texName);
                     if (kind == 0xFF) { pi += (int)ptc; continue; }
 
+                    // Aggregate under the material name if we have one, otherwise the
+                    // texture filename — auto-named "M####" materials that share a water
+                    // texture with a named one should keep their AABBs separate (they can
+                    // be different physical water bodies), but still get grouped stably.
+                    var regionKey = !string.IsNullOrEmpty(matName) ? matName : texName;
                     foreach (var (_collidable, a, b, c) in piece.Polygons.Skip(pi).Take((int)ptc))
                     {
-                        AccumulateVertex(boxes, matName, kind, piece.Vertices[(int)a]);
-                        AccumulateVertex(boxes, matName, kind, piece.Vertices[(int)b]);
-                        AccumulateVertex(boxes, matName, kind, piece.Vertices[(int)c]);
+                        AccumulateVertex(boxes, regionKey, kind, piece.Vertices[(int)a]);
+                        AccumulateVertex(boxes, regionKey, kind, piece.Vertices[(int)b]);
+                        AccumulateVertex(boxes, regionKey, kind, piece.Vertices[(int)c]);
                     }
                     pi += (int)ptc;
                 }
@@ -100,28 +110,35 @@ namespace VisualEQ.ConverterCore
             return result;
         }
 
-        // Returns OESRegion.KindWater/KindLava/KindSlime for a matching name, or
-        // 0xFF (sentinel) when the name doesn't look like a liquid region.
+        // Returns OESRegion.KindWater/KindLava/KindSlime for a matching material, or
+        // 0xFF (sentinel) when neither name nor texture look like a liquid.
         //
-        // Naming patterns come from the SOE/Verant material convention observed in classic
-        // EQ Trilogy WLDs (verified against erudsxing, oasis, freporte, soldunga):
-        //   Water: W<n>_MDF (rivers, lakes), OW<n>_MDF (ocean water), UW<n>_MDF (rarely,
-        //          underwater surfaces from a swim-cam perspective)
-        //   Lava:  LAVA<nnn>_MDF (Nagafen's, Sol A, etc.). LAVAFALL* is a vertical mesh
-        //          (a lava fall), which we skip — it's not a horizontal surface to snap to.
-        //          UNDERLAVA* is the mesh you see when swimming through lava; also skipped.
-        //   Slime: SLIME<nnn>_MDF. Uncommon in classic zones — this pattern is a guess and
-        //          may need widening as we see real slime materials.
+        // Detection now runs TWO passes:
+        //   1. Material name — SOE/Verant convention: W<n>_..., OW<n>_..., UW<n>_...,
+        //      LAVA<n>_..., SLIME<n>_...
+        //   2. Texture filename — same-texture-different-name is common: classic EQ zones
+        //      often have named water like "OW1_MDF" alongside auto-generated "M0007_MDF"
+        //      that share the same "ow1.bmp" texture. The name-only check misses the
+        //      auto-generated one, leaving half the ocean undetected (spotted in freporte).
+        //      Texture patterns: ow*.bmp / uw*.bmp / w<n>.bmp / wat*.bmp for water,
+        //      lava*.bmp for lava, slime*.bmp for slime.
         //
-        // The regex-lite check is deliberate: startsWith prefix + digit at the split point
-        // catches the naming without pulling in a full Regex allocation for every material.
-        static byte ClassifyLiquid(string materialName)
+        // Naming patterns verified against erudsxing (ocean), oasis (river),
+        // freporte (harbor), and soldunga (lava pool).
+        static byte ClassifyLiquid(string materialName, string textureName)
         {
-            if (string.IsNullOrEmpty(materialName)) return 0xFF;
-            var n = materialName;
-            if (IsWaterName(n))  return OESRegion.KindWater;
-            if (IsLavaName(n))   return OESRegion.KindLava;
-            if (IsSlimeName(n))  return OESRegion.KindSlime;
+            if (!string.IsNullOrEmpty(materialName))
+            {
+                if (IsWaterName(materialName)) return OESRegion.KindWater;
+                if (IsLavaName(materialName))  return OESRegion.KindLava;
+                if (IsSlimeName(materialName)) return OESRegion.KindSlime;
+            }
+            if (!string.IsNullOrEmpty(textureName))
+            {
+                if (IsWaterTexture(textureName)) return OESRegion.KindWater;
+                if (IsLavaTexture(textureName))  return OESRegion.KindLava;
+                if (IsSlimeTexture(textureName)) return OESRegion.KindSlime;
+            }
             return 0xFF;
         }
 
@@ -147,7 +164,6 @@ namespace VisualEQ.ConverterCore
             char.IsDigit(n[4]);
 
         static bool IsSlimeName(string n) =>
-            // "SLIME" followed by digit. Best-guess convention; widen if we see counterexamples.
             n.Length >= 6 &&
             (n[0] == 'S' || n[0] == 's') &&
             (n[1] == 'L' || n[1] == 'l') &&
@@ -155,6 +171,44 @@ namespace VisualEQ.ConverterCore
             (n[3] == 'M' || n[3] == 'm') &&
             (n[4] == 'E' || n[4] == 'e') &&
             char.IsDigit(n[5]);
+
+        // Extract the leading identifier chunk before the first dot to sidestep
+        // extension case (.BMP vs .bmp) and directory prefixes.
+        static string TexStem(string texName)
+        {
+            var dot = texName.IndexOf('.');
+            return dot < 0 ? texName : texName.Substring(0, dot);
+        }
+
+        static bool IsWaterTexture(string texName)
+        {
+            var stem = TexStem(texName);
+            if (stem.Length == 0) return false;
+            // ow<digits>, uw<digits>, w<digits>, wat<anything>
+            if (StartsWithI(stem, "ow") || StartsWithI(stem, "uw"))
+                return stem.Length > 2 && char.IsDigit(stem[2]);
+            if (StartsWithI(stem, "wat")) return true;
+            if ((stem[0] == 'w' || stem[0] == 'W') && stem.Length > 1 && char.IsDigit(stem[1]))
+                return true;
+            return false;
+        }
+
+        // Require a digit right after "lava" / "slime" in texture names too — otherwise
+        // "lavafall1.bmp" (vertical falls, not a horizontal snap target) matches lava.
+        static bool IsLavaTexture(string texName)
+        {
+            var stem = TexStem(texName);
+            return stem.Length > 4 && StartsWithI(stem, "lava") && char.IsDigit(stem[4]);
+        }
+
+        static bool IsSlimeTexture(string texName)
+        {
+            var stem = TexStem(texName);
+            return stem.Length > 5 && StartsWithI(stem, "slime") && char.IsDigit(stem[5]);
+        }
+
+        static bool StartsWithI(string s, string prefix) =>
+            s.StartsWith(prefix, System.StringComparison.OrdinalIgnoreCase);
 
         static void AccumulateVertex(
             Dictionary<string, (byte Kind, Vector3 Min, Vector3 Max)> boxes,
