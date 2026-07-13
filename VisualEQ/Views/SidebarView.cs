@@ -861,15 +861,33 @@ namespace VisualEQ.Views
         }
 
         // Snap-Z-to-water for waypoints. Waypoint fields are DB coords already, so no
-        // axis swap. Fires a GridEntryFieldEditAction on the Z field so undo/redo and
-        // buffer coalescing behave exactly like a manual Z edit.
+        // axis swap. Same diagnostic-always-visible pattern as the spawn version so a
+        // user who expects the button but isn't over water can see why. Fires a
+        // GridEntryFieldEditAction on the Z field so undo/redo and buffer coalescing
+        // behave exactly like a manual Z edit.
         void RenderWaypointSnapToWater(int gridId, int number, VisualEQ.Database.Models.GridEntry wp)
         {
             var engine = _view.Controller.Engine;
-            if (!engine.TryGetLiquidSurfaceZAt(wp.X, wp.Y, VisualEQ.Engine.LiquidRegion.KindWater, out var surfaceZ))
-                return;
+            var waterCount = 0;
+            foreach (var r in engine.Regions)
+                if (r.Kind == VisualEQ.Engine.LiquidRegion.KindWater) waterCount++;
 
             ImGui.Separator();
+            ImGui.Text($"Snap to water  (this zone has {waterCount} water region(s))");
+            ImGui.Text($"Waypoint DB XY = ({wp.X:F1}, {wp.Y:F1})");
+
+            if (waterCount == 0)
+            {
+                ImGui.Text("This zone has no water — re-convert to detect any.");
+                return;
+            }
+
+            if (!engine.TryGetLiquidSurfaceZAt(wp.X, wp.Y, VisualEQ.Engine.LiquidRegion.KindWater, out var surfaceZ))
+            {
+                ImGui.Text("Waypoint is not over a water region.");
+                return;
+            }
+
             ImGui.Text($"Water surface at Z = {surfaceZ:F1} (current Z = {wp.Z:F1})");
             if (ImGui.Button($"Snap Z to water###{Id}wpSnapW{gridId}_{number}", new Vector2(200, 24)))
             {
@@ -1233,10 +1251,11 @@ namespace VisualEQ.Views
             _wasHeadingSliderActive = sliderActive;
         }
 
-        // Snap-Z-to-water affordance for spawns. Only shown when a water region contains
-        // the spawn's DB XY footprint. The button records a standard SpawnMoveAction with
-        // Z replaced by the region's top-Z so undo/redo, pending-buffer, and commit all
-        // work through the existing pipeline.
+        // Snap-Z-to-water affordance for spawns. Always renders a diagnostic block in edit
+        // mode so a user who expects the button but isn't over water can see WHY it's not
+        // firing (out-of-region, no regions loaded, wrong zone). Button only enables when
+        // a water region actually contains the spawn's DB XY footprint. Records a standard
+        // SpawnMoveAction so undo/redo, pending-buffer, and commit flow through unchanged.
         void RenderSpawnSnapToWater(SpawnPoint sp)
         {
             var engine = _view.Controller.Engine;
@@ -1244,10 +1263,32 @@ namespace VisualEQ.Views
             var scenePos = sp.Model.Position;
             var dbX = scenePos.Y;
             var dbY = scenePos.X;
-            if (!engine.TryGetLiquidSurfaceZAt(dbX, dbY, VisualEQ.Engine.LiquidRegion.KindWater, out var surfaceZ))
-                return; // No water under this spawn — silent, keeps the panel clean.
+
+            var waterCount = 0;
+            foreach (var r in engine.Regions)
+                if (r.Kind == VisualEQ.Engine.LiquidRegion.KindWater) waterCount++;
 
             ImGui.Separator();
+            ImGui.Text($"Snap to water  (this zone has {waterCount} water region(s))");
+            ImGui.Text($"Spawn DB XY = ({dbX:F1}, {dbY:F1})");
+
+            if (waterCount == 0)
+            {
+                ImGui.Text("This zone has no water — re-convert to detect any.");
+                return;
+            }
+
+            if (!engine.TryGetLiquidSurfaceZAt(dbX, dbY, VisualEQ.Engine.LiquidRegion.KindWater, out var surfaceZ))
+            {
+                ImGui.Text("Spawn is not over a water region. Nearest region(s):");
+                foreach (var r in engine.Regions)
+                {
+                    if (r.Kind != VisualEQ.Engine.LiquidRegion.KindWater) continue;
+                    ImGui.Text($"  '{r.Name}': X∈[{r.Min.X:F0},{r.Max.X:F0}] Y∈[{r.Min.Y:F0},{r.Max.Y:F0}] surfaceZ={r.Max.Z:F1}");
+                }
+                return;
+            }
+
             ImGui.Text($"Water surface at Z = {surfaceZ:F1} (current Z = {scenePos.Z:F1})");
             if (ImGui.Button($"Snap Z to water###{Id}siSnapW{sp.Record.Spawn.Id}", new Vector2(200, 24)))
             {
