@@ -56,18 +56,6 @@ namespace VisualEQ.Database.Constants
             SET x = @X, y = @Y, z = @Z, heading = @Heading, pause = @Pause
             WHERE gridid = @GridId AND number = @Number AND zoneid = @ZoneId";
 
-        public const string GetSpawnGroup = @"
-            SELECT * FROM spawngroup WHERE id = @GroupId";
-
-        // grid is keyed on (zoneid, id); always filter by both to avoid cross-zone collisions.
-        public const string GetGridEntries = @"
-            SELECT * FROM grid_entries
-            WHERE gridid = @GridId AND zoneid = @ZoneId
-            ORDER BY number";
-
-        public const string GetNpcType = @"
-            SELECT * FROM npc_types WHERE id = @NpcId";
-
         // Look up the numeric zone ID — required for filtering grid/grid_entries by zone.
         public const string GetZoneId = @"
             SELECT zoneidnumber FROM zone WHERE short_name = @ZoneName";
