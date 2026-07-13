@@ -115,6 +115,15 @@ namespace VisualEQ.EditSystem
                             foreach (var kv in buffer.GridEntries)
                             {
                                 var edit = kv.Value;
+                                // Trace log for diagnosing "editor stored X, DB has Y" reports.
+                                // Prints the exact float bound to the UPDATE — a hidden
+                                // conversion elsewhere would show up as a mismatch between
+                                // the pre-commit value the user saw in the inspector and
+                                // this line.
+                                Console.WriteLine(
+                                    $"[EditCommitter] grid_entries: gid={edit.GridId} #{edit.Number} " +
+                                    $"heading orig={edit.OriginalHeading:F4} → cur={edit.CurrentHeading:F4} " +
+                                    $"(pause={edit.CurrentPause}s, centerpoint={edit.CurrentCenterpoint})");
                                 gridRows += await connection.ExecuteAsync(
                                     SqlQueries.UpdateGridEntry,
                                     new

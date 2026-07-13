@@ -1422,20 +1422,30 @@ namespace VisualEQ
                     // uses the same scale), so we can hand it straight to HeadingToRotation.
                     // Longer arrow when selected/dragged so the highlighted waypoint stays
                     // legible against terrain.
-                    float arrowLen = (isSelected && isDragging) ? 22f
-                                   : isSelected                 ? 14f
-                                                                : 10f;
-                    var rot = SpawnSystem.SpawnManager.HeadingToRotation(wp.Heading);
-                    var forward = Vector3.Normalize(Vector3.Transform(new Vector3(0, 1, 0), rot));
-                    var arrowStart = scenePos;
-                    var arrowEnd = arrowStart + forward * arrowLen;
-                    lines.Add((arrowStart, arrowEnd, color));
+                    //
+                    // Skip only the arrow — not the whole waypoint — when heading is EQEmu's
+                    // -1 sentinel ("no rotation on arrival"; mob keeps its incoming facing,
+                    // no direction to draw) or a clearly-invalid legacy value. Crosshair,
+                    // vertical pole, and the candidates-list entry must still emit so the
+                    // waypoint stays visible and clickable.
+                    var showArrow = wp.Heading >= -0.001f && wp.Heading <= 512f;
+                    if (showArrow)
+                    {
+                        float arrowLen = (isSelected && isDragging) ? 22f
+                                       : isSelected                 ? 14f
+                                                                    : 10f;
+                        var rot = SpawnSystem.SpawnManager.HeadingToRotation(wp.Heading);
+                        var forward = Vector3.Normalize(Vector3.Transform(new Vector3(0, 1, 0), rot));
+                        var arrowStart = scenePos;
+                        var arrowEnd = arrowStart + forward * arrowLen;
+                        lines.Add((arrowStart, arrowEnd, color));
 
-                    // Arrowhead: two short lines splaying back from the tip.
-                    var perp = new Vector3(-forward.Y, forward.X, 0);   // 90° CCW around Z
-                    var head = arrowLen * 0.28f;
-                    lines.Add((arrowEnd, arrowEnd - forward * head + perp * head, color));
-                    lines.Add((arrowEnd, arrowEnd - forward * head - perp * head, color));
+                        // Arrowhead: two short lines splaying back from the tip.
+                        var perp = new Vector3(-forward.Y, forward.X, 0);   // 90° CCW around Z
+                        var head = arrowLen * 0.28f;
+                        lines.Add((arrowEnd, arrowEnd - forward * head + perp * head, color));
+                        lines.Add((arrowEnd, arrowEnd - forward * head - perp * head, color));
+                    }
 
                     // Vertical pole from ground straight up to a tall marker so the dragged
                     // waypoint never disappears against textured floors.
