@@ -127,15 +127,16 @@ namespace VisualEQ.Views
     {
         // Section IDs — stable strings used in the saved order list. Adding a new section?
         // Append its ID to DefaultOrder and add a switch case in RenderSectionById.
-        public const string SectionStatus      = "status";
-        public const string SectionPending     = "pending_changes";
-        public const string SectionSpawnInfo   = "spawn_info";
-        public const string SectionSpawnList   = "spawn_list";
-        public const string SectionZonePoints  = "zone_points";
-        public const string SectionTeleport    = "teleport";
-        public const string SectionModelEditor = "model_editor";
+        public const string SectionStatus       = "status";
+        public const string SectionPending      = "pending_changes";
+        public const string SectionSpawnInfo    = "spawn_info";
+        public const string SectionWaypointInfo = "waypoint_info";
+        public const string SectionSpawnList    = "spawn_list";
+        public const string SectionZonePoints   = "zone_points";
+        public const string SectionTeleport     = "teleport";
+        public const string SectionModelEditor  = "model_editor";
 
-        static readonly string[] DefaultOrder = { SectionStatus, SectionPending, SectionSpawnInfo, SectionSpawnList, SectionZonePoints, SectionModelEditor, SectionTeleport };
+        static readonly string[] DefaultOrder = { SectionStatus, SectionPending, SectionSpawnInfo, SectionWaypointInfo, SectionSpawnList, SectionZonePoints, SectionModelEditor, SectionTeleport };
 
         private readonly SidebarView _view;
 
@@ -174,6 +175,9 @@ namespace VisualEQ.Views
         private int _commitEditCountSnapshot;
         private int _commitSpawnCountSnapshot;
         private int _commitGridCountSnapshot;
+        private int _commitGridInsertCountSnapshot;
+        private int _commitGridDeleteCountSnapshot;
+        private int _commitGridMetaCountSnapshot;
 
         // Simple confirm modals — no extra state beyond "is it open?" + a snapshot count
         // so the dialog can display consistent numbers even if the buffer mutates while
@@ -214,6 +218,22 @@ namespace VisualEQ.Views
         private int _zpDeleteArmedForId;
         private float _zpDeleteArmedAt;
         private const float DeleteConfirmSeconds = 3f;
+
+        // Waypoint inspector state — parallel to _zpActiveEdit* but keyed on (gridId, number)
+        // instead of a single row id.
+        private int? _wpActiveEditGridId;
+        private int _wpActiveEditNumber;
+        private VisualEQ.EditSystem.GridEntryFieldEditAction.Field _wpActiveEditField;
+        private object _wpActiveEditBeforeValue;
+        private Func<object> _wpActiveEditReader;
+
+        // Waypoint delete-confirmation state. Key is the "gridId:number" composite so the
+        // arm survives frame-to-frame even if selection briefly clears.
+        private string _wpDeleteArmedForKey;
+        private float _wpDeleteArmedAt;
+
+        // Grid-metadata edits track their pre-mutation value at combo-select time (they
+        // fire immediately, no field-active transition needed).
 
         // Debounced settings save — flush when width has been stable for a moment.
         private bool _widthDirty;
@@ -337,9 +357,12 @@ namespace VisualEQ.Views
         {
             var buffer = _view.Controller.PendingBuffer;
             if (buffer == null || buffer.IsEmpty) return;
-            _commitEditCountSnapshot  = buffer.TotalPending;
-            _commitSpawnCountSnapshot = buffer.Spawns.Count;
-            _commitGridCountSnapshot  = buffer.GridEntries.Count;
+            _commitEditCountSnapshot        = buffer.TotalPending;
+            _commitSpawnCountSnapshot       = buffer.Spawns.Count;
+            _commitGridCountSnapshot        = buffer.GridEntries.Count;
+            _commitGridInsertCountSnapshot  = buffer.GridEntryInserts.Count;
+            _commitGridDeleteCountSnapshot  = buffer.GridEntryDeletes.Count;
+            _commitGridMetaCountSnapshot    = buffer.Grids.Count;
             _commitPhase = CommitPhase.Confirm;
             _commitResult = null;
         }
@@ -386,7 +409,13 @@ namespace VisualEQ.Views
             if (_commitSpawnCountSnapshot > 0)
                 ImGui.Text($"  {_commitSpawnCountSnapshot} spawn move(s)");
             if (_commitGridCountSnapshot > 0)
-                ImGui.Text($"  {_commitGridCountSnapshot} waypoint move(s)");
+                ImGui.Text($"  {_commitGridCountSnapshot} waypoint edit(s)");
+            if (_commitGridInsertCountSnapshot > 0)
+                ImGui.Text($"  {_commitGridInsertCountSnapshot} waypoint add(s)");
+            if (_commitGridDeleteCountSnapshot > 0)
+                ImGui.Text($"  {_commitGridDeleteCountSnapshot} waypoint delete(s)");
+            if (_commitGridMetaCountSnapshot > 0)
+                ImGui.Text($"  {_commitGridMetaCountSnapshot} grid metadata edit(s)");
             ImGui.Separator();
             ImGui.Text($"Target: {db.Server}/{db.Database}");
             ImGui.Text("Runs as a single transaction — all-or-nothing.");
@@ -427,6 +456,12 @@ namespace VisualEQ.Views
                 ImGui.Separator();
                 ImGui.Text($"  {r.SpawnRowsWritten} spawn2 row(s) updated");
                 ImGui.Text($"  {r.GridRowsWritten} grid_entries row(s) updated");
+                if (r.GridEntryInsertsWritten > 0)
+                    ImGui.Text($"  {r.GridEntryInsertsWritten} grid_entries row(s) inserted");
+                if (r.GridEntryDeletesWritten > 0)
+                    ImGui.Text($"  {r.GridEntryDeletesWritten} grid_entries row(s) deleted");
+                if (r.GridMetaRowsWritten > 0)
+                    ImGui.Text($"  {r.GridMetaRowsWritten} grid row(s) updated");
                 ImGui.Text($"  {r.ZonePointRowsWritten} trilogy_zone_points row(s) updated");
                 if (r.ZonePointInsertsWritten > 0)
                     ImGui.Text($"  {r.ZonePointInsertsWritten} trilogy_zone_points row(s) inserted");
@@ -573,13 +608,14 @@ namespace VisualEQ.Views
         {
             switch (id)
             {
-                case SectionStatus:      RenderStatusSection(index); break;
-                case SectionPending:     RenderPendingChangesSection(index); break;
-                case SectionSpawnInfo:   RenderSpawnInfoSection(index); break;
-                case SectionSpawnList:   RenderSpawnListSection(index); break;
-                case SectionZonePoints:  RenderZonePointsSection(index); break;
-                case SectionTeleport:    RenderTeleportSection(index); break;
-                case SectionModelEditor: RenderModelEditorSection(index); break;
+                case SectionStatus:       RenderStatusSection(index); break;
+                case SectionPending:      RenderPendingChangesSection(index); break;
+                case SectionSpawnInfo:    RenderSpawnInfoSection(index); break;
+                case SectionWaypointInfo: RenderWaypointInfoSection(index); break;
+                case SectionSpawnList:    RenderSpawnListSection(index); break;
+                case SectionZonePoints:   RenderZonePointsSection(index); break;
+                case SectionTeleport:     RenderTeleportSection(index); break;
+                case SectionModelEditor:  RenderModelEditorSection(index); break;
             }
         }
 
@@ -739,6 +775,317 @@ namespace VisualEQ.Views
             }
         }
 
+        // Selected-waypoint inspector. Renders the grid_entries row for the waypoint
+        // currently owned by Engine.WaypointEditor, plus the parent grid metadata
+        // (grid.type / grid.type2) and add/delete controls. When edit mode is off,
+        // fields render as read-only text.
+        void RenderWaypointInfoSection(int index)
+        {
+            RenderReorderHandles(index, "wi");
+            if (!ImGui.CollapsingHeader($"Waypoint Info###{Id}wi", TreeNodeFlags.DefaultOpen))
+                return;
+
+            var ctrl = _view.Controller;
+            var handle = ctrl.Engine.WaypointEditor.Selected;
+            if (!handle.HasValue)
+            {
+                ImGui.Text("Click a waypoint crosshair to view its DB details.");
+                return;
+            }
+
+            var gridId = handle.Value.GridId;
+            var number = handle.Value.Number;
+            var wp = VisualEQ.EditSystem.GridActionHelpers.FindWaypoint(ctrl, gridId, number);
+            if (wp == null)
+            {
+                ImGui.Text($"Waypoint (grid {gridId}, #{number}) no longer in scene.");
+                return;
+            }
+
+            // Which grid does this waypoint belong to? Look up via any spawn referencing
+            // it — zoneId comes from the grid row itself.
+            var parentGrid = ctrl.SpawnManager.SpawnPoints
+                .Select(sp => sp.Record.Grid)
+                .FirstOrDefault(g => g != null && g.Id == gridId);
+            int zoneId = parentGrid?.ZoneId ?? 0;
+
+            var editable = ctrl.EditModeEnabled;
+            var buffer = ctrl.PendingBuffer;
+            var key = VisualEQ.EditSystem.EditBuffer.GridEntryKey(gridId, number);
+            var isPendingInsert = buffer != null && buffer.GridEntryInserts.ContainsKey(key);
+            var isDirty         = buffer != null && (buffer.GridEntries.ContainsKey(key) || isPendingInsert);
+
+            var dirtySuffix = isPendingInsert ? " [NEW]" : (isDirty ? " *" : "");
+            ImGui.Text($"Grid {gridId}  waypoint #{number}{dirtySuffix}");
+            ImGui.Text($"  (drag in world for X/Y/Z, or type values below)");
+
+            ImGui.Separator();
+            ImGui.Text("Position (DB axes)");
+            RenderWpFloatField(gridId, number, VisualEQ.EditSystem.GridEntryFieldEditAction.Field.X,
+                "x", () => wp.X, v => wp.X = v, editable);
+            RenderWpFloatField(gridId, number, VisualEQ.EditSystem.GridEntryFieldEditAction.Field.Y,
+                "y", () => wp.Y, v => wp.Y = v, editable);
+            RenderWpFloatField(gridId, number, VisualEQ.EditSystem.GridEntryFieldEditAction.Field.Z,
+                "z", () => wp.Z, v => wp.Z = v, editable);
+
+            ImGui.Separator();
+            ImGui.Text("Facing");
+            RenderWpFloatField(gridId, number, VisualEQ.EditSystem.GridEntryFieldEditAction.Field.Heading,
+                "heading (0–511)", () => wp.Heading, v => wp.Heading = v, editable);
+
+            ImGui.Separator();
+            ImGui.Text("Timing");
+            RenderWpIntField(gridId, number, VisualEQ.EditSystem.GridEntryFieldEditAction.Field.Pause,
+                "pause (ms)", () => wp.Pause, v => wp.Pause = v, editable);
+
+            ImGui.Separator();
+            RenderWpCenterpointCheckbox(gridId, number, wp, editable);
+
+            if (parentGrid != null)
+            {
+                ImGui.Separator();
+                ImGui.Text($"Grid {gridId} metadata");
+                RenderGridTypeCombo(parentGrid, editable);
+                RenderGridType2Combo(parentGrid, editable);
+            }
+
+            if (editable)
+            {
+                ImGui.Separator();
+                RenderWaypointAddButton(gridId, zoneId, wp);
+                RenderWaypointDeleteButton(gridId, zoneId, number, wp, isPendingInsert);
+            }
+        }
+
+        void RenderWpFloatField(int gridId, int number,
+            VisualEQ.EditSystem.GridEntryFieldEditAction.Field which,
+            string label, Func<float> read, Action<float> write, bool editable)
+        {
+            var current = read();
+            if (!editable)
+            {
+                ImGui.Text($"  {label} = {current:F2}");
+                return;
+            }
+            var val = current;
+            var changed = ImGui.DragFloat($"{label}###{Id}wpF{gridId}_{number}_{(int)which}",
+                ref val, 0f, 0f, 1f, "%.2f", 1f);
+            if (changed) write(val);
+            HandleWpActivationTransition(gridId, number, which, current, () => (object)read());
+        }
+
+        void RenderWpIntField(int gridId, int number,
+            VisualEQ.EditSystem.GridEntryFieldEditAction.Field which,
+            string label, Func<int> read, Action<int> write, bool editable)
+        {
+            var current = read();
+            if (!editable)
+            {
+                ImGui.Text($"  {label} = {current}");
+                return;
+            }
+            // ImGui.NET 0.4.6 doesn't expose InputInt — use DragFloat and round to int.
+            var val = (float)current;
+            var changed = ImGui.DragFloat($"{label}###{Id}wpI{gridId}_{number}_{(int)which}",
+                ref val, 0f, 0f, 1f, "%.0f", 1f);
+            if (changed)
+            {
+                var asInt = (int)Math.Round(val);
+                if (asInt < 0) asInt = 0;
+                write(asInt);
+            }
+            HandleWpActivationTransition(gridId, number, which, current, () => (object)read());
+        }
+
+        void RenderWpCenterpointCheckbox(int gridId, int number, VisualEQ.Database.Models.GridEntry wp, bool editable)
+        {
+            var current = wp.Centerpoint;
+            if (!editable)
+            {
+                ImGui.Text($"  centerpoint = {(current != 0 ? "true" : "false")}");
+                return;
+            }
+            var val = current != 0;
+            if (ImGui.Checkbox($"centerpoint###{Id}wpCP{gridId}_{number}", ref val))
+            {
+                byte before = current;
+                byte after  = (byte)(val ? 1 : 0);
+                if (before != after)
+                {
+                    _view.Controller.RecordAction(
+                        new VisualEQ.EditSystem.GridEntryFieldEditAction(
+                            gridId, number,
+                            VisualEQ.EditSystem.GridEntryFieldEditAction.Field.Centerpoint,
+                            before, after));
+                }
+            }
+        }
+
+        static readonly string[] GridTypeLabels =
+        {
+            "Circular",
+            "Random10",
+            "Patrol",
+            "One-way",
+            "Random5",
+        };
+
+        static readonly string[] GridType2Labels =
+        {
+            "Half-random pause",
+            "Full pause",
+            "Full-random pause",
+        };
+
+        void RenderGridTypeCombo(VisualEQ.Database.Models.Grid grid, bool editable)
+        {
+            var current = grid.Type;
+            var name = current >= 0 && current < GridTypeLabels.Length ? GridTypeLabels[current] : "?";
+            if (!editable)
+            {
+                ImGui.Text($"  type = {name} ({current})");
+                return;
+            }
+
+            ImGui.Text("type (wander behavior)");
+            // Clamp to valid Combo range so legacy out-of-list values don't crash the widget.
+            var refIdx = Math.Max(0, Math.Min(GridTypeLabels.Length - 1, current));
+            if (ImGui.Combo($"###{Id}gT{grid.Id}", ref refIdx, GridTypeLabels) && refIdx != current)
+            {
+                _view.Controller.RecordAction(
+                    new VisualEQ.EditSystem.GridFieldEditAction(
+                        grid.Id, grid.ZoneId,
+                        VisualEQ.EditSystem.GridFieldEditAction.Field.Type,
+                        current, refIdx));
+            }
+        }
+
+        void RenderGridType2Combo(VisualEQ.Database.Models.Grid grid, bool editable)
+        {
+            var current = grid.Type2;
+            var name = current >= 0 && current < GridType2Labels.Length ? GridType2Labels[current] : "?";
+            if (!editable)
+            {
+                ImGui.Text($"  type2 = {name} ({current})");
+                return;
+            }
+
+            ImGui.Text("type2 (pause behavior)");
+            var refIdx = Math.Max(0, Math.Min(GridType2Labels.Length - 1, current));
+            if (ImGui.Combo($"###{Id}gT2{grid.Id}", ref refIdx, GridType2Labels) && refIdx != current)
+            {
+                _view.Controller.RecordAction(
+                    new VisualEQ.EditSystem.GridFieldEditAction(
+                        grid.Id, grid.ZoneId,
+                        VisualEQ.EditSystem.GridFieldEditAction.Field.Type2,
+                        current, refIdx));
+            }
+        }
+
+        // "Add next waypoint" — appends a new grid_entries row at max(Number)+1 within the
+        // grid, seeded from the currently-selected waypoint's coordinates + heading + pause.
+        void RenderWaypointAddButton(int gridId, int zoneId, VisualEQ.Database.Models.GridEntry seed)
+        {
+            if (ImGui.Button($"Add next waypoint###{Id}wpAdd{gridId}", new Vector2(200, 24)))
+            {
+                var ctrl = _view.Controller;
+                int maxNumber = 0;
+                foreach (var sp in ctrl.SpawnManager.SpawnPoints)
+                    foreach (var wp in sp.Record.Waypoints)
+                        if (wp.GridId == gridId && wp.Number > maxNumber)
+                            maxNumber = wp.Number;
+                int newNumber = maxNumber + 1;
+
+                var action = new VisualEQ.EditSystem.GridEntryInsertAction(
+                    gridId, zoneId, newNumber,
+                    seed.X, seed.Y, seed.Z, seed.Heading, seed.Pause, seed.Centerpoint);
+                ctrl.RecordAction(action);
+            }
+        }
+
+        // Delete affordance — two-click confirm. Uses the composite key so the arm persists
+        // even if the user briefly clicks elsewhere between click 1 and click 2.
+        void RenderWaypointDeleteButton(int gridId, int zoneId, int number,
+            VisualEQ.Database.Models.GridEntry snapshot, bool isPendingInsert)
+        {
+            var key = VisualEQ.EditSystem.EditBuffer.GridEntryKey(gridId, number);
+            var armed = _wpDeleteArmedForKey == key && (FrameTime - _wpDeleteArmedAt) < DeleteConfirmSeconds;
+
+            if (armed)
+            {
+                if (ImGui.Button($"Confirm delete###{Id}wpDelC{gridId}_{number}", new Vector2(160, 24)))
+                {
+                    var ctrl = _view.Controller;
+                    ctrl.RecordAction(new VisualEQ.EditSystem.GridEntryDeleteAction(
+                        gridId, zoneId, snapshot, isPendingInsert));
+                    _wpDeleteArmedForKey = null;
+                }
+                ImGui.SameLine();
+                if (ImGui.Button($"Cancel###{Id}wpDelX{gridId}_{number}", new Vector2(90, 24)))
+                    _wpDeleteArmedForKey = null;
+            }
+            else
+            {
+                if (ImGui.Button($"Delete this waypoint###{Id}wpDel{gridId}_{number}", new Vector2(200, 24)))
+                {
+                    _wpDeleteArmedForKey = key;
+                    _wpDeleteArmedAt     = FrameTime;
+                }
+            }
+        }
+
+        void HandleWpActivationTransition(int gridId, int number,
+            VisualEQ.EditSystem.GridEntryFieldEditAction.Field which,
+            object beforeValueIfStarting,
+            Func<object> readCurrent)
+        {
+            var isActive = ImGui.IsAnyItemActive();
+            var wasThisFieldActive =
+                _wpActiveEditGridId == gridId &&
+                _wpActiveEditNumber == number &&
+                _wpActiveEditField == which;
+
+            if (isActive && !wasThisFieldActive)
+            {
+                if (_wpActiveEditGridId.HasValue)
+                    FlushWpActiveEditIfChanged();
+                _wpActiveEditGridId      = gridId;
+                _wpActiveEditNumber      = number;
+                _wpActiveEditField       = which;
+                _wpActiveEditBeforeValue = beforeValueIfStarting;
+                _wpActiveEditReader      = readCurrent;
+            }
+            else if (!isActive && wasThisFieldActive)
+            {
+                FlushWpActiveEditIfChanged();
+            }
+        }
+
+        void FlushWpActiveEditIfChanged()
+        {
+            if (!_wpActiveEditGridId.HasValue || _wpActiveEditReader == null) return;
+
+            var ctrl = _view.Controller;
+            var gridId = _wpActiveEditGridId.Value;
+            var number = _wpActiveEditNumber;
+            var after  = _wpActiveEditReader();
+            var before = _wpActiveEditBeforeValue;
+
+            bool changed = !object.Equals(before ?? "", after ?? "");
+            if (before is float bf && after is float af) changed = Math.Abs(bf - af) > 0.001f;
+            if (before is int bi && after is int ai)     changed = bi != ai;
+            if (before is byte bb && after is byte ab)   changed = bb != ab;
+
+            if (changed)
+            {
+                ctrl.RecordAction(new VisualEQ.EditSystem.GridEntryFieldEditAction(
+                    gridId, number, _wpActiveEditField, before, after));
+            }
+            _wpActiveEditGridId      = null;
+            _wpActiveEditBeforeValue = null;
+            _wpActiveEditReader      = null;
+        }
+
         // Heading slider — live visual feedback while dragging; records a single
         // SpawnRotateAction on release. When not being actively dragged, the buffer
         // resyncs with the authoritative sp.CurrentHeading so undo/redo stay coherent.
@@ -833,7 +1180,21 @@ namespace VisualEQ.Views
                 .OrderByDescending(g => g.LastModifiedAt)
                 .Take(maxItems)
                 .ToList();
-            var hidden = total - recentSpawns.Count - recentGrids.Count;
+            var recentGridMeta = buffer.Grids.Values
+                .OrderByDescending(g => g.LastModifiedAt)
+                .Take(maxItems)
+                .ToList();
+            var recentInserts = buffer.GridEntryInserts.Values
+                .OrderByDescending(g => g.CreatedAt)
+                .Take(maxItems)
+                .ToList();
+            var recentDeletes = buffer.GridEntryDeletes.Values
+                .OrderByDescending(g => g.DeletedAt)
+                .Take(maxItems)
+                .ToList();
+            var hidden = total
+                - recentSpawns.Count - recentGrids.Count
+                - recentGridMeta.Count - recentInserts.Count - recentDeletes.Count;
 
             // Fixed-height list child. Wheel scroll IS handled by the child when the
             // mouse hovers it (standard ImGui behavior) — so if you hover the list,
@@ -850,15 +1211,92 @@ namespace VisualEQ.Views
 
             if (recentGrids.Count > 0)
             {
-                ImGui.Text($"Waypoint moves ({buffer.GridEntries.Count}):");
+                ImGui.Text($"Waypoint edits ({buffer.GridEntries.Count}):");
                 foreach (var edit in recentGrids)
                     RenderPendingGridRow(ctrl, edit);
+            }
+
+            if (recentInserts.Count > 0)
+            {
+                ImGui.Text($"Waypoint adds ({buffer.GridEntryInserts.Count}):");
+                foreach (var ins in recentInserts)
+                    RenderPendingGridInsertRow(ctrl, ins);
+            }
+
+            if (recentDeletes.Count > 0)
+            {
+                ImGui.Text($"Waypoint deletes ({buffer.GridEntryDeletes.Count}):");
+                foreach (var del in recentDeletes)
+                    RenderPendingGridDeleteRow(ctrl, del);
+            }
+
+            if (recentGridMeta.Count > 0)
+            {
+                ImGui.Text($"Grid metadata ({buffer.Grids.Count}):");
+                foreach (var edit in recentGridMeta)
+                    RenderPendingGridMetaRow(ctrl, edit);
             }
 
             ImGui.EndChild();
 
             if (hidden > 0)
                 ImGui.Text($"... and {hidden} more item(s) not shown.");
+        }
+
+        void RenderPendingGridInsertRow(Controller ctrl, VisualEQ.EditSystem.GridEntryInsert ins)
+        {
+            ImGui.Text($"Grid {ins.GridId} #{ins.Number} [NEW]");
+            ImGui.SameLine();
+            if (ImGui.Button($"Revert###{Id}pcRevGi{ins.GridId}_{ins.Number}", new Vector2(70, 22)))
+            {
+                // Deleting a pending-insert row cleanly undoes the add.
+                ctrl.RecordAction(new VisualEQ.EditSystem.GridEntryDeleteAction(
+                    ins.GridId, ins.ZoneId,
+                    new VisualEQ.Database.Models.GridEntry
+                    {
+                        GridId      = ins.GridId,
+                        Number      = ins.Number,
+                        X           = ins.X,
+                        Y           = ins.Y,
+                        Z           = ins.Z,
+                        Heading     = ins.Heading,
+                        Pause       = ins.Pause,
+                        Centerpoint = ins.Centerpoint,
+                    },
+                    wasPendingInsert: true));
+            }
+        }
+
+        void RenderPendingGridDeleteRow(Controller ctrl, VisualEQ.EditSystem.GridEntryDelete del)
+        {
+            ImGui.Text($"Grid {del.GridId} #{del.Number} [DELETE]");
+            ImGui.SameLine();
+            if (ImGui.Button($"Revert###{Id}pcRevGd{del.GridId}_{del.Number}", new Vector2(70, 22)))
+            {
+                // Re-inserts the snapshot row.
+                ctrl.RecordAction(new VisualEQ.EditSystem.GridEntryInsertAction(
+                    del.GridId, del.ZoneId, del.Number,
+                    del.X, del.Y, del.Z, del.Heading, del.Pause, del.Centerpoint));
+            }
+        }
+
+        void RenderPendingGridMetaRow(Controller ctrl, VisualEQ.EditSystem.GridEdit edit)
+        {
+            ImGui.Text($"Grid {edit.Id} type={edit.CurrentType} type2={edit.CurrentType2}");
+            ImGui.SameLine();
+            if (ImGui.Button($"Revert###{Id}pcRevGm{edit.Id}", new Vector2(70, 22)))
+            {
+                if (edit.CurrentType != edit.OriginalType)
+                    ctrl.RecordAction(new VisualEQ.EditSystem.GridFieldEditAction(
+                        edit.Id, edit.ZoneId,
+                        VisualEQ.EditSystem.GridFieldEditAction.Field.Type,
+                        edit.CurrentType, edit.OriginalType));
+                if (edit.CurrentType2 != edit.OriginalType2)
+                    ctrl.RecordAction(new VisualEQ.EditSystem.GridFieldEditAction(
+                        edit.Id, edit.ZoneId,
+                        VisualEQ.EditSystem.GridFieldEditAction.Field.Type2,
+                        edit.CurrentType2, edit.OriginalType2));
+            }
         }
 
         void RenderPendingGridRow(Controller ctrl, GridEntryEdit edit)
@@ -871,21 +1309,38 @@ namespace VisualEQ.Views
 
         void RevertGridEdit(Controller ctrl, GridEntryEdit edit)
         {
-            // Current scene position of the waypoint (any spawn's copy — they're all
-            // identical in-scene).
-            Vector3? currentScene = null;
+            // Find the live waypoint so we can compute per-field deltas.
+            VisualEQ.Database.Models.GridEntry live = null;
             foreach (var sp in ctrl.SpawnManager.SpawnPoints)
             {
                 var wp = sp.Record.Waypoints.FirstOrDefault(w => w.GridId == edit.GridId && w.Number == edit.Number);
-                if (wp != null) { currentScene = new Vector3(wp.Y, wp.X, wp.Z); break; }
+                if (wp != null) { live = wp; break; }
             }
-            if (currentScene == null) return;
+            if (live == null) return;
 
-            var targetScene = new Vector3(edit.OriginalY, edit.OriginalX, edit.OriginalZ);
-            if (Vector3.DistanceSquared(currentScene.Value, targetScene) < 0.0001f) return;
+            // Position revert (X/Y/Z as one move action so the polyline snaps in one step).
+            var currentScene = new Vector3(live.Y, live.X, live.Z);
+            var targetScene  = new Vector3(edit.OriginalY, edit.OriginalX, edit.OriginalZ);
+            if (Vector3.DistanceSquared(currentScene, targetScene) > 0.0001f)
+                ctrl.RecordAction(new GridWaypointMoveAction(edit.GridId, edit.Number, currentScene, targetScene));
 
-            var action = new GridWaypointMoveAction(edit.GridId, edit.Number, currentScene.Value, targetScene);
-            ctrl.RecordAction(action);
+            // Scalar reverts — heading, pause, centerpoint — one action each so undo can
+            // walk them back individually.
+            if (Math.Abs(live.Heading - edit.OriginalHeading) > 0.001f)
+                ctrl.RecordAction(new VisualEQ.EditSystem.GridEntryFieldEditAction(
+                    edit.GridId, edit.Number,
+                    VisualEQ.EditSystem.GridEntryFieldEditAction.Field.Heading,
+                    live.Heading, edit.OriginalHeading));
+            if (live.Pause != edit.OriginalPause)
+                ctrl.RecordAction(new VisualEQ.EditSystem.GridEntryFieldEditAction(
+                    edit.GridId, edit.Number,
+                    VisualEQ.EditSystem.GridEntryFieldEditAction.Field.Pause,
+                    live.Pause, edit.OriginalPause));
+            if (live.Centerpoint != edit.OriginalCenterpoint)
+                ctrl.RecordAction(new VisualEQ.EditSystem.GridEntryFieldEditAction(
+                    edit.GridId, edit.Number,
+                    VisualEQ.EditSystem.GridEntryFieldEditAction.Field.Centerpoint,
+                    live.Centerpoint, edit.OriginalCenterpoint));
         }
 
         void RenderPendingSpawnRow(Controller ctrl, SpawnEdit edit)

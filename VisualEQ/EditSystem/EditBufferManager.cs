@@ -36,7 +36,7 @@ namespace VisualEQ.EditSystem
                 var json = File.ReadAllText(path);
                 var buffer = JsonSerializer.Deserialize<EditBuffer>(json, JsonOptions);
                 if (buffer == null) return null;
-                if (buffer.SchemaVersion > 4)
+                if (buffer.SchemaVersion > 5)
                 {
                     Console.WriteLine($"[EditBufferManager] Buffer for '{zone}' has newer schema version {buffer.SchemaVersion}; ignoring.");
                     return null;
@@ -47,10 +47,16 @@ namespace VisualEQ.EditSystem
                 //         is false so ApplyPendingBuffer will seed Original* from the live row.
                 // v3 → v4: adds ZonePointInserts + ZonePointDeletes for new-row/delete-row
                 //         support. Both default to empty collections on load.
-                if (buffer.SchemaVersion < 4) buffer.SchemaVersion = 4;
+                // v4 → v5: adds Centerpoint on GridEntryEdit (defaults to 0, matching the
+                //         DB default), plus Grids / GridEntryInserts / GridEntryDeletes
+                //         collections. New collections default to empty.
+                if (buffer.SchemaVersion < 5) buffer.SchemaVersion = 5;
                 if (buffer.ZonePoints == null) buffer.ZonePoints = new System.Collections.Generic.Dictionary<int, ZonePointEdit>();
                 if (buffer.ZonePointInserts == null) buffer.ZonePointInserts = new System.Collections.Generic.Dictionary<int, ZonePointInsert>();
                 if (buffer.ZonePointDeletes == null) buffer.ZonePointDeletes = new System.Collections.Generic.HashSet<int>();
+                if (buffer.Grids == null) buffer.Grids = new System.Collections.Generic.Dictionary<string, GridEdit>();
+                if (buffer.GridEntryInserts == null) buffer.GridEntryInserts = new System.Collections.Generic.Dictionary<string, GridEntryInsert>();
+                if (buffer.GridEntryDeletes == null) buffer.GridEntryDeletes = new System.Collections.Generic.Dictionary<string, GridEntryDelete>();
                 return buffer;
             }
             catch (Exception ex)

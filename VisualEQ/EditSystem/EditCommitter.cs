@@ -16,6 +16,9 @@ namespace VisualEQ.EditSystem
             public string Error;
             public int SpawnRowsWritten;
             public int GridRowsWritten;
+            public int GridEntryInsertsWritten;
+            public int GridEntryDeletesWritten;
+            public int GridMetaRowsWritten;
             public int ZonePointRowsWritten;      // UPDATEs on existing rows
             public int ZonePointInsertsWritten;
             public int ZonePointDeletesWritten;
@@ -43,12 +46,15 @@ namespace VisualEQ.EditSystem
                     connection.Open();
 
                     int? zoneId = null;
-                    if (buffer.GridEntries.Count > 0)
+                    if (buffer.GridEntries.Count > 0 ||
+                        buffer.GridEntryInserts.Count > 0 ||
+                        buffer.GridEntryDeletes.Count > 0 ||
+                        buffer.Grids.Count > 0)
                     {
                         zoneId = await connection.QueryFirstOrDefaultAsync<int?>(
                             SqlQueries.GetZoneId, new { ZoneName = zoneName });
                         if (zoneId == null)
-                            return new Result { Success = false, Error = $"Zone '{zoneName}' not found in DB (needed to write grid_entries)." };
+                            return new Result { Success = false, Error = $"Zone '{zoneName}' not found in DB (needed to write grid/grid_entries)." };
                     }
 
                     using (var tx = connection.BeginTransaction())
@@ -72,6 +78,39 @@ namespace VisualEQ.EditSystem
                                     tx);
                             }
 
+                            // Waypoint DELETE first so a delete + re-insert with the same
+                            // (gridid, number) doesn't briefly duplicate a PK during the tx.
+                            int gridEntryDeletes = 0;
+                            foreach (var kv in buffer.GridEntryDeletes)
+                            {
+                                var del = kv.Value;
+                                gridEntryDeletes += await connection.ExecuteAsync(
+                                    SqlQueries.DeleteGridEntry,
+                                    new { GridId = del.GridId, Number = del.Number, ZoneId = zoneId },
+                                    tx);
+                            }
+
+                            int gridEntryInserts = 0;
+                            foreach (var kv in buffer.GridEntryInserts)
+                            {
+                                var ins = kv.Value;
+                                gridEntryInserts += await connection.ExecuteAsync(
+                                    SqlQueries.InsertGridEntry,
+                                    new
+                                    {
+                                        GridId      = ins.GridId,
+                                        ZoneId      = zoneId,
+                                        Number      = ins.Number,
+                                        X           = ins.X,
+                                        Y           = ins.Y,
+                                        Z           = ins.Z,
+                                        Heading     = ins.Heading,
+                                        Pause       = ins.Pause,
+                                        Centerpoint = ins.Centerpoint,
+                                    },
+                                    tx);
+                            }
+
                             int gridRows = 0;
                             foreach (var kv in buffer.GridEntries)
                             {
@@ -80,14 +119,31 @@ namespace VisualEQ.EditSystem
                                     SqlQueries.UpdateGridEntry,
                                     new
                                     {
-                                        GridId  = edit.GridId,
-                                        Number  = edit.Number,
-                                        ZoneId  = zoneId,
-                                        X       = edit.CurrentX,
-                                        Y       = edit.CurrentY,
-                                        Z       = edit.CurrentZ,
-                                        Heading = edit.CurrentHeading,
-                                        Pause   = edit.CurrentPause,
+                                        GridId      = edit.GridId,
+                                        Number      = edit.Number,
+                                        ZoneId      = zoneId,
+                                        X           = edit.CurrentX,
+                                        Y           = edit.CurrentY,
+                                        Z           = edit.CurrentZ,
+                                        Heading     = edit.CurrentHeading,
+                                        Pause       = edit.CurrentPause,
+                                        Centerpoint = edit.CurrentCenterpoint,
+                                    },
+                                    tx);
+                            }
+
+                            int gridMetaRows = 0;
+                            foreach (var kv in buffer.Grids)
+                            {
+                                var edit = kv.Value;
+                                gridMetaRows += await connection.ExecuteAsync(
+                                    SqlQueries.UpdateGrid,
+                                    new
+                                    {
+                                        Id     = edit.Id,
+                                        ZoneId = edit.ZoneId,
+                                        Type   = edit.CurrentType,
+                                        Type2  = edit.CurrentType2,
                                     },
                                     tx);
                             }
@@ -181,6 +237,9 @@ namespace VisualEQ.EditSystem
                                 Success                  = true,
                                 SpawnRowsWritten         = spawnRows,
                                 GridRowsWritten          = gridRows,
+                                GridEntryInsertsWritten  = gridEntryInserts,
+                                GridEntryDeletesWritten  = gridEntryDeletes,
+                                GridMetaRowsWritten      = gridMetaRows,
                                 ZonePointRowsWritten     = zonePointRows,
                                 ZonePointInsertsWritten  = zonePointInserts,
                                 ZonePointDeletesWritten  = zonePointDeletes,

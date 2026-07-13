@@ -317,7 +317,73 @@ namespace VisualEQ
                 var scenePos = new Vector3(e.CurrentY, e.CurrentX, e.CurrentZ);
                 sp.MarkMoved(scenePos, e.CurrentHeading);
             }
-            // Grid entries applied in Phase 5.6 when waypoint rendering picks up buffer state.
+
+            // Grid entry field edits — mutate every SpawnRecord.Waypoints copy that
+            // references this waypoint so rendering picks up the pending state.
+            foreach (var kv in buffer.GridEntries)
+            {
+                var e = kv.Value;
+                foreach (var sp in SpawnManager.SpawnPoints)
+                {
+                    foreach (var wp in sp.Record.Waypoints)
+                    {
+                        if (wp.GridId != e.GridId || wp.Number != e.Number) continue;
+                        wp.X          = e.CurrentX;
+                        wp.Y          = e.CurrentY;
+                        wp.Z          = e.CurrentZ;
+                        wp.Heading    = e.CurrentHeading;
+                        wp.Pause      = e.CurrentPause;
+                        wp.Centerpoint = e.CurrentCenterpoint;
+                    }
+                }
+            }
+
+            // Grid metadata (type/type2).
+            foreach (var kv in buffer.Grids)
+            {
+                var e = kv.Value;
+                foreach (var sp in SpawnManager.SpawnPoints)
+                {
+                    var g = sp.Record.Grid;
+                    if (g == null || g.Id != e.Id || g.ZoneId != e.ZoneId) continue;
+                    g.Type  = e.CurrentType;
+                    g.Type2 = e.CurrentType2;
+                }
+            }
+
+            // Pending inserts — add each temp waypoint to every referring spawn's list.
+            foreach (var kv in buffer.GridEntryInserts)
+            {
+                var ins = kv.Value;
+                foreach (var sp in SpawnManager.SpawnPoints)
+                {
+                    if (sp.Record.Spawn.PathGrid != ins.GridId) continue;
+                    if (sp.Record.Waypoints.Any(w => w.GridId == ins.GridId && w.Number == ins.Number))
+                        continue;
+                    sp.Record.Waypoints.Add(new Database.Models.GridEntry
+                    {
+                        GridId      = ins.GridId,
+                        Number      = ins.Number,
+                        X           = ins.X,
+                        Y           = ins.Y,
+                        Z           = ins.Z,
+                        Heading     = ins.Heading,
+                        Pause       = ins.Pause,
+                        Centerpoint = ins.Centerpoint,
+                    });
+                }
+            }
+
+            // Pending deletes — remove the row from every referring spawn's list.
+            foreach (var kv in buffer.GridEntryDeletes)
+            {
+                var del = kv.Value;
+                foreach (var sp in SpawnManager.SpawnPoints)
+                {
+                    sp.Record.Waypoints.RemoveAll(w =>
+                        w.GridId == del.GridId && w.Number == del.Number);
+                }
+            }
 
             foreach (var kv in buffer.ZonePoints)
             {
@@ -388,7 +454,10 @@ namespace VisualEQ
         }
 
         // Wipes the current buffer + on-disk file. Restores all dirty spawns to their
-        // original position/heading via SpawnPoint.Revert().
+        // original position/heading via SpawnPoint.Revert(). Waypoints don't have a
+        // per-object Revert() — they're shared across spawns — so we restore each
+        // GridEntry field-by-field from the buffer's Original* snapshot before the
+        // buffer is cleared.
         public void DiscardPendingBuffer()
         {
             if (PendingBuffer == null) return;
@@ -397,6 +466,72 @@ namespace VisualEQ
                 if (sp.IsDirty) sp.Revert();
             foreach (var zp in ZonePointManager.AllPoints())
                 if (zp.IsDirty) zp.Revert();
+
+            // Waypoint revert — GridWaypointMoveAction/GridEntryFieldEditAction mutate
+            // sp.Record.Waypoints in place, so without this loop the polyline stays at
+            // the moved position after Discard.
+            foreach (var edit in PendingBuffer.GridEntries.Values)
+            {
+                foreach (var sp in SpawnManager.SpawnPoints)
+                {
+                    foreach (var wp in sp.Record.Waypoints)
+                    {
+                        if (wp.GridId != edit.GridId || wp.Number != edit.Number) continue;
+                        wp.X          = edit.OriginalX;
+                        wp.Y          = edit.OriginalY;
+                        wp.Z          = edit.OriginalZ;
+                        wp.Heading    = edit.OriginalHeading;
+                        wp.Pause      = edit.OriginalPause;
+                        wp.Centerpoint = edit.OriginalCenterpoint;
+                    }
+                }
+            }
+
+            // Grid metadata revert — same in-place mutation as waypoints.
+            foreach (var edit in PendingBuffer.Grids.Values)
+            {
+                foreach (var sp in SpawnManager.SpawnPoints)
+                {
+                    var g = sp.Record.Grid;
+                    if (g == null || g.Id != edit.Id || g.ZoneId != edit.ZoneId) continue;
+                    g.Type  = edit.OriginalType;
+                    g.Type2 = edit.OriginalType2;
+                }
+            }
+
+            // Pending inserts — pop the temp waypoints out of every spawn's list so the
+            // polyline collapses back to the DB-known state.
+            foreach (var ins in PendingBuffer.GridEntryInserts.Values)
+            {
+                foreach (var sp in SpawnManager.SpawnPoints)
+                {
+                    sp.Record.Waypoints.RemoveAll(w =>
+                        w.GridId == ins.GridId && w.Number == ins.Number);
+                }
+            }
+
+            // Pending deletes — re-insert the snapshot rows so they render again until
+            // the user re-issues the delete.
+            foreach (var del in PendingBuffer.GridEntryDeletes.Values)
+            {
+                foreach (var sp in SpawnManager.SpawnPoints)
+                {
+                    if (sp.Record.Spawn.PathGrid != del.GridId) continue;
+                    if (sp.Record.Waypoints.Any(w => w.GridId == del.GridId && w.Number == del.Number))
+                        continue;
+                    sp.Record.Waypoints.Add(new Database.Models.GridEntry
+                    {
+                        GridId      = del.GridId,
+                        Number      = del.Number,
+                        X           = del.X,
+                        Y           = del.Y,
+                        Z           = del.Z,
+                        Heading     = del.Heading,
+                        Pause       = del.Pause,
+                        Centerpoint = del.Centerpoint,
+                    });
+                }
+            }
 
             EditBufferManager.DeleteForZone(PendingBuffer.Zone);
             PendingBuffer = new EditBuffer { Zone = CurrentZoneName, CreatedAt = DateTime.UtcNow };
