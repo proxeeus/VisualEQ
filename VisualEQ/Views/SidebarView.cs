@@ -830,8 +830,8 @@ namespace VisualEQ.Views
 
             ImGui.Separator();
             ImGui.Text("Facing");
-            RenderWpFloatField(gridId, number, VisualEQ.EditSystem.GridEntryFieldEditAction.Field.Heading,
-                "heading (0–511)", () => wp.Heading, v => wp.Heading = v, editable);
+            RenderWpBoundedFloatField(gridId, number, VisualEQ.EditSystem.GridEntryFieldEditAction.Field.Heading,
+                "heading (0–511)", 0f, 511f, () => wp.Heading, v => wp.Heading = v, editable);
 
             ImGui.Separator();
             ImGui.Text("Timing");
@@ -871,6 +871,34 @@ namespace VisualEQ.Views
             var changed = ImGui.DragFloat($"{label}###{Id}wpF{gridId}_{number}_{(int)which}",
                 ref val, 0f, 0f, 1f, "%.2f", 1f);
             if (changed) write(val);
+            HandleWpActivationTransition(gridId, number, which, current, () => (object)read());
+        }
+
+        // SliderFloat variant for fields with a fixed range (currently just heading, 0-511).
+        // Unbounded DragFloat is dangerous for heading: a stray drag on the widget can shove
+        // the value hundreds of units off in a single gesture and users don't realize they
+        // dragged — they think they clicked. Bounded slider matches the spawn heading widget.
+        void RenderWpBoundedFloatField(int gridId, int number,
+            VisualEQ.EditSystem.GridEntryFieldEditAction.Field which,
+            string label, float min, float max,
+            Func<float> read, Action<float> write, bool editable)
+        {
+            var current = read();
+            if (!editable)
+            {
+                ImGui.Text($"  {label} = {current:F2}");
+                return;
+            }
+            var val = current;
+            // Legacy rows may store out-of-range values (older EQEmu tools with different
+            // conventions, hand-authored SQL). Show them as-is via the label but clamp the
+            // slider input so the widget is safe to interact with.
+            if (val < min || val > max)
+                ImGui.Text($"  (current DB value {current:F2} is outside slider range — save will clamp)");
+            var clamped = Math.Max(min, Math.Min(max, val));
+            var changed = ImGui.SliderFloat($"{label}###{Id}wpS{gridId}_{number}_{(int)which}",
+                ref clamped, min, max, "%.0f", 1f);
+            if (changed) write(clamped);
             HandleWpActivationTransition(gridId, number, which, current, () => (object)read());
         }
 
