@@ -1395,6 +1395,26 @@ namespace VisualEQ
                     lines.Add((scenePos - new Vector3(0, arm, 0), scenePos + new Vector3(0, arm, 0), color));
                     lines.Add((scenePos - new Vector3(0, 0, arm), scenePos + new Vector3(0, 0, arm), color));
 
+                    // Heading arrow — points in the direction the NPC will face at this
+                    // waypoint. Same 0-511 convention as spawn2.heading (grid_entries.heading
+                    // uses the same scale), so we can hand it straight to HeadingToRotation.
+                    // Longer arrow when selected/dragged so the highlighted waypoint stays
+                    // legible against terrain.
+                    float arrowLen = (isSelected && isDragging) ? 22f
+                                   : isSelected                 ? 14f
+                                                                : 10f;
+                    var rot = SpawnSystem.SpawnManager.HeadingToRotation(wp.Heading);
+                    var forward = Vector3.Normalize(Vector3.Transform(new Vector3(0, 1, 0), rot));
+                    var arrowStart = scenePos;
+                    var arrowEnd = arrowStart + forward * arrowLen;
+                    lines.Add((arrowStart, arrowEnd, color));
+
+                    // Arrowhead: two short lines splaying back from the tip.
+                    var perp = new Vector3(-forward.Y, forward.X, 0);   // 90° CCW around Z
+                    var head = arrowLen * 0.28f;
+                    lines.Add((arrowEnd, arrowEnd - forward * head + perp * head, color));
+                    lines.Add((arrowEnd, arrowEnd - forward * head - perp * head, color));
+
                     // Vertical pole from ground straight up to a tall marker so the dragged
                     // waypoint never disappears against textured floors.
                     if (isSelected && isDragging)

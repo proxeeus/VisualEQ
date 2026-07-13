@@ -836,7 +836,7 @@ namespace VisualEQ.Views
             ImGui.Separator();
             ImGui.Text("Timing");
             RenderWpIntField(gridId, number, VisualEQ.EditSystem.GridEntryFieldEditAction.Field.Pause,
-                "pause (ms)", () => wp.Pause, v => wp.Pause = v, editable);
+                "pause (s)", () => wp.Pause, v => wp.Pause = v, editable);
 
             ImGui.Separator();
             RenderWpCenterpointCheckbox(gridId, number, wp, editable);
