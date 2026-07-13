@@ -180,5 +180,29 @@ namespace VisualEQ.Database.Constants
                 ToZoneID        AS ToZoneId
             FROM trilogy_zone_points
             WHERE target_zone = @ZoneName AND zone <> @ZoneName";
+
+        // Peer-zone rows for the sandwich detector: for each destination zone reached from
+        // the current zone's owned rows, load every row IN that destination zone so we
+        // can check whether an outgoing landing coord falls inside one of that zone's
+        // fire regions. Kept as a single IN-list query so N destinations = 1 round trip.
+        public const string GetZonePointsForZones = @"
+            SELECT
+                id,
+                zone,
+                x, y, z, heading,
+                target_zone     AS TargetZone,
+                target_x        AS TargetX,
+                target_y        AS TargetY,
+                target_z        AS TargetZ,
+                Zrange,
+                maxZDiff        AS MaxZDiff,
+                UseNewZoning,
+                MinVert, MaxVert, CenterPoint,
+                keepX           AS KeepX,
+                keepY           AS KeepY,
+                keepZ           AS KeepZ,
+                ToZoneID        AS ToZoneId
+            FROM trilogy_zone_points
+            WHERE zone IN @ZoneNames";
     }
 }

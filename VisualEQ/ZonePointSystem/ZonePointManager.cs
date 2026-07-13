@@ -16,6 +16,13 @@ namespace VisualEQ.ZonePointSystem
         // arriving players face). All other fields render read-only.
         public List<ZonePoint> IncomingPoints { get; } = new List<ZonePoint>();
 
+        // Peer-zone rows for the sandwich detector — every row owned by each destination
+        // zone that the current zone can send players to. Keyed by shortname (lowercase).
+        // Not rendered directly; only used to check "does A's landing coord in B fall
+        // inside any B-owned trigger's fire region?".
+        public Dictionary<string, List<TrilogyZonePoint>> PeerZoneRows { get; }
+            = new Dictionary<string, List<TrilogyZonePoint>>(System.StringComparer.OrdinalIgnoreCase);
+
         public ZonePoint Selected { get; private set; }
 
         public event Action<ZonePoint> ZonePointSelected;
@@ -56,8 +63,27 @@ namespace VisualEQ.ZonePointSystem
         {
             ZonePoints.Clear();
             IncomingPoints.Clear();
+            PeerZoneRows.Clear();
             Selected = null;
             _nextTempId = -1;
+        }
+
+        // Populates PeerZoneRows from a flat list of foreign-zone rows. Grouped by the
+        // row's own `zone` field so the detector can look up "all triggers in B" via
+        // PeerZoneRows["B"].
+        public void LoadPeerRows(IEnumerable<TrilogyZonePoint> rows)
+        {
+            PeerZoneRows.Clear();
+            foreach (var r in rows)
+            {
+                if (string.IsNullOrEmpty(r.Zone)) continue;
+                if (!PeerZoneRows.TryGetValue(r.Zone, out var list))
+                {
+                    list = new List<TrilogyZonePoint>();
+                    PeerZoneRows[r.Zone] = list;
+                }
+                list.Add(r);
+            }
         }
 
         // Adds a ZonePoint (usually pending-insert) to the list. Silently no-ops on

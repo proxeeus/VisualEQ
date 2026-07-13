@@ -52,7 +52,8 @@ namespace VisualEQ.ZonePointSystem
             IReadOnlyList<ZonePoint> zonePoints,
             IReadOnlyList<ZonePoint> incomingPoints,
             ZonePoint selected,
-            (Vector3 Min, Vector3 Max)? zoneBounds)
+            (Vector3 Min, Vector3 Max)? zoneBounds,
+            IReadOnlyDictionary<int, SandwichDetector.Result> sandwichResults = null)
         {
             var lines = new List<Line>(zonePoints.Count * 24 + (incomingPoints?.Count ?? 0) * 12);
             var tris  = new List<Tri>(zonePoints.Count * 12 + (incomingPoints?.Count ?? 0) * 6);
@@ -69,7 +70,10 @@ namespace VisualEQ.ZonePointSystem
             foreach (var zp in zonePoints)
             {
                 bool isSelected = ReferenceEquals(zp, selected);
-                var (wireColor, fillColor) = ColorsFor(zp.Health, isSelected);
+                bool isSandwiched = sandwichResults != null && sandwichResults.ContainsKey(zp.Row.Id);
+                var (wireColor, fillColor) = isSandwiched
+                    ? SandwichColors(isSelected)
+                    : ColorsFor(zp.Health, isSelected);
 
                 if (zp.HasSourceWildcard)
                 {
@@ -93,6 +97,19 @@ namespace VisualEQ.ZonePointSystem
                     default:
                         EmitBox(zp, wireColor, fillColor, zoneBounds, lines, tris);
                         break;
+                }
+
+                // Sandwich link line: from this row's landing coord (target) to the
+                // offending peer row's source coord in the destination zone. Only
+                // drawn when the target lives in the current zone's coord space — for
+                // cross-zone targets, the offending source is in another world.
+                if (isSandwiched && SameZoneTarget(zp))
+                {
+                    var target  = zp.SceneTarget;
+                    var offender = sandwichResults[zp.Row.Id].OffendingRow;
+                    var offenderScene = new Vector3(offender.Y, offender.X, offender.Z);
+                    var sandwichLink = new Vector4(1.0f, 0.15f, 0.15f, 1.0f);
+                    lines.Add(new Line(target, offenderScene, sandwichLink));
                 }
 
                 // Destination pip if the target lives in the same zone. The spec calls for
@@ -427,6 +444,17 @@ namespace VisualEQ.ZonePointSystem
             // +X (x = max.X)
             tris.Add(new Tri(v100, v111, v110, color));
             tris.Add(new Tri(v100, v101, v111, color));
+        }
+
+        // Bright red palette for sandwiched rows — overrides the normal health coloring
+        // so a Green health row that's ALSO sandwiched still reads as "danger" at a glance.
+        static (Vector4 wire, Vector4 fill) SandwichColors(bool selected)
+        {
+            var rgb = new Vector3(1.0f, 0.20f, 0.20f);
+            return (
+                new Vector4(rgb, selected ? 1.0f : 0.95f),
+                new Vector4(rgb, selected ? 0.32f : 0.25f)
+            );
         }
 
         static (Vector4 wire, Vector4 fill) ColorsFor(ZonePointHealth health, bool selected)

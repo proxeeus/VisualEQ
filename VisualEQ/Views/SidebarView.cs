@@ -1065,8 +1065,9 @@ namespace VisualEQ.Views
                 }
                 var dirty = zp.IsDirty ? " *" : "";
                 var pending = zp.IsPendingInsert ? " [NEW]" : "";
+                var sandwich = ctrl.SandwichResults.ContainsKey(zp.Row.Id) ? " [SANDWICH]" : "";
                 var idLabel = zp.IsPendingInsert ? "new" : zp.Row.Id.ToString();
-                var label = $"{badge} #{idLabel} {mode} → {zp.Row.TargetZone}{dirty}{pending}###{Id}zpItem{zp.Row.Id}";
+                var label = $"{badge}{sandwich} #{idLabel} {mode} → {zp.Row.TargetZone}{dirty}{pending}###{Id}zpItem{zp.Row.Id}";
 
                 if (ImGui.Selectable(label, ReferenceEquals(zp, selected)))
                     FlyToZonePoint(zp);
@@ -1127,6 +1128,22 @@ namespace VisualEQ.Views
                         _zpDeleteArmedForId = zp.Row.Id;
                         _zpDeleteArmedAt    = FrameTime;
                     }
+                }
+            }
+
+            // ─── Sandwich warning (bright red) ─────────────────────────────────────
+            if (_view.Controller.SandwichResults.TryGetValue(zp.Row.Id, out var sandwich))
+            {
+                ImGui.Separator();
+                var warn = new Vector4(1.0f, 0.30f, 0.30f, 1f);
+                ImGui.Text("SANDWICH DETECTED", warn);
+                ImGui.Text($"Landing in {zp.Row.TargetZone} at ({zp.Row.TargetX:F0},{zp.Row.TargetY:F0},{zp.Row.TargetZ:F0})");
+                ImGui.Text($"falls inside row #{sandwich.OffendingRow.Id} in {sandwich.OffendingRow.TargetZone ?? "?"}.");
+                ImGui.Text("Arriving players will be re-teleported immediately.");
+                if (editable)
+                {
+                    if (ImGui.Button($"Shift landing 50 units away###{Id}zpSw", new Vector2(230, 24)))
+                        _view.Controller.ShiftLandingAwayFromSandwich(zp.Row.Id);
                 }
             }
 
