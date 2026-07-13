@@ -33,12 +33,14 @@ namespace VisualEQ.Views
 
     internal class MainMenuWidget : BaseWidget
     {
-        // Directory where ConverterApp writes converted zones. Kept in sync with Loader.LoadZoneFile,
-        // Controller.LoadCharacter, SpawnManager.BuildAvailableModels — see CLAUDE.md §4.
-        private const string ConvertedZoneDir = "../ConverterApp";
-
         private readonly Controller _controller;
         private readonly DatabaseFormWidget _dbForm;
+
+        // Directory where the in-app converter writes `{zone}_oes.zip` and where the app
+        // reads them from. Sourced from AppSettings via the controller so the value stays
+        // in sync with the loader-side code paths (Controller.LoadZone,
+        // SpawnManager.BuildAvailableModels).
+        private string ConvertedZoneDir => _controller.ConvertedAssetsDir;
 
         private readonly byte[] _eqPath  = new byte[512];
         private readonly byte[] _decodeZone = new byte[64];
@@ -153,7 +155,7 @@ namespace VisualEQ.Views
 
             if (_zones.Count == 0)
             {
-                ImGui.Text("No converted zones found in ConverterApp/.");
+                ImGui.Text($"No converted zones found in {ConvertedZoneDir}.");
                 ImGui.Text("Use the 'Decode New Zone' section below to convert one.");
                 return;
             }
@@ -290,7 +292,9 @@ namespace VisualEQ.Views
         }
 
         // Runs on ThreadPool. Converter is file I/O + CPU only — no GL calls, safe off-thread.
-        static DecodeResult RunDecode(string eqPath, string zoneName)
+        // Instance method (not static) so ConvertedZoneDir — now a controller-backed property —
+        // resolves against `this`. The closure in the calling Task.Run captures `this` for us.
+        DecodeResult RunDecode(string eqPath, string zoneName)
         {
             var result = new DecodeResult { Zone = zoneName };
             try
