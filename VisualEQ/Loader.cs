@@ -60,7 +60,11 @@ namespace VisualEQ
                         yield return elem;
                     yield break;
                 }
-                Debug.Assert(Matrix4x4.Invert(mat, out var imat));
+                // Hoist the Invert call outside Debug.Assert — Assert is stripped in Release
+                // (Conditional("DEBUG")), which would also strip the Invert call and leave imat
+                // unassigned by the time it's read below. Fails Release compilation with CS0165.
+                var inverted = Matrix4x4.Invert(mat, out var imat);
+                Debug.Assert(inverted);
                 for (var i = 0; i < buffer.Count; i += 8)
                 {
                     var vert = Vector3.Transform(new Vector3(buffer[i + 0], buffer[i + 1], buffer[i + 2]), mat);
