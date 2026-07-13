@@ -830,8 +830,7 @@ namespace VisualEQ.Views
 
             ImGui.Separator();
             ImGui.Text("Facing");
-            RenderWpBoundedFloatField(gridId, number, VisualEQ.EditSystem.GridEntryFieldEditAction.Field.Heading,
-                "heading (0–511)", 0f, 511f, () => wp.Heading, v => wp.Heading = v, editable);
+            RenderWpHeading(gridId, number, wp, editable);
 
             ImGui.Separator();
             ImGui.Text("Timing");
@@ -872,6 +871,54 @@ namespace VisualEQ.Views
                 ref val, 0f, 0f, 1f, "%.2f", 1f);
             if (changed) write(val);
             HandleWpActivationTransition(gridId, number, which, current, () => (object)read());
+        }
+
+        // Heading has three states, so it gets its own render helper rather than reusing
+        // the generic float-field:
+        //   heading == -1  → EQEmu sentinel "don't rotate on arrival". Preserved literally.
+        //   heading ∈ [0, 511]  → normal arrival facing.
+        //   heading outside those  → legacy/foreign value. Slider clamps on save; warning shown.
+        void RenderWpHeading(int gridId, int number, VisualEQ.Database.Models.GridEntry wp, bool editable)
+        {
+            const float NoRotationSentinel = -1f;
+            var current = wp.Heading;
+            var noRotation = Math.Abs(current - NoRotationSentinel) < 0.001f;
+
+            if (!editable)
+            {
+                ImGui.Text(noRotation
+                    ? "  heading = -1 (no rotation on arrival)"
+                    : $"  heading = {current:F2}");
+                return;
+            }
+
+            var boxVal = noRotation;
+            if (ImGui.Checkbox($"No rotation on arrival###{Id}wpNoRot{gridId}_{number}", ref boxVal)
+                && boxVal != noRotation)
+            {
+                // Checked: set sentinel. Unchecked: seed a valid heading (0 = due north).
+                // Both flow through the standard field-edit action → one undo step.
+                float from = current;
+                float to   = boxVal ? NoRotationSentinel : 0f;
+                _view.Controller.RecordAction(
+                    new VisualEQ.EditSystem.GridEntryFieldEditAction(
+                        gridId, number,
+                        VisualEQ.EditSystem.GridEntryFieldEditAction.Field.Heading,
+                        from, to));
+                return; // Skip the slider this frame — value changed via checkbox.
+            }
+
+            if (noRotation)
+            {
+                ImGui.Text("  (mob keeps its incoming facing at this waypoint)");
+                return;
+            }
+
+            // Regular slider path. Legacy out-of-range values (e.g. -126 from an older tool
+            // with a different convention) render with a warning and clamp on interaction.
+            RenderWpBoundedFloatField(gridId, number,
+                VisualEQ.EditSystem.GridEntryFieldEditAction.Field.Heading,
+                "heading (0–511)", 0f, 511f, () => wp.Heading, v => wp.Heading = v, editable);
         }
 
         // SliderFloat variant for fields with a fixed range (currently just heading, 0-511).
