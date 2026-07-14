@@ -46,7 +46,7 @@ App.Main(zoneName, [modelName|--list-models])
 
 Runtime loop (per frame):
 - `OnUpdateFrame` reads keyboard/mouse for camera movement — **suppressed when `Gui.KeyboardWanted` is true** so typing in text fields doesn't drive the camera.
-- `OnRenderFrame` runs deferred pass (if enabled, key `L`) then forward pass; face culling is currently `GL.Disable(EnableCap.CullFace)` — see §7.
+- `OnRenderFrame` runs deferred pass (if enabled, key `L`) then forward pass. Back-face culling is **enabled** for the deferred/opaque draw and disabled for the forward (transparent) draw — see §7. F9 toggles culling globally for regression testing.
 - Mouse input: right-drag rotates camera (hides cursor); left-click without GUI hits `ModelSelector.TrySelect` → drag with plane-projection + surface sticking via `CollisionHelper`; mouse-wheel while dragging adjusts drag-plane depth.
 
 ## 4. Build & run
@@ -77,19 +77,27 @@ Database credentials: **not** committed. `database.config.template.json` is a te
 
 - OpenGL **4.1 forward-compatible core** (see `EngineCore` ctor). On Parallels this reports "4.1 Metal - 89.4" / "Parallels using Apple M2 Pro (Compat)".
 - Dual pathway: `DeferredPathway.cs` for the G-buffer + light pass, forward pass runs unconditionally after (for transparent + always). Toggle deferred with `L`.
-- `Model` — static geometry, may or may not be collidable/fixed. `AniModel` — animated character mesh; `AniModelInstance` wraps one instance with position/rotation/animation name.
-- **Animation quirks**: default character animation set on load is `"C05"` (see `Controller.LoadCharacter` and `SpawnManager.LoadFromRecords`). Not every model has every animation — missing keys previously crashed; loader now only loads animations that exist on the mesh.
+- `Model` — static geometry, may or may not be collidable/fixed. `AniModel` — animated character mesh; `AniModelInstance` wraps one instance with position/rotation/**scale**/animation name.
+- `AnimatedMesh` = `Material` + reference to a shared `MeshGeometry`. `MeshGeometry` (index buffer + per-animation VAOs + vertex buffers) is cached in `Loader._meshGeometryCache` keyed by `(chr-zip path, model code, mesh index, singleFrame)` and shared across every AniModel variant that differs only in material (texture / helm / face). Before this split, each `(code, texture, helm, face)` combo allocated its own 13 VAOs; freporte-with-humans stopped scaling around 24 combos.
+- **Animation resolution**: loader picks an idle from `SpawnAnimationCandidates` (P01 > P02 > P03 > L01 > L02 > L03 > O01 > STA > POS) and falls through to the bind pose (`""`). Missing anims previously crashed; loader now filters to what the model actually has.
+- **LANTERN animation sources**: races whose own tracks are bind-pose-only inherit anim frames from a "donor" model per `Converter.AnimationSources` (mirrors `LanternExtractor/ClientData/animationsources.txt`). HAM inherits ELM, GNM inherits DWM, TRM inherits OGF, etc. Baked at convert time — the runtime doesn't need the map.
 - Materials in `Engine/Materials/` map to `OESEffect.Name`: `default`, `animated`, `diffuse+normal`, `fire`. Alpha-masked and transparent variants live in `ForwardDiffuseMasked` / `DeferredDiffuseMasked`.
 - `Globals` static: `Camera` (`FpsCamera`), `Collider`, `PhysicsEnabled`, `FrameTime`, `ProjectionMat`, plus `vec2`/`vec3` helpers.
 
 ## 6. Spawn system (VisualEQ/SpawnSystem/)
 
-Design: `SpawnPoint` **wraps** `AniModelInstance` — the engine renders raw `AniModelInstance`s, `SpawnManager` owns the DB↔scene mapping. Same `AniModel` mesh is shared across many spawns via `Controller._modelCache`.
+Design: `SpawnPoint` **wraps** `AniModelInstance` — the engine renders raw `AniModelInstance`s, `SpawnManager` owns the DB↔scene mapping. `Controller._modelCache` is keyed by `"code"` for `npc.Texture=npc.HelmTexture=npc.Face=0` and `"code#texture#helm#face"` otherwise; each unique combo gets its own AniModel but they share `MeshGeometry` VAOs (§5).
 
 - `SpawnManager.LoadFromRecords(records, engine, modelCache, availableModels, fallback)`:
   - Picks the highest-`Chance` `SpawnEntryWithNpc` per record as the "primary" NPC.
-  - Model resolution: `RaceModelMapper.ResolveWithGender(race, gender)` → `_M`/`_F` suffix → falls back to base 3-letter code → falls back to the shared `LastModelLoaded` (`fallback`) with `IsPlaceholder = true`. If no fallback exists, spawn is skipped.
-  - Positions instances at `Vector3(record.Spawn.Y, record.Spawn.X, record.Spawn.Z)` — **note the X/Y swap**. See §8.
+  - **Model resolution**: `RaceModelMapper.ResolveCandidates(race, gender)` → picks the first candidate present in `availableModels`. Cross-verified against LANTERN's `ClientData/animationsources.txt`. Table covers ~230 races. If nothing resolves, falls back to `LastModelLoaded` (`fallback`) with `IsPlaceholder = true`.
+  - **Positions** instances at `Vector3(record.Spawn.Y, record.Spawn.X, record.Spawn.Z)` — **note the X/Y swap**. See §8.
+  - **Scale**: `Scale = npc.Size / MeshAuthoredHeightForRace(race)`. Default divisor is 6 (canonical humanoid); dwarves + halflings + Rivervale/Kaladim/Coldain citizens use 4 (short-mesh stock). Placeholder / template spawns (size=1) end up tiny; giants (size=15+) tower correctly.
+  - **Texture / helm / face** flow through `Loader.LoadCharacter`'s `textureIndex` / `helmTextureIndex` / `faceIndex` params (see §12 for the resolution pipeline).
+- `SpawnManager.BuildAvailableModels(zoneName, dir)`:
+  - Zone chr wins for anything it declares (freporte's `PRE` mesh doesn't get overridden by overthere's higher-anim `PRE` from the Bloated Belly skeleton family).
+  - For models the zone chr doesn't declare, richness-wins (`anim_count × 1000 + mesh_count`) across the remaining chr zips — picks the animated version over an empty stub.
+  - Uses `Loader.GetCharacterModelRichness` which shallow-scans chunk headers only. Result is cached to `%APPDATA%\VisualEQ\richness-cache.txt` (mtime-invalidated) so subsequent zone loads skip the walk.
 - `Controller.LoadZoneSpawnsAsync`:
   - No-ops without a DB. Guards against double-loading.
   - After building spawn points it adds each `sp.Model` to `CharacterModels` so `ModelSelector` can pick it.
@@ -97,7 +105,7 @@ Design: `SpawnPoint` **wraps** `AniModelInstance` — the engine renders raw `An
 
 ## 7. Known gotchas & invariants
 
-- **Face culling is disabled** in the forward pass (`EngineCore.OnRenderFrame`, `GL.Disable(EnableCap.CullFace)`). Re-enabling requires fixing winding-order in one or more mesh sources — do not flip this without checking.
+- **Back-face culling is ENABLED** for the deferred/opaque draw and disabled for the forward/transparent draw. Both mesh sources (converter + character path) emit CCW-front triangles. F9 toggles culling globally as a regression escape hatch. Character-mesh path (`GenerateAnimatedMeshes` / `GenerateStaticMesh`) explicitly swaps winding to CCW; zone-mesh path preserves Fragment36's original CCW. Do not change either winding-swap without also flipping this back off.
 - **cimgui.dll must sit next to `VisualEQ.dll`.** The `CopyNativeLibs` MSBuild target handles this. If it stops copying, verify `runtimes/win-x64/native/cimgui.dll` exists under the build output.
 - **ImGui.NET is pinned at 0.4.6.** Its `InputText` signature is byte-buffer-based (see `DatabaseConnectionView`), there is no `TextColored` overload we use, and the `Password` input flag breaks input on this version — do not add it.
 - **OpenTK 1.x** — this is not modern OpenTK 4.x. Types like `GameWindow`, `Key`, `MouseButton` come from the legacy namespaces, and the update/render loop is virtual overrides, not `IApplicationLifecycle`.
@@ -107,6 +115,11 @@ Design: `SpawnPoint` **wraps** `AniModelInstance` — the engine renders raw `An
 - **Zip lookups are case-sensitive on some paths.** OES chunk types match by 4-char code (trimmed). Character model name comparisons use `OrdinalIgnoreCase` in the availability map — keep it that way.
 - **`spawn2` schema variance.** This codebase targets a schema that has **no `enabled` column**; `SpawnViewModel.IsEnabled` is hardcoded `true`. `npc_types` has cosmetic columns (`hair*`/`beard*`/`eye*`) that vary across EQEmu forks — `GetNpcTypesBatch` intentionally selects only the columns needed for model/level/gender lookup.
 - **Batch queries avoid N+1.** `GetZoneSpawnsFullAsync` runs 5 queries total regardless of spawn count: spawns, zoneid, spawnentries, npc_types, grid_entries.
+- **LANTERN is the reference for client-side quirks.** When a race, mesh, or texture doesn't behave right at runtime and EQEmu server just forwards data unchanged, read LANTERN's `LanternExtractor/EQ/Wld/` — especially `Helpers/CharacterFixer.cs`, `Fragments/MaterialList.cs:ParseCharacterSkin` (chr material names are exactly 9 chars: race(3) + region(2) + variant(2) + subpart(2)), and `WldFileCharacters.FindAdditionalAnimationsAndMeshes`. Local copy at `~/Downloads/LANTERN/`.
+- **Chr material names are 9 chars exactly.** Chars 5-6 = skin variant (npc.Texture); char 7 = face-tens digit (npc.Face); chars 3-4 + 7-8 = body-part slot. Do not parse "last 4 digits = variant" — that conflates sub-parts (LG01 vs LG02) with skin variants (LG01 vs LG0101).
+- **Alt-skin materials are unreferenced by the mesh's Fragment31.** Higher armor variants (`FPMCH0101`, `HUMHE0011` etc.) live as orphan Fragment30s in the WLD. `Converter.GenerateAnimatedMeshes` sweeps the WLD after the base pass and emits them into the OES skin so `Loader.FromSkin.PickVariantFilename` can swap PNGs at load. Requires re-decoding chr zips after any converter change.
+- **Helmet variant Fragment36s are unreferenced by `Fragment10.Meshes`.** LANTERN's `WldFileCharacters.FindAdditionalAnimationsAndMeshes` sweeps orphan Fragment36s named `{race}HE##_DMSPRITEDEF` (for ## > 00) and adds them as skeleton secondaries. `Converter.GenerateAnimatedMeshes` does the same and tags each helmet variant with a helmet group in the `OESMeshGroups` chunk (§12).
+- **OES root parse is expensive.** A 60 MB `global_chr` OES takes a couple of seconds to fully deserialize. `Loader._oesRootCache` holds one parsed tree per chr-zip path for the session; `OESFile.ShallowScanCharacters` is a header-only walk for the richness-scan path and never touches OESAnimationBuffer data.
 
 ## 8. Coordinate systems
 
@@ -137,7 +150,55 @@ Track this instead of re-inventing the plan:
 
 If the plan and the code disagree, **the code is authoritative** — update the plan and this file rather than reworking already-shipped code to match a stale doc.
 
-## 11. Style & conventions
+## 11. NPC visual pipeline (npc_types → rendered mesh)
+
+Foundation for the eventual NPC editor. Every `npc_types` field that affects the rendered mesh flows through this pipeline; changing a field at runtime will need to re-invoke it (a full `Loader.LoadCharacter` with a new cache key is the current mechanism).
+
+### Fields consumed
+
+| npc_types column | Effect | Where it lands |
+|---|---|---|
+| `race` + `gender` | Model code (HUM / FPM / BAT / ...) | `RaceModelMapper.ResolveCandidates` → picks first candidate present in `availableModels` |
+| `size` | Uniform mesh scale | `AniModelInstance.Scale = size / MeshAuthoredHeightForRace(race)`; §6 |
+| `texture` | Armor tier (chars 5-6 of material filename) | `Loader.LoadCharacter`'s `textureIndex` param → `FromSkin.PickVariantFilename` picks `FPMCH0001` → `FPMCH0101` for texture=1 |
+| `helmtexture` | Helmet mesh (`{race}HE##` Fragment36) | `Loader.LoadCharacter`'s `helmTextureIndex` param → `ShouldRender` filter on `OESMeshGroups` chunk |
+| `face` | Face variant (char 7 of material filename) | `Loader.LoadCharacter`'s `faceIndex` param → `FromSkin.PickVariantFilename` picks `HUMHE0001` → `HUMHE0011` for face=1 |
+| `class` | Sidebar label only (not visual yet) | `SpawnInfoLookups.ClassName` |
+| `hairstyle`, `haircolor`, `beardstyle`, `beardcolor`, `eyecolor1`, `eyecolor2` | Not consumed (Trilogy client has no hair variants; see §7) | — |
+
+### Converter side (`ConverterCore/Converter.cs`)
+
+`GenerateAnimatedMeshes` produces the OES that carries everything the runtime needs:
+
+1. **Base meshes** — `f10.Meshes` (skeleton's primary meshes: base body + `{race}HE00` base head) go through the animation-frame loop first.
+2. **Orphan helmet meshes** — WLD scan for Fragment36s named `{race}HE##_DMSPRITEDEF` (## > 00) that aren't in `f10.Meshes`. LANTERN's `FindAdditionalAnimationsAndMeshes` does the same. Baked into the same combined `meshesToProcess` list as the primaries.
+3. **Alt-skin materials** — post-pass over all Fragment30s in the WLD. Any orphan Fragment30 whose name matches a base slot's character+region prefix (any variant, any face) gets added to the OES skin as a name-lookup entry. `FromSkin.PickVariantFilename` walks these at load time.
+4. **Helmet groups** — `OESMeshGroups` chunk stores a `uint[]` parallel to the mesh list:
+   - 0 = always render (base body, unrecognised sub-meshes like HUM01)
+   - 1 = base head + hair (render when `helmTexture == 0`)
+   - 2, 3, 4, ... = numbered helmet variants (render when `helmTexture == group - 1`)
+5. **Character material flags** — mask bits `(tf & (2|8|16))` set `AlphaMask`; `Transparent` is deliberately NOT set on characters (would route via `ForwardDiffuseMasked` and produce semi-transparent NPCs). Sails etc. still work because `DeferredDiffuseMasked` does alpha-discard on the BMP chroma-key PNG.
+6. **Animation baking** — animations restricted to `BakedAnimationPrefixes` (P01/P02/P03/L01/L02/L03/O01/STA/POS); combat / social / damage anims are dropped at bake time. Trims `global_chr_oes.zip` from ~260 MB to ~60 MB.
+
+### Loader side (`VisualEQ/Loader.cs`)
+
+`LoadCharacter(path, name, animationWhitelist, singleFrame, textureIndex, helmTextureIndex, faceIndex)`:
+
+1. `GetOrLoadRoot(path)` — session-shared parsed OESRoot.
+2. `FromSkin(skin, zip, textureIndex, faceIndex, materialsToBuild)` — builds `Material[]` for the mesh's own materials only. Extra alt-skin OES materials are scanned for name lookup but skip GL upload. `PickVariantFilename` computes the combined skin+face transformation:
+   - Combined `race + region + textureIndex.ToString("00") + faceIndex.ToString()[0] + subpartOnes`
+   - Falls back progressively: combined → skin-only → face-only → original
+3. `ShouldRender(meshIdx)` — reads `OESMeshGroups.Groups[meshIdx]`, applies helmet-group filter per `helmTextureIndex`. Base head only hides when a matching secondary is present.
+4. `MeshGeometry` cache `(path, name, meshIdx, singleFrame)` — VBOs / VAOs / index buffer shared across every variant. See §5.
+
+### Cache key layout
+
+`Controller._modelCache: Dictionary<string, AniModel>`:
+- Key = `"{code}"` when texture=helm=face=0 (share the default across the herd of NPCs).
+- Key = `"{code}#{texture}#{helm}#{face}"` otherwise.
+- Zone unload clears the cache but the `Loader._meshGeometryCache` (session-lifetime) keeps the VAOs alive so re-loading the same zone doesn't rebuild them.
+
+## 12. Style & conventions
 
 - 4-space indentation, `using` outside namespace, newline at EOF (StyleCop-enforced).
 - Public views inherit `BaseView` and are added via `Controller.AddView` — `Setup` runs once with the `Gui`, `Update` runs per frame.

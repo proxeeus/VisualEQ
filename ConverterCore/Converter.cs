@@ -335,6 +335,37 @@ namespace VisualEQ.ConverterCore
             var prefixes = new List<string> { "" };
             var rootName = f10.Tracks[0].PieceTrack.Name;
 
+            // Meshes we'll process this call. Starts with `f10.Meshes` (skeleton's
+            // primary meshes: base body + base head), then scans the WLD for
+            // ORPHAN Fragment36s named `{race}HE##_DMSPRITEDEF` with ## > 00 —
+            // those are helmet variants the classic client renders as secondaries
+            // (LANTERN's `WldFileCharacters.FindAdditionalAnimationsAndMeshes`
+            // scans them the same way). They aren't referenced by the skeleton's
+            // Fragment10.Meshes list but share the same bones, so the same anim
+            // frames apply. Every downstream loop (vertex bake, poly emit, helmet
+            // classifier, OESMeshGroups) iterates this combined list.
+            var meshesToProcess = new List<(Fragment36 Mesh, string Name)>();
+            for (var i = 0; i < f10.Meshes.Length; i++)
+            {
+                meshesToProcess.Add((f10.Meshes[i].Value?.Reference.Value, f10.Meshes[i].Value?.Reference.Name ?? ""));
+            }
+            {
+                var alreadyIn = new HashSet<string>(meshesToProcess.Select(m => m.Name), StringComparer.OrdinalIgnoreCase);
+                var assetUpper = model.Name.ToUpperInvariant();
+                foreach (var (fragName, f36) in wld.GetFragments<Fragment36>())
+                {
+                    if (alreadyIn.Contains(fragName)) continue;
+                    var stripped = fragName;
+                    if (stripped.EndsWith("_DMSPRITEDEF")) stripped = stripped.Substring(0, stripped.Length - "_DMSPRITEDEF".Length);
+                    stripped = stripped.ToUpperInvariant();
+                    if (stripped.Length != assetUpper.Length + 4) continue;
+                    if (!stripped.StartsWith(assetUpper + "HE")) continue;
+                    var suffix = stripped.Substring(assetUpper.Length + 2, 2);
+                    if (!int.TryParse(suffix, out var num) || num == 0) continue;
+                    meshesToProcess.Add((f36, fragName));
+                }
+            }
+
             // Pull LANTERN's alternate animation-source for this model. When
             // set, we also look for prefixed tracks that end with the
             // alternate's rootName and substitute the model code in per-bone
@@ -397,7 +428,7 @@ namespace VisualEQ.ConverterCore
             var animationBuffers = new Dictionary<string, List<List<List<float>>>>();
             foreach (var (name, frames) in trees)
             {
-                var frameBuffers = animationBuffers[name] = f10.Meshes.Length.Times(() => new List<List<float>>()).ToList();
+                var frameBuffers = animationBuffers[name] = meshesToProcess.Count.Times(() => new List<List<float>>()).ToList();
                 foreach (var frame in frames)
                 {
                     var matrices = new Dictionary<uint, Matrix4x4>();
@@ -411,23 +442,27 @@ namespace VisualEQ.ConverterCore
                     }
                     BuildBoneMatrices(frame, Matrix4x4.Identity);
 
-                    f10.Meshes.ForEach((mr, i) =>
+                    for (var i = 0; i < meshesToProcess.Count; i++)
                     {
                         var curBuffer = new List<float>();
                         // Some WLDs (notably classic Trilogy global_chr.s3d) have Fragment2D→Fragment36
                         // references that don't resolve. Skip those meshes so one bad reference doesn't
                         // sink the whole model; an empty buffer keeps `frameBuffers[i]` index-aligned
                         // with the sibling loop below (which also null-checks).
-                        var mesh = mr.Value?.Reference.Value;
+                        var mesh = meshesToProcess[i].Mesh;
                         if (mesh == null)
                         {
                             frameBuffers[i].Add(curBuffer);
-                            return;
+                            continue;
                         }
                         var offset = 0U;
                         foreach (var (count, index) in mesh.VertBones)
                         {
-                            var mat = matrices[index];
+                            // Orphan helmet meshes might reference a bone that isn't in this
+                            // Fragment10's track table (they use their own indexing). Skip
+                            // gracefully — the mesh's frames will just be its bind pose,
+                            // which is what LANTERN's `SetActiveMeshFromGroup` uses too.
+                            if (!matrices.TryGetValue(index, out var mat)) mat = Matrix4x4.Identity;
                             for (var j = 0; j < count; ++j)
                             {
                                 curBuffer.AddRange(Vector3.Transform(mesh.Vertices[offset + j], mat).AsArray());
@@ -437,7 +472,7 @@ namespace VisualEQ.ConverterCore
                             offset += count;
                         }
                         frameBuffers[i].Add(curBuffer);
-                    });
+                    }
                 }
             }
 
@@ -472,17 +507,17 @@ namespace VisualEQ.ConverterCore
             // become groups 0/1. Helmet variants HE01, HE02, HE03 become groups
             // 2, 3, 4 (rendered one at a time based on npc.HelmTexture).
             //
-            // We track group per f10.Meshes index; the poly-groups within one
+            // We track group per meshesToProcess index; poly-groups within one
             // Fragment36 all share the same helmet group. Extra suffixes we
             // haven't classified explicitly (e.g. HUM01) get group 0 = always
             // render — safest default until we understand what they are.
-            var f36HelmetGroup = new uint[f10.Meshes.Length];
+            var f36HelmetGroup = new uint[meshesToProcess.Count];
             {
                 var assetName = model.Name.ToUpperInvariant();
                 var nextSecondary = 2u; // groups 2, 3, 4… allocated in encounter order
-                for (var mi = 0; mi < f10.Meshes.Length; mi++)
+                for (var mi = 0; mi < meshesToProcess.Count; mi++)
                 {
-                    var fragName = f10.Meshes[mi].Value?.Reference.Name ?? "";
+                    var fragName = meshesToProcess[mi].Name;
                     var stripped = fragName;
                     if (stripped.EndsWith("_DMSPRITEDEF")) stripped = stripped.Substring(0, stripped.Length - "_DMSPRITEDEF".Length);
                     stripped = stripped.ToUpperInvariant();
@@ -508,9 +543,9 @@ namespace VisualEQ.ConverterCore
             var meshGroups = new List<uint>();
 
             var asets = prefixes.Where(x => x != "").Select(x => (x, new OESAnimationSet(x, 0f))).ToDictionary(t => t.Item1, t => t.Item2);
-            f10.Meshes.Length.Times(i =>
+            meshesToProcess.Count.Times(i =>
             {
-                var meshf = f10.Meshes[i].Value?.Reference.Value;
+                var meshf = meshesToProcess[i].Mesh;
                 if (meshf == null) return; // Skip unresolved mesh — matches the null-guard in the animationBuffers loop above.
                 var omats = meshf.TextureListReference.Value.References.Select(matref =>
                 {
