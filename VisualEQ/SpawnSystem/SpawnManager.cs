@@ -114,16 +114,23 @@ namespace VisualEQ.SpawnSystem
 
                 if (chosenCode != null)
                 {
-                    if (!modelCache.TryGetValue(chosenCode, out aniModel))
+                    // Cache per (model code, texture) so a guard with npc.Texture=1 gets
+                    // its own AniModel with chain-armor PNGs bound; the base cloth
+                    // version stays cached separately for other NPCs that share the
+                    // same mesh code but use npc.Texture=0. Loader.LoadCharacter does
+                    // the PNG substitution — mesh + material stay the same.
+                    var textureIdx = npc.Texture;
+                    var cacheKey = textureIdx == 0 ? chosenCode : $"{chosenCode}#{textureIdx}";
+                    if (!modelCache.TryGetValue(cacheKey, out aniModel))
                     {
                         try
                         {
-                            aniModel = Loader.LoadCharacter(availableModels[chosenCode], chosenCode, SpawnAnimations, singleFrame: true);
-                            modelCache[chosenCode] = aniModel;
+                            aniModel = Loader.LoadCharacter(availableModels[chosenCode], chosenCode, SpawnAnimations, singleFrame: true, textureIndex: textureIdx);
+                            modelCache[cacheKey] = aniModel;
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine($"[SpawnManager] Failed to load '{chosenCode}': {ex.Message}");
+                            Console.WriteLine($"[SpawnManager] Failed to load '{chosenCode}' (texture={textureIdx}): {ex.Message}");
                         }
                     }
                 }

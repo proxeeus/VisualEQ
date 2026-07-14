@@ -171,7 +171,14 @@ namespace VisualEQ
         //
         // `singleFrame`: if true, keep only frame 0 of every animation. Draw becomes static
         // (frameCount % 1 == 0), interpolation lerps between identical buffers → no motion.
-        internal static AniModel LoadCharacter(string path, string name, HashSet<string> animationWhitelist = null, bool singleFrame = false)
+        //
+        // `textureIndex` picks an armor variant per LANTERN's approach: keep every mesh and
+        // material exactly as-is, only substitute the underlying PNG. Mesh UVs, shader flags,
+        // material shell all preserved — the sampled texture just points at a different
+        // pixel set. For a mesh whose default material references `FPMCH0001.png`, texture=1
+        // makes it sample `FPMCH0002.png` instead. When no matching variant PNG exists in
+        // the chr zip, the original PNG is kept (silent fallback).
+        internal static AniModel LoadCharacter(string path, string name, HashSet<string> animationWhitelist = null, bool singleFrame = false, int textureIndex = 0)
         {
             using (var zip = ZipFile.OpenRead(path))
             {
@@ -183,7 +190,7 @@ namespace VisualEQ
                     var root = OESFile.Read<OESRoot>(ms);
                     var model = root.Find<OESCharacter>().First(x => x.Name == name);
 
-                    var materials = FromSkin(model.Find<OESSkin>().First(), zip);
+                    var materials = FromSkin(model.Find<OESSkin>().First(), zip, textureIndex);
 
                     var allAniSets = model.Find<OESAnimationSet>().ToList();
                     var anisets = allAniSets
@@ -193,7 +200,8 @@ namespace VisualEQ
 
                     WriteLine($"Loading {model.Name}: kept [{string.Join(",", anisets.Keys)}] " +
                               $"of {allAniSets.Count} → [{string.Join(",", allAniSets.Select(a => a.Name))}]" +
-                              (singleFrame ? " (single-frame)" : ""));
+                              (singleFrame ? " (single-frame)" : "") +
+                              (textureIndex != 0 ? $" (texture={textureIndex})" : ""));
 
                     var animodel = new AniModel();
                     foreach (var setName in anisets.Keys) animodel.AvailableAnimations.Add(setName);
@@ -214,16 +222,87 @@ namespace VisualEQ
             }
         }
 
-        static List<Material> FromSkin(OESSkin skin, ZipArchive zip) =>
-            skin.Find<OESMaterial>().Select(mat =>
+        // Parses a chr texture filename per LANTERN's MaterialList.ParseCharacterSkin
+        // (LanternExtractor/EQ/Wld/Fragments/MaterialList.cs:122). The classic EQ base
+        // material name is exactly 9 characters:
+        //   chars 0-2 : race code   ("FPM", "HUM", "DAM")
+        //   chars 3-4 : body region ("CH", "LG", "HE", "FT", "UA", "HN", "FA")
+        //   chars 5-6 : SKIN VARIANT (00 = default cloth, 01 = leather, 02 = chain, ...)
+        //   chars 7-8 : region sub-part (01, 02, 03 — different mesh pieces of same body region)
+        //
+        // Slot key groups meshes that share a texture slot across variants:
+        //   race + region + sub-part → e.g. "FPMCH01" (Freeport chest sub-part 01)
+        // Alt skin swap looks for the same slot at a DIFFERENT variant, so
+        //   FPMCH0001 (variant 00, slot FPMCH01) can be swapped with FPMCH0101
+        //   (variant 01, slot FPMCH01) but NOT with FPMCH0002 (variant 00, slot FPMCH02).
+        //
+        // The previous bug: parsed the last 4 digits as "variant" and swapped
+        // FPMCH0001 with FPMCH0002 — different sub-parts of the same variant, so the
+        // swap put the wrong mesh piece's texture on the wrong geometry (garbled UVs).
+        static (string SlotKey, int Variant) ParseTextureFilename(string filename)
+        {
+            var nameNoExt = Path.GetFileNameWithoutExtension(filename);
+            var baseName = nameNoExt;
+            var dash = baseName.IndexOf('-');
+            if (dash > 0) baseName = baseName.Substring(0, dash);
+            if (baseName.Length != 9) return (null, 0);
+            var race    = baseName.Substring(0, 3);
+            var region  = baseName.Substring(3, 2);
+            var variant = baseName.Substring(5, 2);
+            var subpart = baseName.Substring(7, 2);
+            if (!int.TryParse(variant, out var v)) return (null, 0);
+            return (race + region + subpart, v);
+        }
+
+        static List<Material> FromSkin(OESSkin skin, ZipArchive zip, int textureIndex = 0) =>
+            FromSkinInner(skin, zip, textureIndex);
+
+        static List<Material> FromSkinInner(OESSkin skin, ZipArchive zip, int textureIndex)
+        {
+            // Build slotKey → (variant → zip-entry-name) lookup. When textureIndex > 0 we
+            // consult this to substitute the PNG loaded for each material — mesh geometry
+            // and material shell stay put, only the pixel data behind them changes. Cost
+            // is O(materials); done once per model load.
+            Dictionary<string, Dictionary<int, string>> variantsBySlot = null;
+            if (textureIndex > 0)
+            {
+                variantsBySlot = new Dictionary<string, Dictionary<int, string>>(StringComparer.OrdinalIgnoreCase);
+                foreach (var m in skin.Find<OESMaterial>())
+                {
+                    foreach (var t in m.Find<OESTexture>())
+                    {
+                        var (slot, variant) = ParseTextureFilename(t.Filename);
+                        if (slot == null) continue;
+                        if (!variantsBySlot.TryGetValue(slot, out var byVariant))
+                            variantsBySlot[slot] = byVariant = new Dictionary<int, string>();
+                        if (!byVariant.ContainsKey(variant)) byVariant[variant] = t.Filename;
+                    }
+                }
+            }
+
+            // Returns the zip-entry filename to load for `original`. If an alt-skin PNG
+            // exists at the same slot with variant == textureIndex, use it; otherwise
+            // fall back to the original (no visible change for chr files that only ship
+            // skin variant 00, which is the case for the classic Trilogy client's
+            // playable + NPC races).
+            string PickVariantFilename(string original)
+            {
+                if (variantsBySlot == null) return original;
+                var (slot, _) = ParseTextureFilename(original);
+                if (slot == null || !variantsBySlot.TryGetValue(slot, out var byVariant)) return original;
+                return byVariant.TryGetValue(textureIndex, out var alt) ? alt : original;
+            }
+
+            return skin.Find<OESMaterial>().Select(mat =>
             {
                 var effect = mat.Find<OESEffect>().FirstOrDefault();
                 effect = effect ?? new OESEffect("default");
 
                 var textures = mat.Find<OESTexture>().Select(x =>
                 {
-                    using (var tzs = zip.GetEntry(x.Filename)?.Open())
-                        return Png.Decode(Path.GetFileName(x.Filename), tzs);
+                    var loadFilename = PickVariantFilename(x.Filename);
+                    using (var tzs = zip.GetEntry(loadFilename)?.Open())
+                        return Png.Decode(Path.GetFileName(loadFilename), tzs);
                 }).ToArray();
 
                 switch (effect.Name)
@@ -247,5 +326,6 @@ namespace VisualEQ
                         throw new NotImplementedException($"Unknown OESEffect name: {effect.Name}");
                 }
             }).ToList();
+        }
     }
 }

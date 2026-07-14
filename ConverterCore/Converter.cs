@@ -511,6 +511,50 @@ namespace VisualEQ.ConverterCore
                 });
             });
             asets.ForEach(kv => model.Add(kv.Value));
+
+            // LANTERN's `WldFileCharacters.FindMaterialVariants` +
+            // `MaterialList.AddVariant`: the mesh's TextureListReference (Fragment31)
+            // only lists the base outfit's Fragment30 materials (skin variant 00).
+            // Higher-tier armor / merchant skins live as UNREFERENCED Fragment30s in
+            // the WLD — same character/region/subpart, variant > 00 in chars 5-6 of
+            // the material name (e.g. BATCH0101_MDF is variant 01 of BATCH0001_MDF).
+            // Emit those into the skin so the runtime PNG-swap can find them.
+            {
+                var baseSlots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var mat in skin.Find<OESMaterial>())
+                {
+                    foreach (var tex in mat.Find<OESTexture>())
+                    {
+                        var fn = Path.GetFileNameWithoutExtension(tex.Filename);
+                        var dash = fn.IndexOf('-');
+                        if (dash > 0) fn = fn.Substring(0, dash);
+                        if (fn.Length != 9) continue;
+                        var variant = fn.Substring(5, 2);
+                        if (variant != "00") continue;
+                        baseSlots.Add(fn.Substring(0, 3) + fn.Substring(3, 2) + fn.Substring(7, 2));
+                    }
+                }
+
+                var added = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (fragName, f30) in wld.GetFragments<Fragment30>())
+                {
+                    var matName = fragName;
+                    if (matName.EndsWith("_MDF")) matName = matName.Substring(0, matName.Length - 4);
+                    if (matName.Length != 9) continue;
+                    var variant = matName.Substring(5, 2);
+                    if (variant == "00") continue;
+                    var slot = matName.Substring(0, 3) + matName.Substring(3, 2) + matName.Substring(7, 2);
+                    if (!baseSlots.Contains(slot)) continue;
+                    if (!added.Add(matName)) continue;
+
+                    if (f30.Reference.Value?.Reference.Value?.References == null ||
+                        f30.Reference.Value.Reference.Value.References.Length == 0) continue;
+                    var tfn = f30.Reference.Value.Reference.Value.References[0].Value.Filenames[0];
+                    var tf = f30.Flags;
+                    var masked = (tf & (2 | 8 | 16)) != 0;
+                    skin.Add(new OESMaterial(masked, false, false) { new OESTexture(ConvertTexture(wld.S3D, zip, tfn)) });
+                }
+            }
         }
 
         // Non-skeletal actors (BOAT, SHIP, EYE_OF_ZOMM, ...) — the Fragment14
