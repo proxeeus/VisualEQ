@@ -275,15 +275,51 @@ namespace VisualEQ.Common
         public override string ToString() => $"OESZone(Name={Name})";
     }
 
+    // Named world region — currently used to record water surfaces detected at zone
+    // conversion time (materials whose names begin with "WT_" in classic EQ WLD files),
+    // so the runtime can snap NPC/waypoint Z to the water surface. Kind values leave
+    // room for future lava/slime detection without a schema bump. Bounds are DB-space
+    // (X = east/west, Y = north/south, Z = up), matching how spawn2/grid_entries coords
+    // are stored and how spawn positions round-trip.
     public class OESRegion : OESChunk
     {
+        public const byte KindWater = 0;
+        public const byte KindLava  = 1;
+        public const byte KindSlime = 2;
+        public const byte KindOther = 255;
+
+        public string Name;
+        public byte Kind;
+        public Vector3 Min;
+        public Vector3 Max;
+
         public OESRegion(string typeCode, uint id) : base(typeCode, id) { }
 
-        public OESRegion() : base("regn") { }
+        public OESRegion(string name, byte kind, Vector3 min, Vector3 max) : base("regn")
+        {
+            Name = name;
+            Kind = kind;
+            Min = min;
+            Max = max;
+        }
 
-        protected override void SerializeData(BinaryWriter bw) => throw new System.NotImplementedException();
+        protected override void SerializeData(BinaryWriter bw)
+        {
+            bw.WriteUTF8String(Name ?? "");
+            bw.Write(Kind);
+            bw.Write(Min);
+            bw.Write(Max);
+        }
 
-        public override string ToString() => $"OESRegion";
+        protected override void DeserializeData(BinaryReader br)
+        {
+            Name = br.ReadUTF8String();
+            Kind = br.ReadByte();
+            Min  = br.ReadVec3();
+            Max  = br.ReadVec3();
+        }
+
+        public override string ToString() => $"OESRegion(Name={Name}, Kind={Kind}, Min={Min}, Max={Max})";
     }
 
     public class OESCharacter : OESChunk

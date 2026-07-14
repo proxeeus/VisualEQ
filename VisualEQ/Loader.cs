@@ -46,6 +46,19 @@ namespace VisualEQ
                     }
 
                     zone.Find<OESLight>().ForEach(light => engine.AddLight(light.Position, light.Radius, light.Attenuation, light.Color));
+
+                    // Liquid regions (water/lava/slime) — DB-space AABBs stamped into the
+                    // .oes at convert time by ConverterCore. Consumed by "Snap Z to water"
+                    // in the sidebar. Zones converted before this feature landed have zero
+                    // OESRegion chunks; the query API just reports "no water here".
+                    var regionCount = 0;
+                    zone.Find<OESRegion>().ForEach(r =>
+                    {
+                        engine.AddRegion(r.Name, r.Kind, r.Min, r.Max);
+                        regionCount++;
+                    });
+                    if (regionCount > 0)
+                        WriteLine($"[Loader] Loaded {regionCount} region(s) for {zone.Name}");
                 }
             }
         }

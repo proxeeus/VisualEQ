@@ -28,6 +28,9 @@ namespace VisualEQ.SpawnSystem
 
         public void MarkMoved(Vector3 newPos, float heading)
         {
+            System.Console.WriteLine(
+                $"[SpawnPoint] MarkMoved #{Record.Spawn.Id} pos ({Model.Position.X:F1},{Model.Position.Y:F1},{Model.Position.Z:F1}) " +
+                $"→ ({newPos.X:F1},{newPos.Y:F1},{newPos.Z:F1}) heading {CurrentHeading:F0}→{heading:F0}");
             Model.Rotation = SpawnManager.HeadingToRotation(heading);
             Model.Position = newPos;
             CurrentHeading = heading;
@@ -36,6 +39,9 @@ namespace VisualEQ.SpawnSystem
 
         public void Revert()
         {
+            System.Console.WriteLine(
+                $"[SpawnPoint] Revert #{Record.Spawn.Id} pos ({Model.Position.X:F1},{Model.Position.Y:F1},{Model.Position.Z:F1}) " +
+                $"→ ({OriginalPosition.X:F1},{OriginalPosition.Y:F1},{OriginalPosition.Z:F1}) heading {CurrentHeading:F0}→{OriginalHeading:F0}");
             Model.Rotation = SpawnManager.HeadingToRotation(OriginalHeading);
             Model.Position = OriginalPosition;
             CurrentHeading = OriginalHeading;

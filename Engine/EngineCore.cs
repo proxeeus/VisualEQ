@@ -27,6 +27,10 @@ namespace VisualEQ.Engine
         readonly List<AniModelInstance> AniModels = new List<AniModelInstance>();
         readonly List<double> FrameTimes = new List<double>();
         readonly List<PointLight> Lights = new List<PointLight>();
+        // Named water/lava/slime regions loaded from the zone's OES `regn` chunks. Empty
+        // for zones that predate liquid-region detection. Public list — callers iterate
+        // to render debug volumes, run point-in-region queries, or snap NPC Z to a surface.
+        public readonly List<LiquidRegion> Regions = new List<LiquidRegion>();
 
         public double FPS => FrameTimes.Count == 0 ? 0 : 1 / (FrameTimes.Sum() / FrameTimes.Count);
 
@@ -313,6 +317,68 @@ namespace VisualEQ.Engine
         public void Add(Model model) => Models.Add(model);
         public void Add(AniModelInstance modelInstance) => AniModels.Add(modelInstance);
 
+        public void AddRegion(string name, byte kind, Vector3 min, Vector3 max) =>
+            Regions.Add(new LiquidRegion(name, kind, min, max));
+
+        // Given a SCENE-space (X, Y) query point, returns the top-Z of the highest region
+        // of the requested kind whose XY footprint contains the point. Multiple overlapping
+        // pools use the highest surface — matches the intuition of a boat floating on the
+        // topmost water. Returns false when no region contains the point.
+        //
+        // IMPORTANT: inputs are SCENE coords, not DB coords. Region AABBs are stamped from
+        // raw WLD vertex positions loaded straight into scene space (Identity transform in
+        // Loader.LoadZoneFile), so their X/Y axes match sp.Model.Position, NOT spawn2.x/y.
+        // Callers with DB-space coords must swap X↔Y at the call site — e.g. for a waypoint
+        // whose fields are DB-space, pass (wp.Y, wp.X). See RenderSpawnSnapToWater and
+        // RenderWaypointSnapToWater for the axis dance.
+        public bool TryGetLiquidSurfaceZAt(float sceneX, float sceneY, byte kind, out float surfaceZ)
+        {
+            surfaceZ = float.MinValue;
+            var found = false;
+            foreach (var r in Regions)
+            {
+                if (r.Kind != kind) continue;
+                if (sceneX < r.Min.X || sceneX > r.Max.X) continue;
+                if (sceneY < r.Min.Y || sceneY > r.Max.Y) continue;
+                if (!found || r.Max.Z > surfaceZ)
+                {
+                    surfaceZ = r.Max.Z;
+                    found = true;
+                }
+            }
+            return found;
+        }
+
+        // Fallback for entities outside every region's XY footprint. Classic EQ freporte
+        // only meshes the harbor water plane — the surrounding "sea" is skybox with no
+        // walkable water. If a zone has ANY water at all, return the top-Z of the region
+        // whose center is closest to the query point (Chebyshev distance). Inputs are
+        // SCENE coords, same as TryGetLiquidSurfaceZAt.
+        public bool TryGetNearestLiquidSurfaceZ(float sceneX, float sceneY, byte kind,
+            out float surfaceZ, out string regionName, out float distance)
+        {
+            surfaceZ   = 0f;
+            regionName = null;
+            distance   = float.MaxValue;
+            LiquidRegion best = null;
+            foreach (var r in Regions)
+            {
+                if (r.Kind != kind) continue;
+                var cx = (r.Min.X + r.Max.X) * 0.5f;
+                var cy = (r.Min.Y + r.Max.Y) * 0.5f;
+                var d = System.MathF.Max(System.MathF.Abs(sceneX - cx), System.MathF.Abs(sceneY - cy));
+                if (d < distance)
+                {
+                    distance   = d;
+                    best       = r;
+                }
+            }
+            if (best == null) return false;
+            surfaceZ   = best.Max.Z;
+            regionName = best.Name;
+            return true;
+        }
+
         public void Start()
         {
             // Boot with an empty collider so the engine can run before a zone is loaded.
@@ -353,6 +419,7 @@ namespace VisualEQ.Engine
             Models.Clear();
             AniModels.Clear();
             Lights.Clear();
+            Regions.Clear();
         }
 
         // Projects a screen-space mouse position onto the "ground" — a downward probe

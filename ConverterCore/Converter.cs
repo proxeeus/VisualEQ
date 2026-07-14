@@ -111,12 +111,24 @@ namespace VisualEQ.ConverterCore
                     {
                         var objname = instance.Reference.Value?.Replace("_ACTORDEF", "");
                         if (objname == null || !objMap.ContainsKey(objname)) continue;
-                        zone.Add(new OESInstance(
-                            objMap[objname], instance.Position, instance.Scale,
-                            Quaternion.CreateFromAxisAngle(new Vector3(0, 0, 1), instance.Rotation.Z) *
-                            Quaternion.CreateFromAxisAngle(new Vector3(0, 1, 0), instance.Rotation.Y) *
-                            Quaternion.CreateFromAxisAngle(new Vector3(1, 0, 0), instance.Rotation.X)
-                        ));
+                        var rot = Quaternion.CreateFromAxisAngle(new Vector3(0, 0, 1), instance.Rotation.Z) *
+                                  Quaternion.CreateFromAxisAngle(new Vector3(0, 1, 0), instance.Rotation.Y) *
+                                  Quaternion.CreateFromAxisAngle(new Vector3(1, 0, 0), instance.Rotation.X);
+                        zone.Add(new OESInstance(objMap[objname], instance.Position, instance.Scale, rot));
+
+                        // Transform each region defined in the object's local space into
+                        // world space for this instance, and emit onto the zone. Rotation
+                        // + scale + translation, then re-AABB the 8 corners so the world
+                        // AABB is still axis-aligned. Query API only cares about world XY.
+                        var obj = objMap[objname];
+                        var xform = Matrix4x4.CreateScale(instance.Scale) *
+                                    Matrix4x4.CreateFromQuaternion(rot) *
+                                    Matrix4x4.CreateTranslation(instance.Position);
+                        foreach (var lr in obj.Find<OESRegion>())
+                        {
+                            var (wMin, wMax) = TransformAabb(lr.Min, lr.Max, xform);
+                            zone.Add(new OESRegion(lr.Name, lr.Kind, wMin, wMax));
+                        }
                     }
                 }
 
@@ -445,10 +457,66 @@ namespace VisualEQ.ConverterCore
             return (ovb.ToArray(), oib);
         }
 
+        // Transform the 8 corners of a local-space AABB through a world matrix and
+        // re-fit an axis-aligned AABB in world space. Necessary because the query API
+        // only checks a world-XY point against min/max — a rotated instance without
+        // this pass would have the wrong footprint.
+        static (Vector3 Min, Vector3 Max) TransformAabb(Vector3 lMin, Vector3 lMax, Matrix4x4 xform)
+        {
+            Span<Vector3> corners = stackalloc Vector3[8];
+            corners[0] = new Vector3(lMin.X, lMin.Y, lMin.Z);
+            corners[1] = new Vector3(lMax.X, lMin.Y, lMin.Z);
+            corners[2] = new Vector3(lMin.X, lMax.Y, lMin.Z);
+            corners[3] = new Vector3(lMax.X, lMax.Y, lMin.Z);
+            corners[4] = new Vector3(lMin.X, lMin.Y, lMax.Z);
+            corners[5] = new Vector3(lMax.X, lMin.Y, lMax.Z);
+            corners[6] = new Vector3(lMin.X, lMax.Y, lMax.Z);
+            corners[7] = new Vector3(lMax.X, lMax.Y, lMax.Z);
+            var min = Vector3.Transform(corners[0], xform);
+            var max = min;
+            for (var i = 1; i < 8; i++)
+            {
+                var w = Vector3.Transform(corners[i], xform);
+                min = Vector3.Min(min, w);
+                max = Vector3.Max(max, w);
+            }
+            return (min, max);
+        }
+
+        static string KindLabel(byte kind)
+        {
+            switch (kind)
+            {
+                case OESRegion.KindWater: return "water";
+                case OESRegion.KindLava:  return "lava";
+                case OESRegion.KindSlime: return "slime";
+                default: return "other";
+            }
+        }
+
         void CreateMeshAndSkin(Wld wld, ZipArchive zip, OESChunk target, IEnumerable<MeshPiece> pieces)
         {
             var mesh = new Mesh();
             pieces.ForEach(mesh.Add);
+
+            // Liquid region detection runs before Bake so it sees the original per-material
+            // polygon groups (Bake dedupes materials by texture properties, which would fold
+            // multiple named liquid regions using the same texture into one AABB).
+            //
+            // Emit onto zone AND object targets. Some zones place water inside an object
+            // mesh (a "water pool" prop instanced across the zone), and skipping objects
+            // meant the ocean visible in freporte's harbor was invisible to snap-to-water.
+            // Object regions are stamped in the object's LOCAL space; a later pass in the
+            // zone loop transforms them into world space for each OESInstance.
+            foreach (var (name, kind, min, max) in mesh.DetectLiquidRegions())
+            {
+                WriteLine($"[Converter] Detected {KindLabel(kind)} region '{name}' " +
+                          $"on {(target is OESZone ? "zone" : "object")} " +
+                          $"min=({min.X:F1},{min.Y:F1},{min.Z:F1}) " +
+                          $"max=({max.X:F1},{max.Y:F1},{max.Z:F1})");
+                target.Add(new OESRegion(name, kind, min, max));
+            }
+
             var baked = mesh.Bake();
             var skin = new OESSkin();
             target.Add(skin);

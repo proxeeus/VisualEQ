@@ -762,6 +762,9 @@ namespace VisualEQ.Views
             if (_view.Controller.EditModeEnabled)
                 RenderHeadingSlider(sp);
 
+            if (_view.Controller.EditModeEnabled)
+                RenderSpawnSnapToWater(sp);
+
             // Other entries in the spawngroup, if any.
             if (record.Entries.Count > 1)
             {
@@ -850,9 +853,66 @@ namespace VisualEQ.Views
 
             if (editable)
             {
+                RenderWaypointSnapToWater(gridId, number, wp);
                 ImGui.Separator();
                 RenderWaypointAddButton(gridId, zoneId, wp);
                 RenderWaypointDeleteButton(gridId, zoneId, number, wp, isPendingInsert);
+            }
+        }
+
+        // Snap-Z-to-water for waypoints. Waypoint fields are DB coords, but the region
+        // query expects SCENE coords — so pass (wp.Y, wp.X) as the query XY (same swap
+        // spawn instances use at load: Vector3(spawn.Y, spawn.X, spawn.Z)). Same
+        // diagnostic-always-visible pattern as the spawn version. Fires a
+        // GridEntryFieldEditAction on the Z field so undo/redo and buffer coalescing
+        // behave exactly like a manual Z edit.
+        void RenderWaypointSnapToWater(int gridId, int number, VisualEQ.Database.Models.GridEntry wp)
+        {
+            var engine = _view.Controller.Engine;
+            var waterCount = 0;
+            foreach (var r in engine.Regions)
+                if (r.Kind == VisualEQ.Engine.LiquidRegion.KindWater) waterCount++;
+
+            // DB → scene swap for the query point.
+            var qx = wp.Y;
+            var qy = wp.X;
+
+            ImGui.Separator();
+            ImGui.Text($"Snap to water  (this zone has {waterCount} water region(s))");
+            ImGui.Text($"Waypoint DB XY = ({wp.X:F1}, {wp.Y:F1})");
+
+            if (waterCount == 0)
+            {
+                ImGui.Text("This zone has no water — re-convert to detect any.");
+                return;
+            }
+
+            string label;
+            float surfaceZ;
+            if (engine.TryGetLiquidSurfaceZAt(qx, qy, VisualEQ.Engine.LiquidRegion.KindWater, out surfaceZ))
+            {
+                label = $"Snap Z to water (surface Z = {surfaceZ:F1})";
+                ImGui.Text($"Over water. Current Z = {wp.Z:F1}");
+            }
+            else if (engine.TryGetNearestLiquidSurfaceZ(qx, qy, VisualEQ.Engine.LiquidRegion.KindWater,
+                out surfaceZ, out var nearestName, out var dist))
+            {
+                label = $"Snap Z to nearest water plane (surface Z = {surfaceZ:F1})";
+                ImGui.Text($"Outside water AABB — nearest region '{nearestName}' (~{dist:F0} units away)");
+                ImGui.Text($"Current Z = {wp.Z:F1}");
+            }
+            else
+            {
+                return;
+            }
+
+            if (ImGui.Button($"{label}###{Id}wpSnapW{gridId}_{number}", new Vector2(280, 24)))
+            {
+                if (Math.Abs(wp.Z - surfaceZ) > 0.001f)
+                    _view.Controller.RecordAction(new VisualEQ.EditSystem.GridEntryFieldEditAction(
+                        gridId, number,
+                        VisualEQ.EditSystem.GridEntryFieldEditAction.Field.Z,
+                        wp.Z, surfaceZ));
             }
         }
 
@@ -1206,6 +1266,60 @@ namespace VisualEQ.Views
                 }
             }
             _wasHeadingSliderActive = sliderActive;
+        }
+
+        // Snap-Z-to-water affordance for spawns. Always renders a diagnostic block in edit
+        // mode so a user who expects the button but isn't over water can see WHY it's not
+        // firing (out-of-region, no regions loaded, wrong zone). Button only enables when
+        // a water region actually contains the spawn's DB XY footprint. Records a standard
+        // SpawnMoveAction so undo/redo, pending-buffer, and commit flow through unchanged.
+        void RenderSpawnSnapToWater(SpawnPoint sp)
+        {
+            var engine = _view.Controller.Engine;
+            // Region AABBs live in SCENE coords (WLD vertices loaded with Identity).
+            // sp.Model.Position is scene coords too, so pass it straight — no swap.
+            var scenePos = sp.Model.Position;
+
+            var waterCount = 0;
+            foreach (var r in engine.Regions)
+                if (r.Kind == VisualEQ.Engine.LiquidRegion.KindWater) waterCount++;
+
+            ImGui.Separator();
+            ImGui.Text($"Snap to water  (this zone has {waterCount} water region(s))");
+            // Display the DB coord un-swap so users can cross-reference with spawn2 rows.
+            ImGui.Text($"Spawn DB XY = ({scenePos.Y:F1}, {scenePos.X:F1})");
+
+            if (waterCount == 0)
+            {
+                ImGui.Text("This zone has no water — re-convert to detect any.");
+                return;
+            }
+
+            string label;
+            float surfaceZ;
+            if (engine.TryGetLiquidSurfaceZAt(scenePos.X, scenePos.Y, VisualEQ.Engine.LiquidRegion.KindWater, out surfaceZ))
+            {
+                label = $"Snap Z to water (surface Z = {surfaceZ:F1})";
+                ImGui.Text($"Over water. Current Z = {scenePos.Z:F1}");
+            }
+            else if (engine.TryGetNearestLiquidSurfaceZ(scenePos.X, scenePos.Y, VisualEQ.Engine.LiquidRegion.KindWater,
+                out surfaceZ, out var nearestName, out var dist))
+            {
+                label = $"Snap Z to nearest water plane (surface Z = {surfaceZ:F1})";
+                ImGui.Text($"Outside water AABB — nearest region '{nearestName}' (~{dist:F0} units away)");
+                ImGui.Text($"Current Z = {scenePos.Z:F1}");
+            }
+            else
+            {
+                return; // No water at all — shouldn't hit this since waterCount > 0.
+            }
+
+            if (ImGui.Button($"{label}###{Id}siSnapW{sp.Record.Spawn.Id}", new Vector2(280, 24)))
+            {
+                var newScenePos = new Vector3(scenePos.X, scenePos.Y, surfaceZ);
+                if (Vector3.DistanceSquared(scenePos, newScenePos) > 0.0001f)
+                    _view.Controller.RecordAction(new SpawnMoveAction(sp, scenePos, newScenePos));
+            }
         }
 
         void RenderPendingChangesSection(int index)
