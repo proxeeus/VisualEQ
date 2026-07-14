@@ -202,10 +202,14 @@ namespace VisualEQ.SpawnSystem
             }
         }
 
-        // Builds name → chr zip path map for a zone. Search order (higher priority wins on collision):
-        //   1. `{zone}_chr_oes.zip`             — zone-specific art
-        //   2. `global*_chr_oes.zip`            — canonical playable races + shared monsters
-        //   3. any other `*_chr_oes.zip`        — best-effort fallback (previously-decoded zones)
+        // Builds name → chr zip path map for a zone. For each model name we pick the
+        // chr zip where it has the most animation content (anims × 1000 + meshes), so
+        // that empty stubs in zone-specific chr zips don't shadow the fully-animated
+        // versions in global_chr. Ties are broken by scan order (zone first, then
+        // global*, then other), which lets zone-only models (DER/GHU/FPM/SHIP) still
+        // pick up the zone-specific mesh even if a decoded global zip has a same-name
+        // stub. Zone models with meshes-but-no-anims (SHIP, BOAT) win against any
+        // other zip that doesn't have the model at all.
         internal static Dictionary<string, string> BuildAvailableModels(string zoneName, string dir)
         {
             var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -236,17 +240,21 @@ namespace VisualEQ.SpawnSystem
                 .Where(p => p != zonePath && !IsGlobal(p))
                 .OrderBy(p => p, StringComparer.OrdinalIgnoreCase));
 
+            // For each model name, track the best-scoring chr zip.
+            var bestScore = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             int zoneModels = 0, globalModels = 0, otherModels = 0;
 
             foreach (var path in ordered)
             {
-                var models = Loader.GetAvailableCharacterModels(path);
+                var richness = Loader.GetCharacterModelRichness(path);
                 int added = 0;
-                foreach (var name in models)
+                foreach (var kv in richness)
                 {
-                    if (result.ContainsKey(name)) continue;
-                    result[name] = path;
-                    added++;
+                    if (bestScore.TryGetValue(kv.Key, out var cur) && cur >= kv.Value) continue;
+                    bestScore[kv.Key] = kv.Value;
+                    var wasNew = !result.ContainsKey(kv.Key);
+                    result[kv.Key] = path;
+                    if (wasNew) added++;
                 }
 
                 if (path == zonePath) zoneModels += added;
@@ -256,7 +264,7 @@ namespace VisualEQ.SpawnSystem
 
             Console.WriteLine(
                 $"[SpawnManager] '{zoneName}' models: {result.Count} total " +
-                $"(zone={zoneModels}, global={globalModels}, other={otherModels})");
+                $"(zone-new={zoneModels}, global-new={globalModels}, other-new={otherModels})");
             return result;
         }
     }

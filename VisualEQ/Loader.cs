@@ -126,6 +126,44 @@ namespace VisualEQ
             }
         }
 
+        // Returns (model name → richness score) for a chr zip. Richness = animation set
+        // count + 1 (so any model with a bind-pose mesh beats "not present at all").
+        // Used by SpawnManager.BuildAvailableModels to pick the chr zip that actually
+        // has the model animated — zone-specific chr files often carry empty stubs for
+        // playable races that shadow the populated versions in global_chr, and we want
+        // the animated version to win.
+        internal static Dictionary<string, int> GetCharacterModelRichness(string path)
+        {
+            var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                using (var zip = ZipFile.OpenRead(path))
+                using (var ms = new MemoryStream())
+                {
+                    using (var temp = zip.GetEntry("main.oes")?.Open())
+                        temp?.CopyTo(ms);
+                    ms.Position = 0;
+                    var root = OESFile.Read<OESRoot>(ms);
+                    foreach (var c in root.Find<OESCharacter>())
+                    {
+                        var anims = c.Find<OESAnimationSet>().Count();
+                        var meshes = c.Find<OESAnimatedMesh>().Count();
+                        // Score: prefer animated models heavily; a model with meshes
+                        // but no anims (e.g. SHIP static mesh) still beats a zip that
+                        // doesn't declare the model at all.
+                        var score = anims * 1000 + meshes;
+                        if (!result.TryGetValue(c.Name, out var cur) || score > cur)
+                            result[c.Name] = score;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteLine($"[Loader] Could not enumerate models in '{path}': {ex.Message}");
+            }
+            return result;
+        }
+
         // Loads a character model. `animationWhitelist` (if non-null) restricts which named
         // animation sets get uploaded to GL — massive win for spawn rendering, where we only
         // need one idle animation per model. `""` (the mesh's built-in bind pose) is always

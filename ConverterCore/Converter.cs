@@ -226,14 +226,136 @@ namespace VisualEQ.ConverterCore
             public AniTreeFrame[] Children;
         }
 
+        // LANTERN's `ClientData/animationsources.txt` — maps a character model
+        // code to the model whose animation tracks it should inherit. Classic
+        // EQ's global_chr.s3d only stores animated pose tracks for a handful
+        // of "donor" models (ELM/ELF for humans, DWM/DWF for stubby races,
+        // OGF for large humanoids, etc.). Every other playable race + a lot
+        // of NPC races carry only a bind pose in their own tracks; the client
+        // resolves this at load time via this same mapping. If we don't apply
+        // it here, HAM/DAM/HIM/etc. render as T-poses because the OES emits
+        // zero OESAnimationSets for them. Kept as a static table (~90 entries,
+        // stable over ~20 years) to avoid runtime file I/O.
+        static readonly Dictionary<string, string> AnimationSources = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "HUM", "ELM" }, { "HUF", "ELF" },
+            { "BAM", "ELM" }, { "BAF", "ELF" },
+            { "ERM", "ELM" }, { "ERF", "ELF" },
+            { "HIM", "ELM" }, { "HIF", "ELF" },
+            { "DAM", "ELM" }, { "DAF", "ELF" },
+            { "HAM", "ELM" }, { "HAF", "ELF" },
+            { "TRM", "OGF" }, { "TRF", "OGF" },
+            { "OGM", "OGF" },
+            { "HOM", "DWM" }, { "HOF", "DWF" },
+            { "GNM", "DWM" }, { "GNF", "DWF" },
+            { "BRM", "ELM" }, { "BRF", "ELF" },
+            { "GOM", "GIA" }, { "GOL", "GIA" },
+            { "BET", "SPI" },
+            { "CPF", "CPM" },
+            { "FRG", "FRO" },
+            { "GAM", "GAR" },
+            { "GHU", "GOB" },
+            { "FPM", "ELM" },
+            { "IMP", "GAR" },
+            { "GRI", "DRK" },
+            { "KOB", "WER" },
+            { "LIF", "LIM" },
+            { "MIN", "GNN" },
+            { "BGM", "ELM" },
+            { "PIF", "FAF" },
+            { "BGG", "KGO" },
+            { "SKE", "ELM" },
+            { "TIG", "LIM" },
+            { "HHM", "ELM" },
+            { "ZOM", "ELM" }, { "ZOF", "ELF" },
+            { "QCM", "ELM" }, { "QCF", "ELF" },
+            { "PUM", "LIM" },
+            { "NGM", "ELM" },
+            { "EGM", "ELM" },
+            { "RIM", "DWM" }, { "RIF", "DWF" },
+            { "SKU", "RAT" },
+            { "SPH", "DRK" },
+            { "ARM", "RAT" },
+            { "CLM", "DWM" }, { "CLF", "DWF" }, { "CL", "DWM" },
+            { "HLM", "ELM" }, { "HLF", "ELF" },
+            { "GRM", "OGF" }, { "GRF", "OGF" },
+            { "OKM", "OGF" }, { "OKF", "OGF" },
+            { "KAM", "DWM" }, { "KAF", "DWF" }, { "KA",  "DWM" },
+            { "FEM", "ELM" }, { "FEF", "ELF" },
+            { "GFM", "ELM" }, { "GFF", "ELF" },
+            { "STC", "LIM" },
+            { "IKF", "IKM" },
+            { "ICM", "IKM" }, { "ICF", "IKM" }, { "ICN", "IKM" },
+            { "ERO", "ELF" },
+            { "TRI", "ELM" },
+            { "BRI", "DWM" },
+            { "FDF", "FDR" },
+            { "SSK", "SRW" },
+            { "VRF", "VRM" },
+            { "WUR", "DRA" },
+            { "IKS", "IKM" },
+            { "IKH", "REA" },
+            { "FMO", "DRK" },
+            { "BTM", "RHI" },
+            { "SDE", "DML" },
+            { "SPC", "SPE" },
+            { "ENA", "ELM" },
+            { "YAK", "GNN" },
+            { "COM", "DWM" }, { "COF", "DWF" }, { "COK", "DWM" },
+            { "DR2", "TRK" },
+            { "HAG", "ELF" },
+            { "SIR", "ELF" },
+            { "STG", "FSG" },
+            { "CCD", "TRK" },
+            { "ABH", "ELF" },
+            { "BWD", "TRK" },
+            { "GDR", "DRA" },
+            { "PRI", "TRK" },
+        };
+
+        // Animation prefixes VisualEQ actually renders at runtime — the spawn
+        // editor is idle-only, so we drop combat/social/damage/etc. animations
+        // at bake time. Each anim we keep means ~one OESAnimationBuffer per
+        // mesh (vertex counts × float per anim frame); pulling in the ~35 anims
+        // LANTERN's animationsources gives us was inflating global_chr's OES
+        // from ~100 MB to ~260 MB, tanking zone-load time and BuildAvailable-
+        // Models. If you need combat animations for a preview / debug tool,
+        // widen this set and re-decode. `""` is the bind pose and is always
+        // emitted separately.
+        static readonly HashSet<string> BakedAnimationPrefixes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "P01", "P02", "P03",
+            "L01", "L02", "L03",
+            "O01",
+            "STA", "POS",
+        };
+
         void GenerateAnimatedMeshes(Wld wld, ZipArchive zip, OESCharacter model, OESSkin skin, Fragment10 f10)
         {
             var prefixes = new List<string> { "" };
             var rootName = f10.Tracks[0].PieceTrack.Name;
 
+            // Pull LANTERN's alternate animation-source for this model. When
+            // set, we also look for prefixed tracks that end with the
+            // alternate's rootName and substitute the model code in per-bone
+            // lookups. This is how the classic client synthesises anims for
+            // races whose own chr tracks are bind-pose only.
+            AnimationSources.TryGetValue(model.Name, out var altModel);
+            string altRootName = null;
+            if (altModel != null && rootName.Contains(model.Name))
+                altRootName = rootName.Replace(model.Name, altModel);
+
             foreach (var f13 in wld.GetFragments<Fragment13>())
-                if (f13.Name != rootName && f13.Name.EndsWith(rootName))
-                    prefixes.Add(f13.Name.Substring(0, f13.Name.Length - rootName.Length));
+            {
+                if (f13.Name == rootName) continue;
+                string candidate = null;
+                if (f13.Name.EndsWith(rootName))
+                    candidate = f13.Name.Substring(0, f13.Name.Length - rootName.Length);
+                else if (altRootName != null && f13.Name.EndsWith(altRootName))
+                    candidate = f13.Name.Substring(0, f13.Name.Length - altRootName.Length);
+                if (candidate != null && BakedAnimationPrefixes.Contains(candidate))
+                    prefixes.Add(candidate);
+            }
             prefixes = prefixes.Distinct().ToList();
 
             AniTreePrecursor BuildAniTreePrecursor(string prefix, uint index)
@@ -241,8 +363,20 @@ namespace VisualEQ.ConverterCore
                 var track = f10.Tracks[index];
                 var ptref = track.PieceTrack;
                 var piecetrack = ptref.Value;
-                if (prefix != "" && wld.GetFragment<Fragment13>(prefix + ptref.Name) is Fragment13 rep)
-                    piecetrack = rep;
+                if (prefix != "")
+                {
+                    // Prefer the model's own prefixed track when available;
+                    // fall back to the alternate model's equivalent track
+                    // (bone name with `model.Name` swapped to `altModel`).
+                    if (wld.GetFragment<Fragment13>(prefix + ptref.Name) is Fragment13 own)
+                        piecetrack = own;
+                    else if (altModel != null && ptref.Name.Contains(model.Name))
+                    {
+                        var altPieceName = prefix + ptref.Name.Replace(model.Name, altModel);
+                        if (wld.GetFragment<Fragment13>(altPieceName) is Fragment13 alt)
+                            piecetrack = alt;
+                    }
+                }
 
                 return new AniTreePrecursor { Index = index, Frames = piecetrack.Reference.Value.Frames, Children = track.Children.Select(i => BuildAniTreePrecursor(prefix, (uint)i)).ToArray() };
             }
@@ -341,14 +475,19 @@ namespace VisualEQ.ConverterCore
                 {
                     var tfn = matref.Value.Reference.Value.Reference.Value.References[0].Value.Filenames[0];
                     var tf = matref.Value.Flags;
-                    // Same bit-mask semantics as CreateMeshAndSkin (zone/object
-                    // path). The prior `(tf & 7) == 7` required all three low
-                    // bits, which is too strict: character materials that flag
-                    // only bit 3 (value 8) — e.g. classic ship sails — fell
-                    // through as opaque and rendered as brown rectangles.
+                    // Character materials: mask bits (2, 8, 16) route through the
+                    // Deferred masked shader (alpha-discard). We deliberately DO NOT
+                    // set `transparent` — the zone-path formula `(tf & (4|8))` would
+                    // flip skin materials with bit 3 (value 8) to
+                    // AlphaMask=True + Transparent=True, which routes them to
+                    // ForwardDiffuseMasked (intensity-as-alpha, no discard). That
+                    // ships NPCs as semi-transparent and tanks FPS due to forward
+                    // overdraw. Sail cloth (also bit 3) still renders correctly:
+                    // Deferred masked reads alpha from the BMP chroma-key PNG and
+                    // discards palette-index-0 pixels, which is what "transparent
+                    // sail" actually means for classic character models.
                     var masked = (tf & (2 | 8 | 16)) != 0;
-                    var transparent = (tf & (4 | 8)) != 0;
-                    return new OESMaterial(masked, transparent, false) { new OESTexture(ConvertTexture(wld.S3D, zip, tfn)) };
+                    return new OESMaterial(masked, false, false) { new OESTexture(ConvertTexture(wld.S3D, zip, tfn)) };
                 }).ToList();
                 var offset = 0U;
                 meshf.PolyTexs.ForEach(v =>
