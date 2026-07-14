@@ -190,8 +190,19 @@ namespace VisualEQ.ConverterCore
                                 case Fragment11 f11:
                                     GenerateAnimatedMeshes(wld, zip, model, skin, f11.Reference.Value);
                                     break;
+                                case Fragment2D f2d:
+                                    // Non-skeletal actor (BOAT, SHIP, EYE, ...). The Fragment14
+                                    // references a Fragment2D directly, which points at a
+                                    // Fragment36 static mesh. Emit it as a single-frame animated
+                                    // mesh so the runtime loader still finds a bind pose under
+                                    // `animations[""]`.
+                                    if (f2d.Reference.Value is Fragment36 f36)
+                                        GenerateStaticMesh(wld, zip, model, skin, f36);
+                                    else
+                                        WriteLine($"[Converter] Fragment2D on '{aname}' resolved to null Fragment36");
+                                    break;
                                 default:
-                                    WriteLine($"Unknown reference from 0x14 fragment to {elem.Value}");
+                                    WriteLine($"Unknown reference from 0x14 fragment on '{aname}' to {elem.Value}");
                                     break;
                             }
                     }
@@ -330,8 +341,14 @@ namespace VisualEQ.ConverterCore
                 {
                     var tfn = matref.Value.Reference.Value.Reference.Value.References[0].Value.Filenames[0];
                     var tf = matref.Value.Flags;
-                    var transparent = (tf & 7) == 7;
-                    return new OESMaterial(transparent, transparent, false) { new OESTexture(ConvertTexture(wld.S3D, zip, tfn)) };
+                    // Same bit-mask semantics as CreateMeshAndSkin (zone/object
+                    // path). The prior `(tf & 7) == 7` required all three low
+                    // bits, which is too strict: character materials that flag
+                    // only bit 3 (value 8) — e.g. classic ship sails — fell
+                    // through as opaque and rendered as brown rectangles.
+                    var masked = (tf & (2 | 8 | 16)) != 0;
+                    var transparent = (tf & (4 | 8)) != 0;
+                    return new OESMaterial(masked, transparent, false) { new OESTexture(ConvertTexture(wld.S3D, zip, tfn)) };
                 }).ToList();
                 var offset = 0U;
                 meshf.PolyTexs.ForEach(v =>
@@ -355,6 +372,75 @@ namespace VisualEQ.ConverterCore
                 });
             });
             asets.ForEach(kv => model.Add(kv.Value));
+        }
+
+        // Non-skeletal actors (BOAT, SHIP, EYE_OF_ZOMM, ...) — the Fragment14
+        // ActorDef references a Fragment2D → Fragment36 mesh directly, with no
+        // Fragment11 skeleton track set. Emit each Fragment36 poly group as an
+        // OESAnimatedMesh with a single "" (bind-pose) frame so the runtime
+        // loader treats it the same as a zero-animation character. All vertices
+        // are baked in local space (identity transform) since there's no
+        // skeleton to animate.
+        void GenerateStaticMesh(Wld wld, ZipArchive zip, OESCharacter model, OESSkin skin, Fragment36 mesh)
+        {
+            if (mesh == null || mesh.TextureListReference.Value == null) return;
+
+            var omats = mesh.TextureListReference.Value.References.Select(matref =>
+            {
+                var tfn = matref.Value.Reference.Value.Reference.Value.References[0].Value.Filenames[0];
+                var tf = matref.Value.Flags;
+                var transparent = (tf & 7) == 7;
+                return new OESMaterial(transparent, transparent, false) { new OESTexture(ConvertTexture(wld.S3D, zip, tfn)) };
+            }).ToList();
+
+            // Flatten every vertex to the interleaved (pos, normal, uv) format the loader
+            // expects. No bone matrix — static meshes bake their world-space verts as-is.
+            var vertsFlat = new List<float>(mesh.Vertices.Length * 8);
+            for (var i = 0; i < mesh.Vertices.Length; i++)
+            {
+                var v = mesh.Vertices[i];
+                var n = i < mesh.Normals.Length ? mesh.Normals[i] : Vector3.UnitZ;
+                var uv = i < mesh.TexCoords.Length ? mesh.TexCoords[i] : Vector2.Zero;
+                vertsFlat.Add(v.X); vertsFlat.Add(v.Y); vertsFlat.Add(v.Z);
+                vertsFlat.Add(n.X); vertsFlat.Add(n.Y); vertsFlat.Add(n.Z);
+                vertsFlat.Add(uv.X); vertsFlat.Add(uv.Y);
+            }
+
+            var offset = 0U;
+            foreach (var (count, texIndex) in mesh.PolyTexs)
+            {
+                var polys = mesh.Polygons.Skip((int)offset).Take((int)count)
+                    .SelectMany(x => new[] { x.A, x.B, x.C })
+                    .ToList();
+                offset += count;
+                skin.Add(omats[(int)texIndex]);
+
+                // Compact indices to only the verts this poly group uses, remap
+                // triangles into the compacted space, and swap winding order to
+                // match the animated-mesh path (which flips [i+1]<->[i+2]).
+                var indmap = new Dictionary<uint, uint>();
+                var oinds = new List<uint>(polys.Count);
+                foreach (var index in polys)
+                {
+                    if (!indmap.ContainsKey(index)) indmap[index] = (uint)indmap.Count;
+                    oinds.Add(indmap[index]);
+                }
+                for (var i = 0; i < oinds.Count; i += 3)
+                {
+                    var tmp = oinds[i + 1];
+                    oinds[i + 1] = oinds[i + 2];
+                    oinds[i + 2] = tmp;
+                }
+                var indexOrder = indmap.OrderBy(kv => kv.Value).Select(kv => kv.Key).ToList();
+                var compactVerts = new List<float>(indexOrder.Count * 8);
+                foreach (var srcIdx in indexOrder)
+                    for (var k = 0; k < 8; k++)
+                        compactVerts.Add(vertsFlat[(int)srcIdx * 8 + k]);
+
+                var amesh = new OESAnimatedMesh(true, oinds, (uint)(compactVerts.Count / 8));
+                model.Add(amesh);
+                amesh.Add(new OESAnimationBuffer(new IReadOnlyList<float>[] { compactVerts }));
+            }
         }
 
         bool ConvertEqgZone(string name)

@@ -120,8 +120,21 @@ namespace VisualEQ.SpawnSystem
             {  69, new Entry("WIL") },             // Willowisp
             {  70, new Entry("ZOM") },             // Zombie
             {  71, new Entry("HUM", "HUF") },      // Human Guard — was wrongly 'WOL' (causes the merchant-as-wolf bug)
-            {  72, new Entry("SHIP") },            // Ship (Ferry / Ship of Butcher)
-            {  73, new Entry("LAU") },             // Launch (Captain's Skiff)
+            // Race 72 (SHIP) — the trilogy client picks a different mesh per
+            // gender for this race. Sourced from LANTERN's WldFileCharacters
+            // fixer (LanternExtractor/EQ/Wld/Helpers/CharacterFixer.cs):
+            //   gender 0 → SHIP mesh (viking-style longship — the base actor)
+            //   gender 2 → PRE mesh  (PRE_HS_DEF skeleton = Sea King, Golden
+            //                          Maiden, StormBreaker, SirensBane — the
+            //                          Freeport / Erudin / Iceclad ferry model
+            //                          that players actually board)
+            //   Same-zone variants swap PRE→OGS (Bloated Belly in Iceclad) or
+            //   SHIP→GNS (Icebreaker) / SHIP→ELS (Maidens Voyage) but the base
+            //   mesh code is what the client picks by race+gender; the variant
+            //   rename is a LANTERN-only convenience for asset export and does
+            //   not change what the classic client loads.
+            {  72, new Entry("SHIP", "SHIP", "PRE") },
+            {  73, new Entry("LAUNCH") },          // Launch (Captain's Skiff)
             {  74, new Entry("PIR") },             // Piranha
             {  75, new Entry("ELE") },             // Elemental (air / fire / water / earth)
             {  76, new Entry("PUM") },             // Puma / Plains Cat
