@@ -169,28 +169,60 @@ namespace VisualEQ
         // need one idle animation per model. `""` (the mesh's built-in bind pose) is always
         // included regardless of the whitelist.
         //
-        // `singleFrame`: if true, keep only frame 0 of every animation. Draw becomes static
-        // (frameCount % 1 == 0), interpolation lerps between identical buffers → no motion.
+        // `singleFrame`: if true, keep only frame 0 of every animation.
         //
-        // `textureIndex` picks an armor variant per LANTERN's approach: keep every mesh and
-        // material exactly as-is, only substitute the underlying PNG. Mesh UVs, shader flags,
-        // material shell all preserved — the sampled texture just points at a different
-        // pixel set. For a mesh whose default material references `FPMCH0001.png`, texture=1
-        // makes it sample `FPMCH0002.png` instead. When no matching variant PNG exists in
-        // the chr zip, the original PNG is kept (silent fallback).
-        internal static AniModel LoadCharacter(string path, string name, HashSet<string> animationWhitelist = null, bool singleFrame = false, int textureIndex = 0)
+        // `textureIndex` (npc.Texture): armor tier — chars 5-6 of the material name.
+        // `helmTextureIndex` (npc.HelmTexture): helmet variant — selects which HE-region
+        //   Fragment36 mesh renders. Uses the OESMeshGroups chunk emitted by the converter.
+        // `faceIndex` (npc.Face): face variant — char 7 of the material name (HUMHE0001 →
+        //   HUMHE0011 for face 1).
+        //
+        // Missing variants fall back silently to the base PNG so races that don't ship the
+        // requested combo just render their default look.
+        // Parsed OES roots keyed by chr-zip path. Chr archives run 8–60 MB after the
+        // alt-scanner puts every skin/face variant into the skin; re-parsing per
+        // unique (code, texture, helm, face) combo blew up zone-load and per-spawn
+        // caching. The root itself is treated as read-only by LoadCharacter, so
+        // sharing the parsed tree across every combo is safe. Never cleared during
+        // a session — a single zone's chr set is small in total memory (few hundred
+        // MB max) and the alternative is re-parsing gigabytes per zone load.
+        static readonly Dictionary<string, OESRoot> _oesRootCache = new Dictionary<string, OESRoot>(StringComparer.OrdinalIgnoreCase);
+        static readonly object _oesRootCacheLock = new object();
+
+        // Shared mesh geometry (VAOs + VBOs + index buffer) keyed by
+        // (chr-zip path, model code, mesh index, singleFrame). Every AniModel variant
+        // that differs only in material re-uses these — freporte's 24 human-male
+        // (texture, helm, face) combos now share 13 VAO sets total instead of 312.
+        // Cache is session-lifetime; GL resources aren't freed until app exit.
+        // MUST be accessed from the GL thread (matches AnimatedMesh construction).
+        static readonly Dictionary<(string Path, string Name, int Mesh, bool SingleFrame), MeshGeometry> _meshGeometryCache
+            = new Dictionary<(string, string, int, bool), MeshGeometry>();
+
+        static OESRoot GetOrLoadRoot(string path)
         {
+            lock (_oesRootCacheLock)
+                if (_oesRootCache.TryGetValue(path, out var cached)) return cached;
+            using (var zip = ZipFile.OpenRead(path))
+            using (var ms = new MemoryStream())
+            {
+                using (var temp = zip.GetEntry("main.oes")?.Open()) temp?.CopyTo(ms);
+                ms.Position = 0;
+                var root = OESFile.Read<OESRoot>(ms);
+                lock (_oesRootCacheLock) _oesRootCache[path] = root;
+                return root;
+            }
+        }
+
+        internal static AniModel LoadCharacter(string path, string name, HashSet<string> animationWhitelist = null, bool singleFrame = false, int textureIndex = 0, int helmTextureIndex = 0, int faceIndex = 0)
+        {
+            var root = GetOrLoadRoot(path);
             using (var zip = ZipFile.OpenRead(path))
             {
-                using (var ms = new MemoryStream())
                 {
-                    using (var temp = zip.GetEntry("main.oes")?.Open())
-                        temp?.CopyTo(ms);
-                    ms.Position = 0;
-                    var root = OESFile.Read<OESRoot>(ms);
                     var model = root.Find<OESCharacter>().First(x => x.Name == name);
+                    var oams = model.Find<OESAnimatedMesh>().ToList();
 
-                    var materials = FromSkin(model.Find<OESSkin>().First(), zip, textureIndex);
+                    var materials = FromSkin(model.Find<OESSkin>().First(), zip, textureIndex, faceIndex, oams.Count);
 
                     var allAniSets = model.Find<OESAnimationSet>().ToList();
                     var anisets = allAniSets
@@ -198,23 +230,57 @@ namespace VisualEQ
                         .Select(x => (x.Name, x.Find<OESAnimationBuffer>().ToList()))
                         .ToDictionary(t => t.Name, t => t.Item2);
 
+                    var extras = "";
+                    if (textureIndex != 0) extras += $" (texture={textureIndex})";
+                    if (helmTextureIndex != 0) extras += $" (helm={helmTextureIndex})";
+                    if (faceIndex != 0) extras += $" (face={faceIndex})";
                     WriteLine($"Loading {model.Name}: kept [{string.Join(",", anisets.Keys)}] " +
                               $"of {allAniSets.Count} → [{string.Join(",", allAniSets.Select(a => a.Name))}]" +
-                              (singleFrame ? " (single-frame)" : "") +
-                              (textureIndex != 0 ? $" (texture={textureIndex})" : ""));
+                              (singleFrame ? " (single-frame)" : "") + extras);
 
                     var animodel = new AniModel();
                     foreach (var setName in anisets.Keys) animodel.AvailableAnimations.Add(setName);
 
-                    // Truncates an animation's frame list to just frame 0.
+                    // Helmet mesh group tags from the converter. Rule per LANTERN's
+                    // SkeletonImporter + NonPlayableVariantHandler:
+                    //   Group 0 → always render (base body, unrecognised sub-meshes)
+                    //   Group 1 → base head + hair
+                    //   Group N ≥ 2 → helmet variant N - 1
+                    //
+                    // If any secondary helmet group matches helmTextureIndex, render that
+                    // secondary and hide the base head (LANTERN's HandleMainMeshes hides
+                    // the last main mesh when a helmet is active). Otherwise fall back to
+                    // rendering the base head — races whose helmet variants aren't in
+                    // this OES yet (e.g. FPM whose FPMHE01 is an orphan Fragment36
+                    // outside f10.Meshes) still show a head for helmTexture > 0.
+                    var mgrp = model.Find<OESMeshGroups>().FirstOrDefault();
+                    var groups = mgrp?.Groups ?? System.Array.Empty<uint>();
+                    var wantedHelmetGroup = (uint)(helmTextureIndex + 1); // helmTexture=1 → group 2
+                    var hasHelmetForRequest = helmTextureIndex > 0 && groups.Any(g => g == wantedHelmetGroup);
+                    bool ShouldRender(int meshIdx)
+                    {
+                        var g = meshIdx < groups.Length ? groups[meshIdx] : 0u;
+                        if (g == 0) return true;
+                        if (g == 1) return !hasHelmetForRequest; // base head unless a helmet replaces it
+                        return g == wantedHelmetGroup;
+                    }
+
                     IReadOnlyList<IReadOnlyList<float>> TruncateToFirst(IReadOnlyList<IReadOnlyList<float>> vbs) =>
                         singleFrame && vbs.Count > 1 ? new[] { vbs[0] } : vbs;
 
-                    model.Find<OESAnimatedMesh>().ForEach((oam, i) =>
+                    oams.ForEach((oam, i) =>
                     {
-                        var animations = anisets.Select(kv => (kv.Key, kv.Value[i])).ToDictionary(t => t.Key, t => t.Item2);
-                        animations[""] = oam.Find<OESAnimationBuffer>().First();
-                        animodel.Add(new AnimatedMesh(materials[i], animations.ToDictionary(kv => kv.Key, kv => TruncateToFirst(kv.Value.VertexBuffers)), oam.IndexBuffer.ToArray()));
+                        if (!ShouldRender(i)) return;
+                        var geomKey = (path, name, i, singleFrame);
+                        if (!_meshGeometryCache.TryGetValue(geomKey, out var geom))
+                        {
+                            var animations = anisets.Select(kv => (kv.Key, kv.Value[i])).ToDictionary(t => t.Key, t => t.Item2);
+                            animations[""] = oam.Find<OESAnimationBuffer>().First();
+                            var built = animations.ToDictionary(kv => kv.Key, kv => TruncateToFirst(kv.Value.VertexBuffers));
+                            geom = new MeshGeometry(oam.IndexBuffer.ToArray(), built);
+                            _meshGeometryCache[geomKey] = geom;
+                        }
+                        animodel.Add(new AnimatedMesh(materials[i], geom));
                     });
 
                     return animodel;
@@ -254,46 +320,73 @@ namespace VisualEQ
             return (race + region + subpart, v);
         }
 
-        static List<Material> FromSkin(OESSkin skin, ZipArchive zip, int textureIndex = 0) =>
-            FromSkinInner(skin, zip, textureIndex);
+        static List<Material> FromSkin(OESSkin skin, ZipArchive zip, int textureIndex = 0, int faceIndex = 0, int materialsToBuild = -1) =>
+            FromSkinInner(skin, zip, textureIndex, faceIndex, materialsToBuild);
 
-        static List<Material> FromSkinInner(OESSkin skin, ZipArchive zip, int textureIndex)
+        // `materialsToBuild` caps how many Material objects (with GL texture uploads)
+        // are actually built. Character skins carry many extra OESMaterials the
+        // converter emits for variant/face lookup — we don't want to allocate GL
+        // textures for those. -1 = build every material (used by zone/object skins).
+        static List<Material> FromSkinInner(OESSkin skin, ZipArchive zip, int textureIndex, int faceIndex, int materialsToBuild)
         {
-            // Build slotKey → (variant → zip-entry-name) lookup. When textureIndex > 0 we
-            // consult this to substitute the PNG loaded for each material — mesh geometry
-            // and material shell stay put, only the pixel data behind them changes. Cost
-            // is O(materials); done once per model load.
-            Dictionary<string, Dictionary<int, string>> variantsBySlot = null;
-            if (textureIndex > 0)
+            // Build 9-char basename → zip-entry-name lookup. All alt materials the
+            // converter extracted (skin variants + face variants) show up here. Look-up
+            // is by exact combined-transform basename computed per original.
+            Dictionary<string, string> byBaseName = null;
+            if (textureIndex > 0 || faceIndex > 0)
             {
-                variantsBySlot = new Dictionary<string, Dictionary<int, string>>(StringComparer.OrdinalIgnoreCase);
+                byBaseName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var m in skin.Find<OESMaterial>())
                 {
                     foreach (var t in m.Find<OESTexture>())
                     {
-                        var (slot, variant) = ParseTextureFilename(t.Filename);
-                        if (slot == null) continue;
-                        if (!variantsBySlot.TryGetValue(slot, out var byVariant))
-                            variantsBySlot[slot] = byVariant = new Dictionary<int, string>();
-                        if (!byVariant.ContainsKey(variant)) byVariant[variant] = t.Filename;
+                        var fn = Path.GetFileNameWithoutExtension(t.Filename);
+                        var dash = fn.IndexOf('-');
+                        if (dash > 0) fn = fn.Substring(0, dash);
+                        if (fn.Length != 9) continue;
+                        if (!byBaseName.ContainsKey(fn)) byBaseName[fn] = t.Filename;
                     }
                 }
             }
 
-            // Returns the zip-entry filename to load for `original`. If an alt-skin PNG
-            // exists at the same slot with variant == textureIndex, use it; otherwise
-            // fall back to the original (no visible change for chr files that only ship
-            // skin variant 00, which is the case for the classic Trilogy client's
-            // playable + NPC races).
+            // For an original texture "HUMHE0001" applies both transforms per LANTERN:
+            //   armor tier (npc.Texture): replace chars 5-6 with textureIndex.ToString("00")
+            //   face      (npc.Face):    replace char 7 with faceIndex.ToString()[0]
+            // Falls back progressively to just skin, just face, or the original if the
+            // combined variant PNG isn't present in the zip.
             string PickVariantFilename(string original)
             {
-                if (variantsBySlot == null) return original;
-                var (slot, _) = ParseTextureFilename(original);
-                if (slot == null || !variantsBySlot.TryGetValue(slot, out var byVariant)) return original;
-                return byVariant.TryGetValue(textureIndex, out var alt) ? alt : original;
+                if (byBaseName == null) return original;
+                var origBase = Path.GetFileNameWithoutExtension(original);
+                var dash = origBase.IndexOf('-');
+                if (dash > 0) origBase = origBase.Substring(0, dash);
+                if (origBase.Length != 9) return original;
+                var race         = origBase.Substring(0, 3);
+                var region       = origBase.Substring(3, 2);
+                var origVariant  = origBase.Substring(5, 2);
+                var origSubPart  = origBase.Substring(7, 2); // e.g. "01"
+                var origSubTens  = origSubPart[0];
+                var origSubOnes  = origSubPart[1];
+
+                var newVariant = textureIndex > 0 ? textureIndex.ToString("00") : origVariant;
+                var newSubTens = faceIndex > 0 ? faceIndex.ToString()[0] : origSubTens;
+
+                string TryName(string variant, char subTens)
+                {
+                    var candidate = race + region + variant + subTens + origSubOnes;
+                    return byBaseName.TryGetValue(candidate, out var full) ? full : null;
+                }
+
+                // Combined skin+face first, then just skin, then just face, then original.
+                return TryName(newVariant,  newSubTens)
+                    ?? TryName(newVariant,  origSubTens)
+                    ?? TryName(origVariant, newSubTens)
+                    ?? original;
             }
 
-            return skin.Find<OESMaterial>().Select(mat =>
+            var allMats = skin.Find<OESMaterial>().ToList();
+            var effectiveCount = materialsToBuild < 0 ? allMats.Count : System.Math.Min(materialsToBuild, allMats.Count);
+            return allMats.Take(effectiveCount).Select(mat =>
             {
                 var effect = mat.Find<OESEffect>().FirstOrDefault();
                 effect = effect ?? new OESEffect("default");

@@ -466,6 +466,47 @@ namespace VisualEQ.ConverterCore
                 return (oinds, vertices.Select(kv => (kv.Key, new OESAnimationBuffer(kv.Value.Select(Remap).ToList()))).ToDictionary(t => t.Key, t => t.Item2));
             }
 
+            // Classify each source Fragment36 into a helmet group per LANTERN's
+            // SkeletonImporter (mesh name == asset name OR ends in "00" → primary,
+            // else → secondary in insertion order). Base body + HE00 (base head)
+            // become groups 0/1. Helmet variants HE01, HE02, HE03 become groups
+            // 2, 3, 4 (rendered one at a time based on npc.HelmTexture).
+            //
+            // We track group per f10.Meshes index; the poly-groups within one
+            // Fragment36 all share the same helmet group. Extra suffixes we
+            // haven't classified explicitly (e.g. HUM01) get group 0 = always
+            // render — safest default until we understand what they are.
+            var f36HelmetGroup = new uint[f10.Meshes.Length];
+            {
+                var assetName = model.Name.ToUpperInvariant();
+                var nextSecondary = 2u; // groups 2, 3, 4… allocated in encounter order
+                for (var mi = 0; mi < f10.Meshes.Length; mi++)
+                {
+                    var fragName = f10.Meshes[mi].Value?.Reference.Name ?? "";
+                    var stripped = fragName;
+                    if (stripped.EndsWith("_DMSPRITEDEF")) stripped = stripped.Substring(0, stripped.Length - "_DMSPRITEDEF".Length);
+                    stripped = stripped.ToUpperInvariant();
+                    if (stripped == assetName) { f36HelmetGroup[mi] = 0; continue; }
+                    // {race}HE00 pattern → base head (group 1)
+                    // {race}HE## for ## > 00 → helmet secondary (group nextSecondary)
+                    if (stripped.Length == assetName.Length + 4 && stripped.StartsWith(assetName + "HE"))
+                    {
+                        var suffix = stripped.Substring(assetName.Length + 2, 2);
+                        if (int.TryParse(suffix, out var num))
+                        {
+                            f36HelmetGroup[mi] = num == 0 ? 1u : nextSecondary++;
+                            continue;
+                        }
+                    }
+                    // Unrecognised suffix — treat as always-render (group 0). May
+                    // over-render meshes like HUM01 but keeps the model visually
+                    // intact; iterate if a specific NPC shows stacked geometry.
+                    f36HelmetGroup[mi] = 0;
+                }
+            }
+
+            var meshGroups = new List<uint>();
+
             var asets = prefixes.Where(x => x != "").Select(x => (x, new OESAnimationSet(x, 0f))).ToDictionary(t => t.Item1, t => t.Item2);
             f10.Meshes.Length.Times(i =>
             {
@@ -501,6 +542,7 @@ namespace VisualEQ.ConverterCore
                     );
                     var amesh = new OESAnimatedMesh(true, ibuffer, (uint)vbuffers[""].VertexBuffers[0].Count);
                     model.Add(amesh);
+                    meshGroups.Add(f36HelmetGroup[i]);
                     foreach (var prefix in prefixes)
                     {
                         if (prefix == "")
@@ -511,16 +553,21 @@ namespace VisualEQ.ConverterCore
                 });
             });
             asets.ForEach(kv => model.Add(kv.Value));
+            model.Add(new OESMeshGroups(meshGroups));
 
             // LANTERN's `WldFileCharacters.FindMaterialVariants` +
             // `MaterialList.AddVariant`: the mesh's TextureListReference (Fragment31)
-            // only lists the base outfit's Fragment30 materials (skin variant 00).
-            // Higher-tier armor / merchant skins live as UNREFERENCED Fragment30s in
-            // the WLD — same character/region/subpart, variant > 00 in chars 5-6 of
-            // the material name (e.g. BATCH0101_MDF is variant 01 of BATCH0001_MDF).
-            // Emit those into the skin so the runtime PNG-swap can find them.
+            // only lists the base outfit's Fragment30 materials (skin variant 00,
+            // subpart-tens digit 0). Higher-tier armor and face variants live as
+            // UNREFERENCED Fragment30s in the WLD with the SAME character+region
+            // prefix — the LoadCharacter PNG-swap needs them present in the OES to
+            // find them per npc.Texture / npc.Face.
+            //
+            //   variant > "00"  →  armor tier (npc.Texture)   e.g. BATCH0001 → BATCH0101
+            //   subpart-tens > 0 →  face variant (npc.Face)    e.g. HUMHE0001 → HUMHE0011
             {
-                var baseSlots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var baseCharRegions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var alreadyInSkin = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var mat in skin.Find<OESMaterial>())
                 {
                     foreach (var tex in mat.Find<OESTexture>())
@@ -529,9 +576,8 @@ namespace VisualEQ.ConverterCore
                         var dash = fn.IndexOf('-');
                         if (dash > 0) fn = fn.Substring(0, dash);
                         if (fn.Length != 9) continue;
-                        var variant = fn.Substring(5, 2);
-                        if (variant != "00") continue;
-                        baseSlots.Add(fn.Substring(0, 3) + fn.Substring(3, 2) + fn.Substring(7, 2));
+                        alreadyInSkin.Add(fn);
+                        baseCharRegions.Add(fn.Substring(0, 5)); // race(3) + region(2)
                     }
                 }
 
@@ -541,10 +587,9 @@ namespace VisualEQ.ConverterCore
                     var matName = fragName;
                     if (matName.EndsWith("_MDF")) matName = matName.Substring(0, matName.Length - 4);
                     if (matName.Length != 9) continue;
-                    var variant = matName.Substring(5, 2);
-                    if (variant == "00") continue;
-                    var slot = matName.Substring(0, 3) + matName.Substring(3, 2) + matName.Substring(7, 2);
-                    if (!baseSlots.Contains(slot)) continue;
+                    if (alreadyInSkin.Contains(matName)) continue;
+                    var charRegion = matName.Substring(0, 5);
+                    if (!baseCharRegions.Contains(charRegion)) continue;
                     if (!added.Add(matName)) continue;
 
                     if (f30.Reference.Value?.Reference.Value?.References == null ||

@@ -103,6 +103,7 @@ namespace VisualEQ.Common
                 case "aset": instance = new OESAnimationSet(tc, id); break;
                 case "amsh": instance = new OESAnimatedMesh(tc, id); break;
                 case "abuf": instance = new OESAnimationBuffer(tc, id); break;
+                case "mgrp": instance = new OESMeshGroups(tc, id); break;
                 default: instance = new OESChunk(tc, id); break;
             }
             file.Add(instance);
@@ -563,6 +564,40 @@ namespace VisualEQ.Common
         }
 
         public override string ToString() => $"OESAnimationBuffer(VertexBuffers.Count={VertexBuffers.Count}, VertexBufferCounts={VertexBuffers.Select(x => x.Count).ToArray().Stringify()})";
+    }
+
+    // Per-mesh helmet-group tags, indexed by mesh order within the OESCharacter.
+    // Emitted by the converter to carry LANTERN's primary/secondary mesh
+    // classification (SkeletonImporter.cs:125) — used at load time to filter
+    // meshes by npc.HelmTexture:
+    //   Group 0 → always render (base body, non-head meshes)
+    //   Group 1 → render only when helmTexture == 0 (base head + hair)
+    //   Group N ≥ 2 → render only when helmTexture == N - 1 (helmet variant)
+    // Absent chunk → all meshes render (backward-compatible; old OES files
+    // pre-date this metadata).
+    public class OESMeshGroups : OESChunk
+    {
+        public uint[] Groups;
+
+        public OESMeshGroups(string typeCode, uint id) : base(typeCode, id) { }
+        public OESMeshGroups() : base("mgrp") => Groups = System.Array.Empty<uint>();
+        public OESMeshGroups(IReadOnlyList<uint> groups) : base("mgrp") => Groups = groups.ToArray();
+
+        protected override void SerializeData(BinaryWriter bw)
+        {
+            bw.Write(Groups?.Length ?? 0);
+            if (Groups != null)
+                foreach (var g in Groups) bw.Write(g);
+        }
+
+        protected override void DeserializeData(BinaryReader br)
+        {
+            var count = br.ReadInt32();
+            Groups = new uint[count];
+            for (var i = 0; i < count; i++) Groups[i] = br.ReadUInt32();
+        }
+
+        public override string ToString() => $"OESMeshGroups(Groups=[{string.Join(",", Groups ?? System.Array.Empty<uint>())}])";
     }
 
     public class OESFile

@@ -114,23 +114,31 @@ namespace VisualEQ.SpawnSystem
 
                 if (chosenCode != null)
                 {
-                    // Cache per (model code, texture) so a guard with npc.Texture=1 gets
-                    // its own AniModel with chain-armor PNGs bound; the base cloth
-                    // version stays cached separately for other NPCs that share the
-                    // same mesh code but use npc.Texture=0. Loader.LoadCharacter does
-                    // the PNG substitution — mesh + material stay the same.
+                    // Cache per (model code, texture, helm, face) so armor tiers,
+                    // helmet variants, and faces coexist under the same base mesh
+                    // without stomping each other. `#0#0#0` collapses to plain
+                    // `code` so the default combo shares the base cache entry.
                     var textureIdx = npc.Texture;
-                    var cacheKey = textureIdx == 0 ? chosenCode : $"{chosenCode}#{textureIdx}";
+                    var helmIdx    = npc.HelmTexture;
+                    var faceIdx    = npc.Face;
+                    var cacheKey = (textureIdx | helmIdx | faceIdx) == 0
+                        ? chosenCode
+                        : $"{chosenCode}#{textureIdx}#{helmIdx}#{faceIdx}";
                     if (!modelCache.TryGetValue(cacheKey, out aniModel))
                     {
                         try
                         {
-                            aniModel = Loader.LoadCharacter(availableModels[chosenCode], chosenCode, SpawnAnimations, singleFrame: true, textureIndex: textureIdx);
+                            aniModel = Loader.LoadCharacter(
+                                availableModels[chosenCode], chosenCode, SpawnAnimations,
+                                singleFrame: true,
+                                textureIndex: textureIdx,
+                                helmTextureIndex: helmIdx,
+                                faceIndex: faceIdx);
                             modelCache[cacheKey] = aniModel;
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine($"[SpawnManager] Failed to load '{chosenCode}' (texture={textureIdx}): {ex.Message}");
+                            Console.WriteLine($"[SpawnManager] Failed to load '{chosenCode}' (t={textureIdx} h={helmIdx} f={faceIdx}): {ex.Message}");
                         }
                     }
                 }
