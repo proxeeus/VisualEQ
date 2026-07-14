@@ -41,23 +41,27 @@ namespace VisualEQ.SpawnSystem
 
         static readonly Dictionary<int, Entry> _byRace = new Dictionary<int, Entry>
         {
-            // Playable + core humanoid races.
+            // Playable + core humanoid races. Codes cross-verified against LANTERN's
+            // ClientData/animationsources.txt — races 7 and 11 were previously
+            // swapped (Half Elf used HOM = short-mesh code, Halfling used HAM =
+            // tall-mesh code), producing the "halflings look big hairy-footed"
+            // regression noted during Slice #5 size scaling.
             {   1, new Entry("HUM", "HUF") },      // Human
             {   2, new Entry("BAM", "BAF") },      // Barbarian
             {   3, new Entry("ERM", "ERF") },      // Erudite
             {   4, new Entry("ELM", "ELF") },      // Wood Elf
             {   5, new Entry("HIM", "HIF") },      // High Elf
             {   6, new Entry("DAM", "DAF") },      // Dark Elf
-            {   7, new Entry("HOM", "HOF") },      // Half Elf
+            {   7, new Entry("HAM", "HAF") },      // Half Elf (tall mesh, ELM/ELF anim source)
             {   8, new Entry("DWM", "DWF") },      // Dwarf
             {   9, new Entry("TRM", "TRF") },      // Troll
             {  10, new Entry("OGM", "OGF") },      // Ogre
-            {  11, new Entry("HAM", "HAF") },      // Halfling
+            {  11, new Entry("HOM", "HOF") },      // Halfling (short mesh, DWM/DWF anim source)
             {  12, new Entry("GNM", "GNF") },      // Gnome
             {  14, new Entry("IKM", "IKF", "IKS") }, // Iksar
-            {  15, new Entry("KEM", "KEF") },      // Vah Shir
+            {  15, new Entry("BRM", "BRF") },      // Brownie (LANTERN: BRM,ELM)
             {  16, new Entry("FRO") },             // Froglok (PC)
-            {  17, new Entry("DRK") },             // Drakkin
+            {  17, new Entry("GOM", "GOM", "GOL") }, // Golem (LANTERN: GOM,GIA)
 
             // Race 13-17 in this DB are populated with different creature types
             // due to fork/data reuse — DB overrides below.
@@ -71,14 +75,14 @@ namespace VisualEQ.SpawnSystem
             {  19, new Entry("TRK") },             // Trakanon
             {  20, new Entry("VNS") },             // Venril Sathir
             {  21, new Entry("EYE") },             // Evil Eye
-            {  22, new Entry("BEE") },             // Beetle / klicnik
-            {  23, new Entry("KER") },             // Kerran (Vah Shir NPC)
+            {  22, new Entry("BET") },             // Beetle (LANTERN: BET,SPI — was wrongly "BEE")
+            {  23, new Entry("CPM", "CPF") },      // Kerra (LANTERN: CPF,CPM)
             {  24, new Entry("FIS") },             // Fish (koalindl, sludge guppy)
             {  25, new Entry("FAI") },             // Faerie
             {  26, new Entry("FRO") },             // Froglok (NPC)
             {  27, new Entry("FRG") },             // Froglok Ghoul
             {  28, new Entry("SPO") },             // Sporali
-            {  29, new Entry("GAR") },             // Gargoyle
+            {  29, new Entry("GAM", "GAM", "GAR") }, // Gargoyle (LANTERN: GAM,GAR — GAM primary, GAR anim source)
             {  30, new Entry("EYE") },             // Evil Eye (variant)
             {  31, new Entry("SNA") },             // Gelatinous cube / slime (best-guess)
             {  32, new Entry("DRA") },             // Dragon (Kunark)
@@ -98,7 +102,7 @@ namespace VisualEQ.SpawnSystem
             {  47, new Entry("GRI") },             // Griffin / Griffawn
             {  48, new Entry("KOB") },             // Kobold — was wrongly 'BEA'
             {  49, new Entry("DRA") },             // Elder Dragon (Nagafen / Vox)
-            {  50, new Entry("LIO") },             // Lion
+            {  50, new Entry("LIM", "LIF") },      // Lion (LANTERN: LIF,LIM — was wrongly "LIO")
             {  51, new Entry("LIZ") },             // Lizardman
             {  52, new Entry("MIM") },             // Mimic (a_chest, a_mimic)
             {  53, new Entry("MIN") },             // Minotaur
@@ -107,19 +111,19 @@ namespace VisualEQ.SpawnSystem
             {  56, new Entry("PIF") },             // Pixie
             {  57, new Entry("DRA") },             // Drachnid — best-guess
             {  58, new Entry("SOL") },             // Solusek Ro / puppet
-            {  59, new Entry("GOB") },             // Bloodgill Goblin
+            {  59, new Entry("BGG") },             // Bloodgill Goblin (LANTERN: BGG,KGO)
             {  60, new Entry("SKE") },             // Skeleton — was wrongly 'BAT'
             {  61, new Entry("SHA") },             // Shark
             {  62, new Entry("TUN") },             // Tunare
-            {  63, new Entry("EEV") },             // (uncertain)
+            {  63, new Entry("TIG") },             // Tiger (LANTERN: TIG,LIM)
             {  64, new Entry("TRE") },             // Treant
             {  65, new Entry("VAM") },             // Vampire (Maestro of Rancor)
             {  66, new Entry("RAL") },             // Rallos Zek statue
-            {  67, new Entry("SWO") },             // Iksar/Highpass Guard — best-guess (freporte has SWO)
+            {  67, new Entry("HHM") },             // Highpass Citizen (LANTERN: HHM,ELM)
             {  68, new Entry("TEN") },             // Tentacle Terror
             {  69, new Entry("WIL") },             // Willowisp
-            {  70, new Entry("ZOM") },             // Zombie
-            {  71, new Entry("HUM", "HUF") },      // Human Guard — was wrongly 'WOL' (causes the merchant-as-wolf bug)
+            {  70, new Entry("ZOM", "ZOF") },      // Zombie (LANTERN: ZOM,ELM / ZOF,ELF)
+            {  71, new Entry("QCM", "QCF") },      // Qeynos Citizen (LANTERN: QCM,ELM / QCF,ELF)
             // Race 72 (SHIP) — the trilogy client picks a different mesh per
             // gender for this race. Sourced from LANTERN's WldFileCharacters
             // fixer (LanternExtractor/EQ/Wld/Helpers/CharacterFixer.cs):
@@ -137,26 +141,26 @@ namespace VisualEQ.SpawnSystem
             {  73, new Entry("LAUNCH") },          // Launch (Captain's Skiff)
             {  74, new Entry("PIR") },             // Piranha
             {  75, new Entry("ELE") },             // Elemental (air / fire / water / earth)
-            {  76, new Entry("PUM") },             // Puma / Plains Cat
-            {  77, new Entry("IKM", "IKF", "IKS") }, // Iksar Citizen (Cabilis)
-            {  78, new Entry("ERM", "ERF") },      // Erudite Citizen
+            {  76, new Entry("PUM") },             // Puma (LANTERN: PUM,LIM)
+            {  77, new Entry("NGM") },             // Neriak Citizen (LANTERN: NGM,ELM)
+            {  78, new Entry("EGM") },             // Erudin Citizen (LANTERN: EGM,ELM)
             {  79, new Entry("BIX") },             // Bixie
-            {  80, new Entry("HAN") },             // Reanimated Hand
-            {  81, new Entry("HAM", "HAF") },      // Halfling Deputy (Rivervale)
+            {  80, new Entry("REA") },             // Reanimated Hand (was wrongly "HAN")
+            {  81, new Entry("RIM", "RIF") },      // Rivervale Citizen (LANTERN: RIM,DWM / RIF,DWF)
             {  82, new Entry("SCR") },             // Scarecrow
             {  83, new Entry("SKU") },             // Skunk
             {  85, new Entry("SKE") },             // Skeleton (pet variant)
-            {  86, new Entry("SPX") },             // Sphinx
-            {  87, new Entry("ARM") },             // Armadillo
-            {  88, new Entry("CLM", "CLF") },      // Clockwork Gnome (CWG models)
+            {  86, new Entry("SPH") },             // Sphinx (LANTERN: SPH,DRK — was wrongly "SPX")
+            {  87, new Entry("ARM") },             // Armadillo (LANTERN: ARM,RAT)
+            {  88, new Entry("CLM", "CLF") },      // Clockwork Gnome (LANTERN: CLM,DWM / CLF,DWF)
             {  89, new Entry("DRK") },             // Drake / ash-drakeling
-            {  90, new Entry("BAM", "BAF") },      // Barbarian Ghost — reuses BAM/BAF
+            {  90, new Entry("HLM", "HLF") },      // Halas Citizen (LANTERN: HLM,ELM / HLF,ELF)
             {  91, new Entry("BAS") },             // Basilisk
-            {  92, new Entry("ERM", "ERF") },      // Erudite ghost / variant
-            {  93, new Entry("HUM", "HUF") },      // Innkeeper / Bouncer humans
-            {  94, new Entry("QCM", "QCF") },      // Qeynos Guard / Citizen — confirmed QCM/QCF exist
-            {  95, new Entry("FEA") },             // Avatar of Fear
-            {  96, new Entry("COK") },             // Cockatrice
+            {  92, new Entry("GRM") },             // Grobb Citizen (LANTERN: GRM,OGF / GRF,OGF; ogres use OGF for both)
+            {  93, new Entry("OKM", "OKF") },      // Oggok Citizen (LANTERN: OKM,OGF / OKF,OGF)
+            {  94, new Entry("KAM", "KAF") },      // Kaladim Citizen (LANTERN: KAM,DWM / KAF,DWF — was wrongly QCM/QCF)
+            {  95, new Entry("CAZ") },             // Cazic-Thule (avatar)
+            {  96, new Entry("COC") },             // Cockatrice (was wrongly "COK")
             {  98, new Entry("DHM", "DHF") },      // Dark Assassin / Dhampyre — best-guess
             {  99, new Entry("AMY") },             // Amygdalan
             { 100, new Entry("DER") },             // Rock Dervish (freporte has DER)
@@ -165,13 +169,13 @@ namespace VisualEQ.SpawnSystem
             { 103, new Entry("PHI") },             // Phinigel Autropos
             { 104, new Entry("LEE") },             // Leech
             { 105, new Entry("SWO") },             // Swordfish (freporte has SWO)
-            { 106, new Entry("HUM", "HUF") },      // Guard Crystalwind / Highmoon (human variant)
-            { 107, new Entry("ELP") },             // Elephant
+            { 106, new Entry("FEM", "FEF") },      // Felguard (LANTERN: FEM,ELM / FEF,ELF)
+            { 107, new Entry("MAM") },             // Mammoth (was wrongly "ELP" — LANTERN: MAM is the mammoth code)
             { 108, new Entry("EYE") },             // Eye of Zomm (uses Evil Eye model)
             { 109, new Entry("WAS") },             // Wasp / Yellowjacket
             { 110, new Entry("MER") },             // Mermaid
             { 111, new Entry("HAR") },             // Harpy
-            { 112, new Entry("HUM", "HUF") },      // Guard Orcflayer / Freeport merchants
+            { 112, new Entry("GFM", "GFF") },      // Fayguard (LANTERN: GFM,ELM / GFF,ELF)
             { 113, new Entry("DRK") },             // Fae Drake
             { 114, new Entry("GHO") },             // Ghost
             { 116, new Entry("SEA") },             // Seahorse
@@ -182,21 +186,21 @@ namespace VisualEQ.SpawnSystem
             { 121, new Entry("GRG") },             // Gorgalosk
             { 122, new Entry("HOR") },             // Horror construct
             { 123, new Entry("INN") },             // Innoruuk
-            { 124, new Entry("NIG") },             // Nightmare
-            { 125, new Entry("QUI") },             // Quillmane
-            { 126, new Entry("STM") },             // Storm Mistress
+            { 124, new Entry("UNI") },             // Unicorn (was wrongly "NIG"!)
+            { 125, new Entry("PEG") },             // Pegasus (was wrongly "QUI")
+            { 126, new Entry("DJI") },             // Djinn (was wrongly "STM")
             { 127, new Entry("HUM", "HUF") },      // Invisible-model / summoned-item — HUM base
             { 128, new Entry("IKM", "IKF") },      // Iksar Broodling / Kotiz — Iksar variant
             { 129, new Entry("SCO") },             // Scorpion
             { 130, new Entry("HUM", "HUF") },      // Taruun Guardian (human variant)
             { 131, new Entry("SAR") },             // Sarnak
-            { 133, new Entry("DVA") },             // Drolvarg
+            { 133, new Entry("LYC") },             // Lycanthrope (was wrongly "DVA")
             { 134, new Entry("MOS") },             // Mosquito / Bloodneedle
             { 135, new Entry("RHI") },             // Rhino (Kunark)
             { 136, new Entry("XAL") },             // Xalgoz
             { 137, new Entry("GOB") },             // Goblin
-            { 138, new Entry("BRU") },             // Skulking Brute
-            { 139, new Entry("IKM", "IKF", "IKS") }, // Iksar Bandit / Trooper
+            { 138, new Entry("YET") },             // Yeti (was wrongly "BRU")
+            { 139, new Entry("ICM", "ICF", "ICN") }, // Iksar Citizen (LANTERN: ICM/ICF/ICN,IKM)
             { 140, new Entry("FGI") },             // Forest Giant
             { 141, new Entry("BOAT") },            // Boat (a_boat, a_row_boat) — confirmed BOAT in global
             { 144, new Entry("BUR") },             // Burynai
@@ -208,9 +212,9 @@ namespace VisualEQ.SpawnSystem
             { 150, new Entry("EROL") },            // Erollisi Marr — best-guess
             { 151, new Entry("TRB") },             // Tribunal
             { 153, new Entry("BRI") },             // Bristlebane
-            { 154, new Entry("CHR") },             // Chromadrac / Eye of Veeshan
-            { 155, new Entry("SKE") },             // Barbed skeleton variant
-            { 156, new Entry("RAT") },             // Ratman — falls to RAT base
+            { 154, new Entry("FDR") },             // Fay Drake (LANTERN: FDF,FDR — was wrongly "CHR")
+            { 155, new Entry("SSK") },             // Sarnak Skeleton (LANTERN: SSK,SRW — was wrongly "SKE")
+            { 156, new Entry("VRM", "VRF") },      // Ratman (LANTERN: VRF,VRM — was wrongly "RAT")
             { 157, new Entry("WYV") },             // Wyvern
             { 158, new Entry("WUR") },             // Wurm
             { 159, new Entry("GNA") },             // Insatiable Gnawer
@@ -220,11 +224,11 @@ namespace VisualEQ.SpawnSystem
             { 163, new Entry("RAP") },             // Raptor
             { 164, new Entry("SGO") },             // Sathir Construct
             { 165, new Entry("PRA") },             // Praklion / Faydedar
-            { 166, new Entry("HAN") },             // Cursed Hand
+            { 166, new Entry("IKH") },             // Iksar Hand (LANTERN: IKH,REA — was wrongly "HAN")
             { 167, new Entry("SUC") },             // Succulent plant
-            { 168, new Entry("HOL") },             // Holgresh
-            { 169, new Entry("BRO") },             // Brontotherium
-            { 170, new Entry("SHG") },             // Shadow Guardian
+            { 168, new Entry("FMO") },             // Flying Monkey (LANTERN: FMO,DRK — was wrongly "HOL")
+            { 169, new Entry("BTM") },             // Brontotherium (LANTERN: BTM,RHI — was wrongly "BRO")
+            { 170, new Entry("SDE") },             // Snow Dervish (LANTERN: SDE,DML — was wrongly "SHG")
             { 171, new Entry("WOL") },             // Direwolf — WOL base
             { 172, new Entry("MAN") },             // Manticore
             { 173, new Entry("ENT") },             // Entoling
@@ -233,20 +237,20 @@ namespace VisualEQ.SpawnSystem
             { 176, new Entry("RAB") },             // Rabbit
             { 177, new Entry("WAL") },             // Walrus
             { 178, new Entry("GEO") },             // Geonid
-            { 181, new Entry("TIZ") },             // Tizmak
-            { 183, new Entry("DWM", "DWF") },      // Coldain Dwarf
-            { 184, new Entry("VDR") },             // Velious Dragon (Yelinak / Sontalak)
-            { 185, new Entry("KOB") },             // Kobold variant
+            { 181, new Entry("YAK") },             // Yak Man (LANTERN: YAK,GNN — was wrongly "TIZ")
+            { 183, new Entry("COM", "COF", "COK") }, // Coldain (LANTERN: COM,DWM / COF,DWF / COK,DWM)
+            { 184, new Entry("DR2") },             // Velious Dragons (LANTERN: DR2,TRK — was wrongly "VDR")
+            { 185, new Entry("HAG") },             // Hag (LANTERN: HAG,ELF — was wrongly "KOB")
             { 187, new Entry("SIR") },             // Siren
             { 188, new Entry("FRG") },             // Frost Giant
             { 189, new Entry("STG") },             // Storm Giant
             { 190, new Entry("SHL") },             // Shellfish collector
             { 191, new Entry("PAN") },             // Panda
             { 193, new Entry("TSE") },             // Tserrina Syl'Tor
-            { 194, new Entry("TOR") },             // Tortoise (Lodizal)
-            { 195, new Entry("ZLA") },             // Zlandicar
-            { 196, new Entry("WRA") },             // Wraith / spirit of Garzicor
-            { 198, new Entry("KER") },             // Kerafyrm — best-guess sky dragon variant
+            { 194, new Entry("STU") },             // Sea Turtle (was wrongly "TOR")
+            { 195, new Entry("BWD") },             // Black & White Dragons (LANTERN: BWD,TRK)
+            { 196, new Entry("GDR") },             // Ghost Dragon (LANTERN: GDR,DRA — was wrongly "WRA")
+            { 198, new Entry("PRI") },             // Prismatic Dragon (LANTERN: PRI,TRK — was wrongly "KER")
             { 199, new Entry("SHK") },             // Shik'Nar
             { 200, new Entry("HOP") },             // Rockhopper
             { 201, new Entry("UNB") },             // Underbulk

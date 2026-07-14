@@ -16,20 +16,24 @@ namespace VisualEQ.SpawnSystem
         const float HeadingFullCircle = 512f;
 
         // Per-race authored mesh height in EQ "world units". `npc_types.size` divided
-        // by this yields the render scale — humans/most creatures use 6; halflings
-        // and dwarves have mesh geometry authored to different absolute heights than
-        // their `Mob::GetDefaultSize()` values, so the naive size/6 formula rendered
-        // halflings too big and dwarves too small. Table tuned against user feedback
-        // in freporte / gfaydark / kaladima; iterate here (not in Scale computation)
-        // if any race still renders wrong. Anything not listed falls through to the
-        // canonical 6-unit divisor.
+        // by this yields the render scale — most humanoids/creatures use 6.
+        // Dwarves (DWM) and halflings (HOM) share the DWM anim-source and are
+        // authored to a shorter absolute height, so `size/6` under-scales them.
+        // Halas / Grobb / Oggok / Kaladim / Coldain citizens use city-specific
+        // codes with the same physique, so they use the same divisors as their
+        // ancestor race.
         static float MeshAuthoredHeightForRace(int race)
         {
             switch (race)
             {
-                case 8:  return 4f;  // Dwarf mesh authored short — size/4 lands at 1.0 for canonical dwarf
-                case 11: return 8f;  // Halfling mesh authored TALL (shares ELM's 6+ unit skeleton via anim source); pull scale down harder
-                default: return 6f;
+                case 8:                             // Dwarf
+                case 11:                            // Halfling (HOM — short-mesh code)
+                case 81:                            // Rivervale Citizen (RIM/RIF, halfling stock)
+                case 94:                            // Kaladim Citizen (KAM/KAF, dwarf stock)
+                case 183:                           // Coldain (COM/COF, dwarf stock)
+                    return 4f;
+                default:
+                    return 6f;
             }
         }
 
@@ -275,20 +279,30 @@ namespace VisualEQ.SpawnSystem
                 .Where(p => p != zonePath && !IsGlobal(p))
                 .OrderBy(p => p, StringComparer.OrdinalIgnoreCase));
 
-            // For each model name, track the best-scoring chr zip.
+            // Zone-first, then richness. Zone chr wins for anything it declares —
+            // freporte's PRE (SirensBane) must not be overridden by overthere's PRE
+            // (Bloated Belly, higher anim count but a different visual variant of
+            // the same skeleton family). For models the zone does NOT declare,
+            // richness-wins across the remaining chr zips.
             var bestScore = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var zoneLocked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             int zoneModels = 0, globalModels = 0, otherModels = 0;
 
             foreach (var path in ordered)
             {
                 var richness = Loader.GetCharacterModelRichness(path);
+                var isZone = path == zonePath;
                 int added = 0;
                 foreach (var kv in richness)
                 {
+                    // Zone-declared names are locked to the zone chr regardless of
+                    // any richer version another chr zip might carry.
+                    if (zoneLocked.Contains(kv.Key)) continue;
                     if (bestScore.TryGetValue(kv.Key, out var cur) && cur >= kv.Value) continue;
                     bestScore[kv.Key] = kv.Value;
                     var wasNew = !result.ContainsKey(kv.Key);
                     result[kv.Key] = path;
+                    if (isZone) zoneLocked.Add(kv.Key);
                     if (wasNew) added++;
                 }
 

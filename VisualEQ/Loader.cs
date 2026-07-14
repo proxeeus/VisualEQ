@@ -132,28 +132,101 @@ namespace VisualEQ
         // has the model animated — zone-specific chr files often carry empty stubs for
         // playable races that shadow the populated versions in global_chr, and we want
         // the animated version to win.
+        //
+        // Caches by chr-zip file mtime so subsequent zone loads skip the whole
+        // enumerate-79-zips-and-parse-each-OES walk. Sharing GetOrLoadRoot means
+        // the OES tree is parsed at most once per file per session even if it's
+        // fetched here first and then again by LoadCharacter.
+        static readonly Dictionary<string, (long Mtime, Dictionary<string, int> Richness)> _richnessCache
+            = new Dictionary<string, (long, Dictionary<string, int>)>(StringComparer.OrdinalIgnoreCase);
+        static readonly object _richnessCacheLock = new object();
+        static bool _richnessDiskCacheLoaded;
+
+        // Disk-persisted richness cache. Path/mtime-keyed so it self-invalidates when
+        // any chr zip is re-decoded. First zone load with 79 chr zips would otherwise
+        // re-parse ~500 MB of OES data every time; loading this small file up front
+        // (populated by a prior session, or written after this session's parses) skips
+        // it entirely. Format is a plain-text `path|mtime|name=score,name=score…` per
+        // line — trivial to serialize, easy to inspect.
+        static string RichnessCachePath() =>
+            System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData),
+                "VisualEQ", "richness-cache.txt");
+
+        static void LoadRichnessCacheFromDisk()
+        {
+            if (_richnessDiskCacheLoaded) return;
+            _richnessDiskCacheLoaded = true;
+            var path = RichnessCachePath();
+            if (!System.IO.File.Exists(path)) return;
+            try
+            {
+                foreach (var line in System.IO.File.ReadAllLines(path))
+                {
+                    var parts = line.Split('|');
+                    if (parts.Length != 3) continue;
+                    if (!long.TryParse(parts[1], out var mt)) continue;
+                    var richness = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var pair in parts[2].Split(','))
+                    {
+                        if (string.IsNullOrEmpty(pair)) continue;
+                        var kv = pair.Split('=');
+                        if (kv.Length != 2 || !int.TryParse(kv[1], out var score)) continue;
+                        richness[kv[0]] = score;
+                    }
+                    _richnessCache[parts[0]] = (mt, richness);
+                }
+            }
+            catch (Exception ex) { WriteLine($"[Loader] richness-cache read failed: {ex.Message}"); }
+        }
+
+        static void PersistRichnessEntry(string path, long mtime, Dictionary<string, int> richness)
+        {
+            try
+            {
+                var cachePath = RichnessCachePath();
+                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(cachePath));
+                var line = $"{path}|{mtime}|{string.Join(",", richness.Select(kv => $"{kv.Key}={kv.Value}"))}";
+                // Append-with-dedupe: read existing, replace matching path, write back.
+                var lines = System.IO.File.Exists(cachePath)
+                    ? new List<string>(System.IO.File.ReadAllLines(cachePath))
+                    : new List<string>();
+                lines.RemoveAll(l => l.StartsWith(path + "|", StringComparison.OrdinalIgnoreCase));
+                lines.Add(line);
+                System.IO.File.WriteAllLines(cachePath, lines);
+            }
+            catch (Exception ex) { WriteLine($"[Loader] richness-cache write failed: {ex.Message}"); }
+        }
+
         internal static Dictionary<string, int> GetCharacterModelRichness(string path)
         {
+            long mtime = 0;
+            try { mtime = System.IO.File.GetLastWriteTimeUtc(path).Ticks; } catch { }
+
+            lock (_richnessCacheLock)
+            {
+                LoadRichnessCacheFromDisk();
+                if (_richnessCache.TryGetValue(path, out var cached) && cached.Mtime == mtime)
+                    return cached.Richness;
+            }
+
             var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             try
             {
+                // Shallow scan — walks OES chunk tree by header only, skipping the
+                // OESAnimationBuffer vertex-data blocks that dominate parse time.
+                // Enough for the richness score (character name + anim/mesh child
+                // counts). LoadCharacter still uses GetOrLoadRoot's full parse when
+                // it actually needs to render a model.
                 using (var zip = ZipFile.OpenRead(path))
                 using (var ms = new MemoryStream())
                 {
-                    using (var temp = zip.GetEntry("main.oes")?.Open())
-                        temp?.CopyTo(ms);
+                    using (var temp = zip.GetEntry("main.oes")?.Open()) temp?.CopyTo(ms);
                     ms.Position = 0;
-                    var root = OESFile.Read<OESRoot>(ms);
-                    foreach (var c in root.Find<OESCharacter>())
+                    foreach (var (charName, anims, meshes) in OESFile.ShallowScanCharacters(ms))
                     {
-                        var anims = c.Find<OESAnimationSet>().Count();
-                        var meshes = c.Find<OESAnimatedMesh>().Count();
-                        // Score: prefer animated models heavily; a model with meshes
-                        // but no anims (e.g. SHIP static mesh) still beats a zip that
-                        // doesn't declare the model at all.
                         var score = anims * 1000 + meshes;
-                        if (!result.TryGetValue(c.Name, out var cur) || score > cur)
-                            result[c.Name] = score;
+                        if (!result.TryGetValue(charName, out var cur) || score > cur)
+                            result[charName] = score;
                     }
                 }
             }
@@ -161,6 +234,9 @@ namespace VisualEQ
             {
                 WriteLine($"[Loader] Could not enumerate models in '{path}': {ex.Message}");
             }
+
+            lock (_richnessCacheLock) _richnessCache[path] = (mtime, result);
+            PersistRichnessEntry(path, mtime, result);
             return result;
         }
 
