@@ -20,6 +20,10 @@ namespace VisualEQ.Engine
     public partial class EngineCore : GameWindow
     {
         bool DeferredEnabled;
+        // Back-face culling for opaque geometry. On by default — CCW-front, cull
+        // back. Toggle with F9 for regression testing (if a specific mesh's winding
+        // is wrong, hitting F9 turns culling off session-wide so we can compare).
+        bool _cullEnabled = true;
 
         public readonly Gui Gui;
 
@@ -523,6 +527,10 @@ namespace VisualEQ.Engine
                 case Key.L:
                     DeferredEnabled = !DeferredEnabled;
                     break;
+                case Key.F9:
+                    _cullEnabled = !_cullEnabled;
+                    Console.WriteLine($"[Engine] Back-face culling {(_cullEnabled ? "ON" : "OFF")}");
+                    break;
                 case Key.Space:
                     if (Camera.OnGround)
                         Camera.FallingVelocity = -50;
@@ -695,7 +703,17 @@ namespace VisualEQ.Engine
                     GL.ClearColor(0, 0, 0, 1);
                     GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
-                    GL.Disable(EnableCap.CullFace); // disabled to rule out winding-order issues
+                    // Cull back faces of opaque geometry — halves fragment work for
+                    // closed meshes (zone walls, characters, ships, objects). Both
+                    // ConverterCore.GenerateAnimatedMeshes / GenerateStaticMesh AND
+                    // the zone-mesh Bake path emit CCW-front triangles (character
+                    // meshes explicitly swap winding for this; zone meshes come from
+                    // Fragment36 already CCW). GL default FrontFace=CCW so no
+                    // explicit call needed. F9 toggles for regressions during
+                    // testing — persist the state on _cullEnabled so we don't have
+                    // to re-decide per frame.
+                    if (_cullEnabled) GL.Enable(EnableCap.CullFace);
+                    else GL.Disable(EnableCap.CullFace);
                     GL.Disable(EnableCap.Blend);
                     GL.Enable(EnableCap.DepthTest);
                     Models.ForEach(model => model.Draw(ProjectionView, forward: false));
@@ -703,6 +721,11 @@ namespace VisualEQ.Engine
                     if (diag)
                         Console.WriteLine($"[DIAG] GL error after deferred-pass draw={GL.GetError()}");
                 }
+                // Forward pass draws transparent / masked materials (sails, foliage,
+                // ghost effects). Those typically want two-sided rendering so a sail
+                // seen from behind still shows the front-facing cloth pixels — leave
+                // culling OFF here regardless of the deferred-pass state.
+                GL.Disable(EnableCap.CullFace);
                 GL.Enable(EnableCap.Blend);
                 GL.BlendFunc(BlendingFactorSrc.SrcAlpha, BlendingFactorDest.OneMinusSrcAlpha);
                 GL.Enable(EnableCap.DepthTest);

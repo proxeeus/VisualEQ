@@ -103,6 +103,7 @@ namespace VisualEQ.Common
                 case "aset": instance = new OESAnimationSet(tc, id); break;
                 case "amsh": instance = new OESAnimatedMesh(tc, id); break;
                 case "abuf": instance = new OESAnimationBuffer(tc, id); break;
+                case "mgrp": instance = new OESMeshGroups(tc, id); break;
                 default: instance = new OESChunk(tc, id); break;
             }
             file.Add(instance);
@@ -565,6 +566,40 @@ namespace VisualEQ.Common
         public override string ToString() => $"OESAnimationBuffer(VertexBuffers.Count={VertexBuffers.Count}, VertexBufferCounts={VertexBuffers.Select(x => x.Count).ToArray().Stringify()})";
     }
 
+    // Per-mesh helmet-group tags, indexed by mesh order within the OESCharacter.
+    // Emitted by the converter to carry LANTERN's primary/secondary mesh
+    // classification (SkeletonImporter.cs:125) — used at load time to filter
+    // meshes by npc.HelmTexture:
+    //   Group 0 → always render (base body, non-head meshes)
+    //   Group 1 → render only when helmTexture == 0 (base head + hair)
+    //   Group N ≥ 2 → render only when helmTexture == N - 1 (helmet variant)
+    // Absent chunk → all meshes render (backward-compatible; old OES files
+    // pre-date this metadata).
+    public class OESMeshGroups : OESChunk
+    {
+        public uint[] Groups;
+
+        public OESMeshGroups(string typeCode, uint id) : base(typeCode, id) { }
+        public OESMeshGroups() : base("mgrp") => Groups = System.Array.Empty<uint>();
+        public OESMeshGroups(IReadOnlyList<uint> groups) : base("mgrp") => Groups = groups.ToArray();
+
+        protected override void SerializeData(BinaryWriter bw)
+        {
+            bw.Write(Groups?.Length ?? 0);
+            if (Groups != null)
+                foreach (var g in Groups) bw.Write(g);
+        }
+
+        protected override void DeserializeData(BinaryReader br)
+        {
+            var count = br.ReadInt32();
+            Groups = new uint[count];
+            for (var i = 0; i < count; i++) Groups[i] = br.ReadUInt32();
+        }
+
+        public override string ToString() => $"OESMeshGroups(Groups=[{string.Join(",", Groups ?? System.Array.Empty<uint>())}])";
+    }
+
     public class OESFile
     {
         public static T Read<T>(Stream fp) where T : OESChunk => (T)Read(fp);
@@ -573,6 +608,57 @@ namespace VisualEQ.Common
         {
             using (var br = new BinaryReader(fp))
                 return new OESFile().Read(br);
+        }
+
+        // Walks the chunk tree WITHOUT deserializing per-chunk data. Returns
+        // (chunkTypeCode, characterName-if-any, immediateChildTypeCounts) tuples
+        // per OESCharacter — used by Loader's richness scan to avoid parsing
+        // OESAnimationBuffer's megabyte-scale vertex floats (which dominated
+        // BuildAvailableModels on 79-chr-zip loads). O(chunks), not O(data).
+        public static IEnumerable<(string CharName, int AnimSets, int Meshes)> ShallowScanCharacters(Stream fp)
+        {
+            using (var br = new BinaryReader(fp, System.Text.Encoding.UTF8, leaveOpen: true))
+            {
+                foreach (var t in WalkChildren(br)) yield return t;
+            }
+        }
+
+        static IEnumerable<(string CharName, int AnimSets, int Meshes)> WalkChildren(BinaryReader br)
+        {
+            var tc = System.Text.Encoding.ASCII.GetString(br.ReadBytes(4)).TrimEnd(' ');
+            var id = br.ReadUInt32();
+            var dlen = br.ReadUInt32();
+            var cdlen = br.ReadUInt32();
+            var numChildren = br.ReadUInt32();
+            var dataEnd = br.BaseStream.Position + dlen;
+
+            string charName = null;
+            if (tc == "char" && dlen > 0)
+            {
+                // OESCharacter's data is a UTF8-length-prefixed name.
+                var len = br.ReadInt32();
+                charName = System.Text.Encoding.UTF8.GetString(br.ReadBytes(len));
+            }
+            br.BaseStream.Position = dataEnd;
+
+            int animSets = 0, meshes = 0;
+            for (var i = 0; i < numChildren; i++)
+            {
+                // Peek the child's type code without advancing.
+                var peekPos = br.BaseStream.Position;
+                var childTc = System.Text.Encoding.ASCII.GetString(br.ReadBytes(4)).TrimEnd(' ');
+                br.BaseStream.Position = peekPos;
+
+                if (tc == "char")
+                {
+                    if (childTc == "aset") animSets++;
+                    else if (childTc == "amsh") meshes++;
+                }
+
+                foreach (var t in WalkChildren(br)) yield return t;
+            }
+
+            if (charName != null) yield return (charName, animSets, meshes);
         }
 
         public static void Write(Stream fp, OESChunk chunk)

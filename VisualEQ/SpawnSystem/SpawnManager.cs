@@ -15,6 +15,28 @@ namespace VisualEQ.SpawnSystem
         // guess for the user's schema — expect to negate or add π/2 if things face wrong.
         const float HeadingFullCircle = 512f;
 
+        // Per-race authored mesh height in EQ "world units". `npc_types.size` divided
+        // by this yields the render scale — most humanoids/creatures use 6.
+        // Dwarves (DWM) and halflings (HOM) share the DWM anim-source and are
+        // authored to a shorter absolute height, so `size/6` under-scales them.
+        // Halas / Grobb / Oggok / Kaladim / Coldain citizens use city-specific
+        // codes with the same physique, so they use the same divisors as their
+        // ancestor race.
+        static float MeshAuthoredHeightForRace(int race)
+        {
+            switch (race)
+            {
+                case 8:                             // Dwarf
+                case 11:                            // Halfling (HOM — short-mesh code)
+                case 81:                            // Rivervale Citizen (RIM/RIF, halfling stock)
+                case 94:                            // Kaladim Citizen (KAM/KAF, dwarf stock)
+                case 183:                           // Coldain (COM/COF, dwarf stock)
+                    return 4f;
+                default:
+                    return 6f;
+            }
+        }
+
         public static Quaternion HeadingToRotation(float heading)
         {
             var angle = heading * ((float)Math.PI * 2f / HeadingFullCircle);
@@ -96,16 +118,31 @@ namespace VisualEQ.SpawnSystem
 
                 if (chosenCode != null)
                 {
-                    if (!modelCache.TryGetValue(chosenCode, out aniModel))
+                    // Cache per (model code, texture, helm, face) so armor tiers,
+                    // helmet variants, and faces coexist under the same base mesh
+                    // without stomping each other. `#0#0#0` collapses to plain
+                    // `code` so the default combo shares the base cache entry.
+                    var textureIdx = npc.Texture;
+                    var helmIdx    = npc.HelmTexture;
+                    var faceIdx    = npc.Face;
+                    var cacheKey = (textureIdx | helmIdx | faceIdx) == 0
+                        ? chosenCode
+                        : $"{chosenCode}#{textureIdx}#{helmIdx}#{faceIdx}";
+                    if (!modelCache.TryGetValue(cacheKey, out aniModel))
                     {
                         try
                         {
-                            aniModel = Loader.LoadCharacter(availableModels[chosenCode], chosenCode, SpawnAnimations, singleFrame: true);
-                            modelCache[chosenCode] = aniModel;
+                            aniModel = Loader.LoadCharacter(
+                                availableModels[chosenCode], chosenCode, SpawnAnimations,
+                                singleFrame: true,
+                                textureIndex: textureIdx,
+                                helmTextureIndex: helmIdx,
+                                faceIndex: faceIdx);
+                            modelCache[cacheKey] = aniModel;
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine($"[SpawnManager] Failed to load '{chosenCode}': {ex.Message}");
+                            Console.WriteLine($"[SpawnManager] Failed to load '{chosenCode}' (t={textureIdx} h={helmIdx} f={faceIdx}): {ex.Message}");
                         }
                     }
                 }
@@ -135,11 +172,13 @@ namespace VisualEQ.SpawnSystem
             // but the axes are transposed relative to the scene — swap X and Y.
             var pos = new Vector3(record.Spawn.Y, record.Spawn.X, record.Spawn.Z);
             var idle = SpawnAnimationCandidates.FirstOrDefault(a => aniModel.AvailableAnimations.Contains(a)) ?? "";
+            var sizeScale = (npc != null && npc.Size > 0f) ? npc.Size / MeshAuthoredHeightForRace(npc.Race) : 1f;
             var instance = new AniModelInstance(aniModel)
             {
                 Animation = idle,
                 Rotation  = HeadingToRotation(record.Spawn.Heading),
-                Position  = pos
+                Position  = pos,
+                Scale     = sizeScale
             };
 
             engine.Add(instance);
@@ -202,10 +241,14 @@ namespace VisualEQ.SpawnSystem
             }
         }
 
-        // Builds name → chr zip path map for a zone. Search order (higher priority wins on collision):
-        //   1. `{zone}_chr_oes.zip`             — zone-specific art
-        //   2. `global*_chr_oes.zip`            — canonical playable races + shared monsters
-        //   3. any other `*_chr_oes.zip`        — best-effort fallback (previously-decoded zones)
+        // Builds name → chr zip path map for a zone. For each model name we pick the
+        // chr zip where it has the most animation content (anims × 1000 + meshes), so
+        // that empty stubs in zone-specific chr zips don't shadow the fully-animated
+        // versions in global_chr. Ties are broken by scan order (zone first, then
+        // global*, then other), which lets zone-only models (DER/GHU/FPM/SHIP) still
+        // pick up the zone-specific mesh even if a decoded global zip has a same-name
+        // stub. Zone models with meshes-but-no-anims (SHIP, BOAT) win against any
+        // other zip that doesn't have the model at all.
         internal static Dictionary<string, string> BuildAvailableModels(string zoneName, string dir)
         {
             var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -236,17 +279,31 @@ namespace VisualEQ.SpawnSystem
                 .Where(p => p != zonePath && !IsGlobal(p))
                 .OrderBy(p => p, StringComparer.OrdinalIgnoreCase));
 
+            // Zone-first, then richness. Zone chr wins for anything it declares —
+            // freporte's PRE (SirensBane) must not be overridden by overthere's PRE
+            // (Bloated Belly, higher anim count but a different visual variant of
+            // the same skeleton family). For models the zone does NOT declare,
+            // richness-wins across the remaining chr zips.
+            var bestScore = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var zoneLocked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             int zoneModels = 0, globalModels = 0, otherModels = 0;
 
             foreach (var path in ordered)
             {
-                var models = Loader.GetAvailableCharacterModels(path);
+                var richness = Loader.GetCharacterModelRichness(path);
+                var isZone = path == zonePath;
                 int added = 0;
-                foreach (var name in models)
+                foreach (var kv in richness)
                 {
-                    if (result.ContainsKey(name)) continue;
-                    result[name] = path;
-                    added++;
+                    // Zone-declared names are locked to the zone chr regardless of
+                    // any richer version another chr zip might carry.
+                    if (zoneLocked.Contains(kv.Key)) continue;
+                    if (bestScore.TryGetValue(kv.Key, out var cur) && cur >= kv.Value) continue;
+                    bestScore[kv.Key] = kv.Value;
+                    var wasNew = !result.ContainsKey(kv.Key);
+                    result[kv.Key] = path;
+                    if (isZone) zoneLocked.Add(kv.Key);
+                    if (wasNew) added++;
                 }
 
                 if (path == zonePath) zoneModels += added;
@@ -256,7 +313,7 @@ namespace VisualEQ.SpawnSystem
 
             Console.WriteLine(
                 $"[SpawnManager] '{zoneName}' models: {result.Count} total " +
-                $"(zone={zoneModels}, global={globalModels}, other={otherModels})");
+                $"(zone-new={zoneModels}, global-new={globalModels}, other-new={otherModels})");
             return result;
         }
     }

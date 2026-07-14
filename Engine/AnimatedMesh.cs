@@ -1,9 +1,5 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Numerics;
-using MoreLinq;
-using VisualEQ.Common;
 using OpenTK.Graphics.OpenGL4;
 
 namespace VisualEQ.Engine
@@ -13,35 +9,29 @@ namespace VisualEQ.Engine
         public bool Enabled = true;
 
         public readonly Material Material;
-        readonly Buffer<uint> IndexBuffer;
-        readonly Dictionary<string, (IReadOnlyList<Vao> Vaos, IReadOnlyList<Buffer<float>> Buffers)> Animations;
+        readonly MeshGeometry Geometry;
 
-        public AnimatedMesh(Material material, Dictionary<string, IReadOnlyList<IReadOnlyList<float>>> animations, uint[] indices)
+        // Preferred path: pre-built shared geometry, per-variant material. Used by
+        // Loader.LoadCharacter so npc.Texture / npc.HelmTexture / npc.Face variants
+        // of the same base model share the same VBOs / VAOs / index buffers.
+        public AnimatedMesh(Material material, MeshGeometry geometry)
         {
             Material = material;
-            IndexBuffer = new Buffer<uint>(indices, BufferTarget.ElementArrayBuffer);
-
-            Animations = animations.Select(kv =>
-            {
-                var buffers = kv.Value.Select(x => new Buffer<float>(x.ToArray())).ToList();
-                var vaos = buffers.Count.Times(i =>
-                {
-                    var vao = new Vao();
-                    vao.Attach(IndexBuffer);
-                    vao.Attach(buffers[i], (0, typeof(Vector3)), (1, typeof(Vector3)), (2, typeof(Vector2)));
-                    vao.Attach(buffers[(i + 1) % buffers.Count], (3, typeof(Vector3)), (4, typeof(Vector3)), (5, typeof(Vector2)));
-                    return vao;
-                }).ToList();
-                return (kv.Key, ((IReadOnlyList<Vao>)vaos, (IReadOnlyList<Buffer<float>>)buffers));
-            }).ToDictionary(x => x.Item1, x => x.Item2);
+            Geometry = geometry;
         }
+
+        // Backwards-compatible convenience overload — creates a fresh MeshGeometry
+        // and owns it. Used by any legacy caller that hasn't been threaded through
+        // a geometry cache yet.
+        public AnimatedMesh(Material material, System.Collections.Generic.Dictionary<string, System.Collections.Generic.IReadOnlyList<System.Collections.Generic.IReadOnlyList<float>>> animations, uint[] indices)
+            : this(material, new MeshGeometry(indices, animations)) { }
 
         public void Draw(Matrix4x4 projView, Matrix4x4 modelMat, string animation, float aniTime, bool forward)
         {
             if (!Enabled) return;
             if (forward && Material.Deferred || !forward && !Material.Deferred) return;
 
-            if (!Animations.TryGetValue(animation, out var aniData) && !Animations.TryGetValue("", out aniData))
+            if (!Geometry.Animations.TryGetValue(animation, out var aniData) && !Geometry.Animations.TryGetValue("", out aniData))
                 return;
 
             Material.Use(projView, MaterialUse.Animated);
@@ -50,7 +40,7 @@ namespace VisualEQ.Engine
             var frameCount = (int)(aniTime / fps);
             Material.SetInterpolation(aniTime % fps / fps);
 
-            aniData.Vaos[frameCount % aniData.Vaos.Count].Bind(() => GL.DrawElements(PrimitiveType.Triangles, IndexBuffer.Length, DrawElementsType.UnsignedInt, IntPtr.Zero));
+            aniData.Vaos[frameCount % aniData.Vaos.Count].Bind(() => GL.DrawElements(PrimitiveType.Triangles, Geometry.IndexBuffer.Length, DrawElementsType.UnsignedInt, IntPtr.Zero));
         }
     }
 }

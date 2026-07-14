@@ -190,8 +190,19 @@ namespace VisualEQ.ConverterCore
                                 case Fragment11 f11:
                                     GenerateAnimatedMeshes(wld, zip, model, skin, f11.Reference.Value);
                                     break;
+                                case Fragment2D f2d:
+                                    // Non-skeletal actor (BOAT, SHIP, EYE, ...). The Fragment14
+                                    // references a Fragment2D directly, which points at a
+                                    // Fragment36 static mesh. Emit it as a single-frame animated
+                                    // mesh so the runtime loader still finds a bind pose under
+                                    // `animations[""]`.
+                                    if (f2d.Reference.Value is Fragment36 f36)
+                                        GenerateStaticMesh(wld, zip, model, skin, f36);
+                                    else
+                                        WriteLine($"[Converter] Fragment2D on '{aname}' resolved to null Fragment36");
+                                    break;
                                 default:
-                                    WriteLine($"Unknown reference from 0x14 fragment to {elem.Value}");
+                                    WriteLine($"Unknown reference from 0x14 fragment on '{aname}' to {elem.Value}");
                                     break;
                             }
                     }
@@ -215,14 +226,167 @@ namespace VisualEQ.ConverterCore
             public AniTreeFrame[] Children;
         }
 
+        // LANTERN's `ClientData/animationsources.txt` — maps a character model
+        // code to the model whose animation tracks it should inherit. Classic
+        // EQ's global_chr.s3d only stores animated pose tracks for a handful
+        // of "donor" models (ELM/ELF for humans, DWM/DWF for stubby races,
+        // OGF for large humanoids, etc.). Every other playable race + a lot
+        // of NPC races carry only a bind pose in their own tracks; the client
+        // resolves this at load time via this same mapping. If we don't apply
+        // it here, HAM/DAM/HIM/etc. render as T-poses because the OES emits
+        // zero OESAnimationSets for them. Kept as a static table (~90 entries,
+        // stable over ~20 years) to avoid runtime file I/O.
+        static readonly Dictionary<string, string> AnimationSources = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "HUM", "ELM" }, { "HUF", "ELF" },
+            { "BAM", "ELM" }, { "BAF", "ELF" },
+            { "ERM", "ELM" }, { "ERF", "ELF" },
+            { "HIM", "ELM" }, { "HIF", "ELF" },
+            { "DAM", "ELM" }, { "DAF", "ELF" },
+            { "HAM", "ELM" }, { "HAF", "ELF" },
+            { "TRM", "OGF" }, { "TRF", "OGF" },
+            { "OGM", "OGF" },
+            { "HOM", "DWM" }, { "HOF", "DWF" },
+            { "GNM", "DWM" }, { "GNF", "DWF" },
+            { "BRM", "ELM" }, { "BRF", "ELF" },
+            { "GOM", "GIA" }, { "GOL", "GIA" },
+            { "BET", "SPI" },
+            { "CPF", "CPM" },
+            { "FRG", "FRO" },
+            { "GAM", "GAR" },
+            { "GHU", "GOB" },
+            { "FPM", "ELM" },
+            { "IMP", "GAR" },
+            { "GRI", "DRK" },
+            { "KOB", "WER" },
+            { "LIF", "LIM" },
+            { "MIN", "GNN" },
+            { "BGM", "ELM" },
+            { "PIF", "FAF" },
+            { "BGG", "KGO" },
+            { "SKE", "ELM" },
+            { "TIG", "LIM" },
+            { "HHM", "ELM" },
+            { "ZOM", "ELM" }, { "ZOF", "ELF" },
+            { "QCM", "ELM" }, { "QCF", "ELF" },
+            { "PUM", "LIM" },
+            { "NGM", "ELM" },
+            { "EGM", "ELM" },
+            { "RIM", "DWM" }, { "RIF", "DWF" },
+            { "SKU", "RAT" },
+            { "SPH", "DRK" },
+            { "ARM", "RAT" },
+            { "CLM", "DWM" }, { "CLF", "DWF" }, { "CL", "DWM" },
+            { "HLM", "ELM" }, { "HLF", "ELF" },
+            { "GRM", "OGF" }, { "GRF", "OGF" },
+            { "OKM", "OGF" }, { "OKF", "OGF" },
+            { "KAM", "DWM" }, { "KAF", "DWF" }, { "KA",  "DWM" },
+            { "FEM", "ELM" }, { "FEF", "ELF" },
+            { "GFM", "ELM" }, { "GFF", "ELF" },
+            { "STC", "LIM" },
+            { "IKF", "IKM" },
+            { "ICM", "IKM" }, { "ICF", "IKM" }, { "ICN", "IKM" },
+            { "ERO", "ELF" },
+            { "TRI", "ELM" },
+            { "BRI", "DWM" },
+            { "FDF", "FDR" },
+            { "SSK", "SRW" },
+            { "VRF", "VRM" },
+            { "WUR", "DRA" },
+            { "IKS", "IKM" },
+            { "IKH", "REA" },
+            { "FMO", "DRK" },
+            { "BTM", "RHI" },
+            { "SDE", "DML" },
+            { "SPC", "SPE" },
+            { "ENA", "ELM" },
+            { "YAK", "GNN" },
+            { "COM", "DWM" }, { "COF", "DWF" }, { "COK", "DWM" },
+            { "DR2", "TRK" },
+            { "HAG", "ELF" },
+            { "SIR", "ELF" },
+            { "STG", "FSG" },
+            { "CCD", "TRK" },
+            { "ABH", "ELF" },
+            { "BWD", "TRK" },
+            { "GDR", "DRA" },
+            { "PRI", "TRK" },
+        };
+
+        // Animation prefixes VisualEQ actually renders at runtime — the spawn
+        // editor is idle-only, so we drop combat/social/damage/etc. animations
+        // at bake time. Each anim we keep means ~one OESAnimationBuffer per
+        // mesh (vertex counts × float per anim frame); pulling in the ~35 anims
+        // LANTERN's animationsources gives us was inflating global_chr's OES
+        // from ~100 MB to ~260 MB, tanking zone-load time and BuildAvailable-
+        // Models. If you need combat animations for a preview / debug tool,
+        // widen this set and re-decode. `""` is the bind pose and is always
+        // emitted separately.
+        static readonly HashSet<string> BakedAnimationPrefixes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "P01", "P02", "P03",
+            "L01", "L02", "L03",
+            "O01",
+            "STA", "POS",
+        };
+
         void GenerateAnimatedMeshes(Wld wld, ZipArchive zip, OESCharacter model, OESSkin skin, Fragment10 f10)
         {
             var prefixes = new List<string> { "" };
             var rootName = f10.Tracks[0].PieceTrack.Name;
 
+            // Meshes we'll process this call. Starts with `f10.Meshes` (skeleton's
+            // primary meshes: base body + base head), then scans the WLD for
+            // ORPHAN Fragment36s named `{race}HE##_DMSPRITEDEF` with ## > 00 —
+            // those are helmet variants the classic client renders as secondaries
+            // (LANTERN's `WldFileCharacters.FindAdditionalAnimationsAndMeshes`
+            // scans them the same way). They aren't referenced by the skeleton's
+            // Fragment10.Meshes list but share the same bones, so the same anim
+            // frames apply. Every downstream loop (vertex bake, poly emit, helmet
+            // classifier, OESMeshGroups) iterates this combined list.
+            var meshesToProcess = new List<(Fragment36 Mesh, string Name)>();
+            for (var i = 0; i < f10.Meshes.Length; i++)
+            {
+                meshesToProcess.Add((f10.Meshes[i].Value?.Reference.Value, f10.Meshes[i].Value?.Reference.Name ?? ""));
+            }
+            {
+                var alreadyIn = new HashSet<string>(meshesToProcess.Select(m => m.Name), StringComparer.OrdinalIgnoreCase);
+                var assetUpper = model.Name.ToUpperInvariant();
+                foreach (var (fragName, f36) in wld.GetFragments<Fragment36>())
+                {
+                    if (alreadyIn.Contains(fragName)) continue;
+                    var stripped = fragName;
+                    if (stripped.EndsWith("_DMSPRITEDEF")) stripped = stripped.Substring(0, stripped.Length - "_DMSPRITEDEF".Length);
+                    stripped = stripped.ToUpperInvariant();
+                    if (stripped.Length != assetUpper.Length + 4) continue;
+                    if (!stripped.StartsWith(assetUpper + "HE")) continue;
+                    var suffix = stripped.Substring(assetUpper.Length + 2, 2);
+                    if (!int.TryParse(suffix, out var num) || num == 0) continue;
+                    meshesToProcess.Add((f36, fragName));
+                }
+            }
+
+            // Pull LANTERN's alternate animation-source for this model. When
+            // set, we also look for prefixed tracks that end with the
+            // alternate's rootName and substitute the model code in per-bone
+            // lookups. This is how the classic client synthesises anims for
+            // races whose own chr tracks are bind-pose only.
+            AnimationSources.TryGetValue(model.Name, out var altModel);
+            string altRootName = null;
+            if (altModel != null && rootName.Contains(model.Name))
+                altRootName = rootName.Replace(model.Name, altModel);
+
             foreach (var f13 in wld.GetFragments<Fragment13>())
-                if (f13.Name != rootName && f13.Name.EndsWith(rootName))
-                    prefixes.Add(f13.Name.Substring(0, f13.Name.Length - rootName.Length));
+            {
+                if (f13.Name == rootName) continue;
+                string candidate = null;
+                if (f13.Name.EndsWith(rootName))
+                    candidate = f13.Name.Substring(0, f13.Name.Length - rootName.Length);
+                else if (altRootName != null && f13.Name.EndsWith(altRootName))
+                    candidate = f13.Name.Substring(0, f13.Name.Length - altRootName.Length);
+                if (candidate != null && BakedAnimationPrefixes.Contains(candidate))
+                    prefixes.Add(candidate);
+            }
             prefixes = prefixes.Distinct().ToList();
 
             AniTreePrecursor BuildAniTreePrecursor(string prefix, uint index)
@@ -230,8 +394,20 @@ namespace VisualEQ.ConverterCore
                 var track = f10.Tracks[index];
                 var ptref = track.PieceTrack;
                 var piecetrack = ptref.Value;
-                if (prefix != "" && wld.GetFragment<Fragment13>(prefix + ptref.Name) is Fragment13 rep)
-                    piecetrack = rep;
+                if (prefix != "")
+                {
+                    // Prefer the model's own prefixed track when available;
+                    // fall back to the alternate model's equivalent track
+                    // (bone name with `model.Name` swapped to `altModel`).
+                    if (wld.GetFragment<Fragment13>(prefix + ptref.Name) is Fragment13 own)
+                        piecetrack = own;
+                    else if (altModel != null && ptref.Name.Contains(model.Name))
+                    {
+                        var altPieceName = prefix + ptref.Name.Replace(model.Name, altModel);
+                        if (wld.GetFragment<Fragment13>(altPieceName) is Fragment13 alt)
+                            piecetrack = alt;
+                    }
+                }
 
                 return new AniTreePrecursor { Index = index, Frames = piecetrack.Reference.Value.Frames, Children = track.Children.Select(i => BuildAniTreePrecursor(prefix, (uint)i)).ToArray() };
             }
@@ -252,7 +428,7 @@ namespace VisualEQ.ConverterCore
             var animationBuffers = new Dictionary<string, List<List<List<float>>>>();
             foreach (var (name, frames) in trees)
             {
-                var frameBuffers = animationBuffers[name] = f10.Meshes.Length.Times(() => new List<List<float>>()).ToList();
+                var frameBuffers = animationBuffers[name] = meshesToProcess.Count.Times(() => new List<List<float>>()).ToList();
                 foreach (var frame in frames)
                 {
                     var matrices = new Dictionary<uint, Matrix4x4>();
@@ -266,23 +442,27 @@ namespace VisualEQ.ConverterCore
                     }
                     BuildBoneMatrices(frame, Matrix4x4.Identity);
 
-                    f10.Meshes.ForEach((mr, i) =>
+                    for (var i = 0; i < meshesToProcess.Count; i++)
                     {
                         var curBuffer = new List<float>();
                         // Some WLDs (notably classic Trilogy global_chr.s3d) have Fragment2D→Fragment36
                         // references that don't resolve. Skip those meshes so one bad reference doesn't
                         // sink the whole model; an empty buffer keeps `frameBuffers[i]` index-aligned
                         // with the sibling loop below (which also null-checks).
-                        var mesh = mr.Value?.Reference.Value;
+                        var mesh = meshesToProcess[i].Mesh;
                         if (mesh == null)
                         {
                             frameBuffers[i].Add(curBuffer);
-                            return;
+                            continue;
                         }
                         var offset = 0U;
                         foreach (var (count, index) in mesh.VertBones)
                         {
-                            var mat = matrices[index];
+                            // Orphan helmet meshes might reference a bone that isn't in this
+                            // Fragment10's track table (they use their own indexing). Skip
+                            // gracefully — the mesh's frames will just be its bind pose,
+                            // which is what LANTERN's `SetActiveMeshFromGroup` uses too.
+                            if (!matrices.TryGetValue(index, out var mat)) mat = Matrix4x4.Identity;
                             for (var j = 0; j < count; ++j)
                             {
                                 curBuffer.AddRange(Vector3.Transform(mesh.Vertices[offset + j], mat).AsArray());
@@ -292,7 +472,7 @@ namespace VisualEQ.ConverterCore
                             offset += count;
                         }
                         frameBuffers[i].Add(curBuffer);
-                    });
+                    }
                 }
             }
 
@@ -321,17 +501,69 @@ namespace VisualEQ.ConverterCore
                 return (oinds, vertices.Select(kv => (kv.Key, new OESAnimationBuffer(kv.Value.Select(Remap).ToList()))).ToDictionary(t => t.Key, t => t.Item2));
             }
 
-            var asets = prefixes.Where(x => x != "").Select(x => (x, new OESAnimationSet(x, 0f))).ToDictionary(t => t.Item1, t => t.Item2);
-            f10.Meshes.Length.Times(i =>
+            // Classify each source Fragment36 into a helmet group per LANTERN's
+            // SkeletonImporter (mesh name == asset name OR ends in "00" → primary,
+            // else → secondary in insertion order). Base body + HE00 (base head)
+            // become groups 0/1. Helmet variants HE01, HE02, HE03 become groups
+            // 2, 3, 4 (rendered one at a time based on npc.HelmTexture).
+            //
+            // We track group per meshesToProcess index; poly-groups within one
+            // Fragment36 all share the same helmet group. Extra suffixes we
+            // haven't classified explicitly (e.g. HUM01) get group 0 = always
+            // render — safest default until we understand what they are.
+            var f36HelmetGroup = new uint[meshesToProcess.Count];
             {
-                var meshf = f10.Meshes[i].Value?.Reference.Value;
+                var assetName = model.Name.ToUpperInvariant();
+                var nextSecondary = 2u; // groups 2, 3, 4… allocated in encounter order
+                for (var mi = 0; mi < meshesToProcess.Count; mi++)
+                {
+                    var fragName = meshesToProcess[mi].Name;
+                    var stripped = fragName;
+                    if (stripped.EndsWith("_DMSPRITEDEF")) stripped = stripped.Substring(0, stripped.Length - "_DMSPRITEDEF".Length);
+                    stripped = stripped.ToUpperInvariant();
+                    if (stripped == assetName) { f36HelmetGroup[mi] = 0; continue; }
+                    // {race}HE00 pattern → base head (group 1)
+                    // {race}HE## for ## > 00 → helmet secondary (group nextSecondary)
+                    if (stripped.Length == assetName.Length + 4 && stripped.StartsWith(assetName + "HE"))
+                    {
+                        var suffix = stripped.Substring(assetName.Length + 2, 2);
+                        if (int.TryParse(suffix, out var num))
+                        {
+                            f36HelmetGroup[mi] = num == 0 ? 1u : nextSecondary++;
+                            continue;
+                        }
+                    }
+                    // Unrecognised suffix — treat as always-render (group 0). May
+                    // over-render meshes like HUM01 but keeps the model visually
+                    // intact; iterate if a specific NPC shows stacked geometry.
+                    f36HelmetGroup[mi] = 0;
+                }
+            }
+
+            var meshGroups = new List<uint>();
+
+            var asets = prefixes.Where(x => x != "").Select(x => (x, new OESAnimationSet(x, 0f))).ToDictionary(t => t.Item1, t => t.Item2);
+            meshesToProcess.Count.Times(i =>
+            {
+                var meshf = meshesToProcess[i].Mesh;
                 if (meshf == null) return; // Skip unresolved mesh — matches the null-guard in the animationBuffers loop above.
                 var omats = meshf.TextureListReference.Value.References.Select(matref =>
                 {
                     var tfn = matref.Value.Reference.Value.Reference.Value.References[0].Value.Filenames[0];
                     var tf = matref.Value.Flags;
-                    var transparent = (tf & 7) == 7;
-                    return new OESMaterial(transparent, transparent, false) { new OESTexture(ConvertTexture(wld.S3D, zip, tfn)) };
+                    // Character materials: mask bits (2, 8, 16) route through the
+                    // Deferred masked shader (alpha-discard). We deliberately DO NOT
+                    // set `transparent` — the zone-path formula `(tf & (4|8))` would
+                    // flip skin materials with bit 3 (value 8) to
+                    // AlphaMask=True + Transparent=True, which routes them to
+                    // ForwardDiffuseMasked (intensity-as-alpha, no discard). That
+                    // ships NPCs as semi-transparent and tanks FPS due to forward
+                    // overdraw. Sail cloth (also bit 3) still renders correctly:
+                    // Deferred masked reads alpha from the BMP chroma-key PNG and
+                    // discards palette-index-0 pixels, which is what "transparent
+                    // sail" actually means for classic character models.
+                    var masked = (tf & (2 | 8 | 16)) != 0;
+                    return new OESMaterial(masked, false, false) { new OESTexture(ConvertTexture(wld.S3D, zip, tfn)) };
                 }).ToList();
                 var offset = 0U;
                 meshf.PolyTexs.ForEach(v =>
@@ -345,6 +577,7 @@ namespace VisualEQ.ConverterCore
                     );
                     var amesh = new OESAnimatedMesh(true, ibuffer, (uint)vbuffers[""].VertexBuffers[0].Count);
                     model.Add(amesh);
+                    meshGroups.Add(f36HelmetGroup[i]);
                     foreach (var prefix in prefixes)
                     {
                         if (prefix == "")
@@ -355,6 +588,122 @@ namespace VisualEQ.ConverterCore
                 });
             });
             asets.ForEach(kv => model.Add(kv.Value));
+            model.Add(new OESMeshGroups(meshGroups));
+
+            // LANTERN's `WldFileCharacters.FindMaterialVariants` +
+            // `MaterialList.AddVariant`: the mesh's TextureListReference (Fragment31)
+            // only lists the base outfit's Fragment30 materials (skin variant 00,
+            // subpart-tens digit 0). Higher-tier armor and face variants live as
+            // UNREFERENCED Fragment30s in the WLD with the SAME character+region
+            // prefix — the LoadCharacter PNG-swap needs them present in the OES to
+            // find them per npc.Texture / npc.Face.
+            //
+            //   variant > "00"  →  armor tier (npc.Texture)   e.g. BATCH0001 → BATCH0101
+            //   subpart-tens > 0 →  face variant (npc.Face)    e.g. HUMHE0001 → HUMHE0011
+            {
+                var baseCharRegions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var alreadyInSkin = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var mat in skin.Find<OESMaterial>())
+                {
+                    foreach (var tex in mat.Find<OESTexture>())
+                    {
+                        var fn = Path.GetFileNameWithoutExtension(tex.Filename);
+                        var dash = fn.IndexOf('-');
+                        if (dash > 0) fn = fn.Substring(0, dash);
+                        if (fn.Length != 9) continue;
+                        alreadyInSkin.Add(fn);
+                        baseCharRegions.Add(fn.Substring(0, 5)); // race(3) + region(2)
+                    }
+                }
+
+                var added = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (fragName, f30) in wld.GetFragments<Fragment30>())
+                {
+                    var matName = fragName;
+                    if (matName.EndsWith("_MDF")) matName = matName.Substring(0, matName.Length - 4);
+                    if (matName.Length != 9) continue;
+                    if (alreadyInSkin.Contains(matName)) continue;
+                    var charRegion = matName.Substring(0, 5);
+                    if (!baseCharRegions.Contains(charRegion)) continue;
+                    if (!added.Add(matName)) continue;
+
+                    if (f30.Reference.Value?.Reference.Value?.References == null ||
+                        f30.Reference.Value.Reference.Value.References.Length == 0) continue;
+                    var tfn = f30.Reference.Value.Reference.Value.References[0].Value.Filenames[0];
+                    var tf = f30.Flags;
+                    var masked = (tf & (2 | 8 | 16)) != 0;
+                    skin.Add(new OESMaterial(masked, false, false) { new OESTexture(ConvertTexture(wld.S3D, zip, tfn)) });
+                }
+            }
+        }
+
+        // Non-skeletal actors (BOAT, SHIP, EYE_OF_ZOMM, ...) — the Fragment14
+        // ActorDef references a Fragment2D → Fragment36 mesh directly, with no
+        // Fragment11 skeleton track set. Emit each Fragment36 poly group as an
+        // OESAnimatedMesh with a single "" (bind-pose) frame so the runtime
+        // loader treats it the same as a zero-animation character. All vertices
+        // are baked in local space (identity transform) since there's no
+        // skeleton to animate.
+        void GenerateStaticMesh(Wld wld, ZipArchive zip, OESCharacter model, OESSkin skin, Fragment36 mesh)
+        {
+            if (mesh == null || mesh.TextureListReference.Value == null) return;
+
+            var omats = mesh.TextureListReference.Value.References.Select(matref =>
+            {
+                var tfn = matref.Value.Reference.Value.Reference.Value.References[0].Value.Filenames[0];
+                var tf = matref.Value.Flags;
+                var transparent = (tf & 7) == 7;
+                return new OESMaterial(transparent, transparent, false) { new OESTexture(ConvertTexture(wld.S3D, zip, tfn)) };
+            }).ToList();
+
+            // Flatten every vertex to the interleaved (pos, normal, uv) format the loader
+            // expects. No bone matrix — static meshes bake their world-space verts as-is.
+            var vertsFlat = new List<float>(mesh.Vertices.Length * 8);
+            for (var i = 0; i < mesh.Vertices.Length; i++)
+            {
+                var v = mesh.Vertices[i];
+                var n = i < mesh.Normals.Length ? mesh.Normals[i] : Vector3.UnitZ;
+                var uv = i < mesh.TexCoords.Length ? mesh.TexCoords[i] : Vector2.Zero;
+                vertsFlat.Add(v.X); vertsFlat.Add(v.Y); vertsFlat.Add(v.Z);
+                vertsFlat.Add(n.X); vertsFlat.Add(n.Y); vertsFlat.Add(n.Z);
+                vertsFlat.Add(uv.X); vertsFlat.Add(uv.Y);
+            }
+
+            var offset = 0U;
+            foreach (var (count, texIndex) in mesh.PolyTexs)
+            {
+                var polys = mesh.Polygons.Skip((int)offset).Take((int)count)
+                    .SelectMany(x => new[] { x.A, x.B, x.C })
+                    .ToList();
+                offset += count;
+                skin.Add(omats[(int)texIndex]);
+
+                // Compact indices to only the verts this poly group uses, remap
+                // triangles into the compacted space, and swap winding order to
+                // match the animated-mesh path (which flips [i+1]<->[i+2]).
+                var indmap = new Dictionary<uint, uint>();
+                var oinds = new List<uint>(polys.Count);
+                foreach (var index in polys)
+                {
+                    if (!indmap.ContainsKey(index)) indmap[index] = (uint)indmap.Count;
+                    oinds.Add(indmap[index]);
+                }
+                for (var i = 0; i < oinds.Count; i += 3)
+                {
+                    var tmp = oinds[i + 1];
+                    oinds[i + 1] = oinds[i + 2];
+                    oinds[i + 2] = tmp;
+                }
+                var indexOrder = indmap.OrderBy(kv => kv.Value).Select(kv => kv.Key).ToList();
+                var compactVerts = new List<float>(indexOrder.Count * 8);
+                foreach (var srcIdx in indexOrder)
+                    for (var k = 0; k < 8; k++)
+                        compactVerts.Add(vertsFlat[(int)srcIdx * 8 + k]);
+
+                var amesh = new OESAnimatedMesh(true, oinds, (uint)(compactVerts.Count / 8));
+                model.Add(amesh);
+                amesh.Add(new OESAnimationBuffer(new IReadOnlyList<float>[] { compactVerts }));
+            }
         }
 
         bool ConvertEqgZone(string name)
