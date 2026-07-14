@@ -22,6 +22,13 @@ namespace VisualEQ.Engine
         // is world XY (default) or camera-perpendicular (Alt-modified).
         private bool _useCameraPlane;
 
+        // Sampled once at BeginActualDrag. When true, ground-plane drag skips the downward
+        // collision probe and leaves Z at _dragStartPosition.Z + _wheelZOffset — for placing
+        // NPCs below water, inside dock recesses, or anywhere the auto-snap gets in the way.
+        // Mirrors _useCameraPlane's "sample once, hold for the drag" pattern so a slipped
+        // finger mid-drag doesn't re-engage the snap.
+        private bool _freezeZ;
+
         // Vertical distance from the ground under the model to the model's origin at the
         // moment drag started. Preserved during ground-plane drag so the model keeps sitting
         // on terrain the same way it did at load time — the DB stores hip/center Z, not feet,
@@ -167,6 +174,8 @@ namespace VisualEQ.Engine
 
             _useCameraPlane = engine.GetPressedKeys().Contains(OpenTK.Input.Key.AltLeft)
                             || engine.GetPressedKeys().Contains(OpenTK.Input.Key.AltRight);
+            _freezeZ = engine.GetPressedKeys().Contains(OpenTK.Input.Key.ControlLeft)
+                     || engine.GetPressedKeys().Contains(OpenTK.Input.Key.ControlRight);
             _wheelZOffset = 0f;
             _dragHorizOffset = Vector2.Zero;
             _dragGroundOffset = MODEL_GROUND_OFFSET;
@@ -274,7 +283,8 @@ namespace VisualEQ.Engine
                 var targetY = xyProj.Y + _dragHorizOffset.Y;
 
                 float targetZ = _dragStartPosition.Z + _wheelZOffset; // fallback if no ground
-                if (Collider != null)
+                // Ctrl held at drag start = freeze Z; skip the auto-snap probe entirely.
+                if (!_freezeZ && Collider != null)
                 {
                     var probe = new Vector3(targetX, targetY, HighProbeAltitude);
                     var hit = Collider.FindIntersection(probe, new Vector3(0, 0, -1), 0.5f);
@@ -302,6 +312,7 @@ namespace VisualEQ.Engine
                 selectedModel.Position = _dragStartPosition;
             isDragging = false;
             _dragPending = false;
+            _freezeZ = false;
             dragDepthOffset = 0f;
             currentSurfaceHeight = float.MinValue;
         }
@@ -319,13 +330,15 @@ namespace VisualEQ.Engine
             // shouldn't move the model at all.
             if (isDragging && selectedModel != null)
             {
-                StickModelToSurface();
+                // Frozen-Z drag intentionally sits off-surface — don't undo it on drop.
+                if (!_freezeZ) StickModelToSurface();
                 // Notify listeners of the completed drag so they can record an edit action.
                 OnDragCompleted?.Invoke(selectedModel, _dragStartPosition, selectedModel.Position);
             }
 
             isDragging = false;
             _dragPending = false;
+            _freezeZ = false;
             dragDepthOffset = 0f;
             currentSurfaceHeight = float.MinValue;
         }

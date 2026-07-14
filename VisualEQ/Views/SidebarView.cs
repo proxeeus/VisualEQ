@@ -914,6 +914,7 @@ namespace VisualEQ.Views
                         VisualEQ.EditSystem.GridEntryFieldEditAction.Field.Z,
                         wp.Z, surfaceZ));
             }
+            ImGui.Text("Tip: hold Ctrl while dragging to keep custom Z (below surface, etc.)");
         }
 
         void RenderWpFloatField(int gridId, int number,
@@ -1320,6 +1321,7 @@ namespace VisualEQ.Views
                 if (Vector3.DistanceSquared(scenePos, newScenePos) > 0.0001f)
                     _view.Controller.RecordAction(new SpawnMoveAction(sp, scenePos, newScenePos));
             }
+            ImGui.Text("Tip: hold Ctrl while dragging to keep custom Z (below surface, etc.)");
         }
 
         void RenderPendingChangesSection(int index)
