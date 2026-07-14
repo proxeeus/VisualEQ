@@ -15,6 +15,24 @@ namespace VisualEQ.SpawnSystem
         // guess for the user's schema — expect to negate or add π/2 if things face wrong.
         const float HeadingFullCircle = 512f;
 
+        // Per-race authored mesh height in EQ "world units". `npc_types.size` divided
+        // by this yields the render scale — humans/most creatures use 6; halflings
+        // and dwarves have mesh geometry authored to different absolute heights than
+        // their `Mob::GetDefaultSize()` values, so the naive size/6 formula rendered
+        // halflings too big and dwarves too small. Table tuned against user feedback
+        // in freporte / gfaydark / kaladima; iterate here (not in Scale computation)
+        // if any race still renders wrong. Anything not listed falls through to the
+        // canonical 6-unit divisor.
+        static float MeshAuthoredHeightForRace(int race)
+        {
+            switch (race)
+            {
+                case 8:  return 4f;  // Dwarf mesh authored short — size/4 lands at 1.0 for canonical dwarf
+                case 11: return 8f;  // Halfling mesh authored TALL (shares ELM's 6+ unit skeleton via anim source); pull scale down harder
+                default: return 6f;
+            }
+        }
+
         public static Quaternion HeadingToRotation(float heading)
         {
             var angle = heading * ((float)Math.PI * 2f / HeadingFullCircle);
@@ -135,11 +153,13 @@ namespace VisualEQ.SpawnSystem
             // but the axes are transposed relative to the scene — swap X and Y.
             var pos = new Vector3(record.Spawn.Y, record.Spawn.X, record.Spawn.Z);
             var idle = SpawnAnimationCandidates.FirstOrDefault(a => aniModel.AvailableAnimations.Contains(a)) ?? "";
+            var sizeScale = (npc != null && npc.Size > 0f) ? npc.Size / MeshAuthoredHeightForRace(npc.Race) : 1f;
             var instance = new AniModelInstance(aniModel)
             {
                 Animation = idle,
                 Rotation  = HeadingToRotation(record.Spawn.Heading),
-                Position  = pos
+                Position  = pos,
+                Scale     = sizeScale
             };
 
             engine.Add(instance);
