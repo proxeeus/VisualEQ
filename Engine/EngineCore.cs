@@ -517,6 +517,12 @@ namespace VisualEQ.Engine
             // Redo (Ctrl+Y) works from both layouts because Y sits at the same physical spot.
             if (e.Control && !e.Shift && !e.Alt)
             {
+                // Record the Ctrl key itself so GetPressedKeys() reports it — used by
+                // drag modifiers (e.g. ModelSelector's freeze-Z). Without this, pressing
+                // Ctrl alone (e.Key == Key.ControlLeft, e.Control == true) hits the early
+                // return and never lands in KeyState.
+                if (e.Key == Key.ControlLeft || e.Key == Key.ControlRight)
+                    KeyState[e.Key] = true;
                 if (e.Key == Key.Z || e.Key == Key.W) { Controller?.TryUndo(); return; }
                 if (e.Key == Key.Y)                  { Controller?.TryRedo(); return; }
                 return; // consume unrecognized Ctrl+* so camera never sees the key

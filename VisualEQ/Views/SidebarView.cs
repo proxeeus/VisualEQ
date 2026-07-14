@@ -227,6 +227,15 @@ namespace VisualEQ.Views
         private object _wpActiveEditBeforeValue;
         private Func<object> _wpActiveEditReader;
 
+        // Spawn-position edit state. SpawnMoveAction is a whole-vector action, so we snapshot
+        // the full pre-edit scene pos on the "just became active" transition and diff against
+        // sp.Model.Position on release. One tracker slot — ImGui only lets a single item be
+        // active at a time.
+        private enum SpawnPosAxis { X, Y, Z }
+        private int? _spawnPosActiveSpawnId;
+        private SpawnPosAxis _spawnPosActiveAxis;
+        private Vector3 _spawnPosBeforeScene;
+
         // Waypoint delete-confirmation state. Key is the "gridId:number" composite so the
         // arm survives frame-to-frame even if selection briefly clears.
         private string _wpDeleteArmedForKey;
@@ -749,7 +758,12 @@ namespace VisualEQ.Views
             ImGui.Text($"Spawn id: {record.Spawn.Id}");
             ImGui.Text($"Group: {record.Spawn.SpawnGroupName} (id {record.Spawn.SpawnGroupId})");
             ImGui.Text($"Respawn: {record.Spawn.RespawnTime}s ± {record.Spawn.Variance}s");
-            ImGui.Text($"Pos: X={displayX:F1} Y={displayY:F1} Z={displayZ:F1}");
+
+            if (_view.Controller.EditModeEnabled)
+                RenderSpawnPositionFields(sp);
+            else
+                ImGui.Text($"Pos: X={displayX:F1} Y={displayY:F1} Z={displayZ:F1}");
+
             ImGui.Text($"Heading: {sp.CurrentHeading:F0}");
             if (record.Spawn.PathGrid > 0)
                 ImGui.Text($"Path grid: {record.Spawn.PathGrid} ({record.Waypoints.Count} waypoints)");
@@ -1267,6 +1281,88 @@ namespace VisualEQ.Views
                 }
             }
             _wasHeadingSliderActive = sliderActive;
+        }
+
+        // Editable X/Y/Z fields for spawn position. Mirrors the waypoint DragFloat pattern:
+        // live-mutate sp.Model.Position for immediate visual feedback while typing/dragging,
+        // then emit a single SpawnMoveAction on release so undo/redo + pending buffer stay
+        // coherent. DB axes (X = scene.Y, Y = scene.X, Z = scene.Z) — same swap the display
+        // uses. beforePos is captured BEFORE the DragFloat writes back this frame, so the
+        // activation-transition snapshot is the true pre-edit state even on the first frame.
+        void RenderSpawnPositionFields(SpawnPoint sp)
+        {
+            var spawnId = sp.Record.Spawn.Id;
+            var beforePos = sp.Model.Position;
+
+            ImGui.Text("Position (DB axes)");
+
+            // X (DB) ↔ scene.Y
+            var xVal = beforePos.Y;
+            var xChanged = ImGui.DragFloat($"x###{Id}siPosX{spawnId}",
+                ref xVal, 0f, 0f, 1f, "%.2f", 1f);
+            if (xChanged)
+                sp.Model.Position = new Vector3(beforePos.X, xVal, beforePos.Z);
+            HandleSpawnPosTransition(sp, SpawnPosAxis.X, beforePos);
+
+            // Y (DB) ↔ scene.X — re-read since X's write may have changed sp.Model.Position.
+            var afterX = sp.Model.Position;
+            var yVal = afterX.X;
+            var yChanged = ImGui.DragFloat($"y###{Id}siPosY{spawnId}",
+                ref yVal, 0f, 0f, 1f, "%.2f", 1f);
+            if (yChanged)
+                sp.Model.Position = new Vector3(yVal, afterX.Y, afterX.Z);
+            HandleSpawnPosTransition(sp, SpawnPosAxis.Y, afterX);
+
+            // Z (DB) ↔ scene.Z
+            var afterY = sp.Model.Position;
+            var zVal = afterY.Z;
+            var zChanged = ImGui.DragFloat($"z###{Id}siPosZ{spawnId}",
+                ref zVal, 0f, 0f, 1f, "%.2f", 1f);
+            if (zChanged)
+                sp.Model.Position = new Vector3(afterY.X, afterY.Y, zVal);
+            HandleSpawnPosTransition(sp, SpawnPosAxis.Z, afterY);
+        }
+
+        void HandleSpawnPosTransition(SpawnPoint sp, SpawnPosAxis axis, Vector3 beforeSceneIfStarting)
+        {
+            var isActive = ImGui.IsAnyItemActive();
+            var wasThisFieldActive =
+                _spawnPosActiveSpawnId == sp.Record.Spawn.Id &&
+                _spawnPosActiveAxis == axis;
+
+            if (isActive && !wasThisFieldActive)
+            {
+                if (_spawnPosActiveSpawnId.HasValue) FlushSpawnPosEdit();
+                _spawnPosActiveSpawnId = sp.Record.Spawn.Id;
+                _spawnPosActiveAxis    = axis;
+                _spawnPosBeforeScene   = beforeSceneIfStarting;
+            }
+            else if (!isActive && wasThisFieldActive)
+            {
+                FlushSpawnPosEdit();
+            }
+        }
+
+        void FlushSpawnPosEdit()
+        {
+            if (!_spawnPosActiveSpawnId.HasValue) return;
+
+            var ctrl = _view.Controller;
+            var spawnId = _spawnPosActiveSpawnId.Value;
+            var sp = ctrl.SpawnManager.SpawnPoints.FirstOrDefault(p => p.Record.Spawn.Id == spawnId);
+            _spawnPosActiveSpawnId = null;
+
+            if (sp == null) return;
+
+            var before = _spawnPosBeforeScene;
+            var after  = sp.Model.Position;
+            if (Vector3.DistanceSquared(before, after) < 0.0001f)
+                return;
+
+            // Revert the live mutation so SpawnMoveAction.Apply is what actually moves the
+            // model — keeps MarkMoved / buffer wiring the single source of truth.
+            sp.Model.Position = before;
+            ctrl.RecordAction(new SpawnMoveAction(sp, before, after));
         }
 
         // Snap-Z-to-water affordance for spawns. Always renders a diagnostic block in edit
