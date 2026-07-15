@@ -107,6 +107,40 @@ namespace VisualEQ.Database.Repositories
             }
         }
 
+        public async Task<IEnumerable<ZoneGridRecord>> GetZoneGridsAsync(string zoneName)
+        {
+            using (var connection = CreateConnection())
+            {
+                connection.Open();
+
+                var zoneId = await connection.QueryFirstOrDefaultAsync<int>(
+                    SqlQueries.GetZoneId, new { ZoneName = zoneName });
+                if (zoneId == 0)
+                    return Enumerable.Empty<ZoneGridRecord>();
+
+                var grids = (await connection.QueryAsync<Grid>(
+                    SqlQueries.GetAllZoneGrids, new { ZoneId = zoneId })).ToList();
+                if (grids.Count == 0)
+                    return Enumerable.Empty<ZoneGridRecord>();
+
+                var entries = (await connection.QueryAsync<GridEntry>(
+                    SqlQueries.GetAllZoneGridEntries, new { ZoneId = zoneId })).ToList();
+
+                var entriesByGrid = entries
+                    .GroupBy(e => e.GridId)
+                    .ToDictionary(g => g.Key, g => g.OrderBy(e => e.Number).ToList());
+
+                Console.WriteLine($"[DB] {grids.Count} grid(s), {entries.Count} grid_entries row(s) for zone '{zoneName}'");
+
+                return grids.Select(g => new ZoneGridRecord
+                {
+                    Grid       = g,
+                    Waypoints  = entriesByGrid.TryGetValue(g.Id, out var wps) ? wps : new List<GridEntry>(),
+                    SpawnCount = 0
+                }).ToList();
+            }
+        }
+
         public async Task<SpawnViewModel> GetSpawnByIdAsync(int spawnId)
         {
             using (var connection = CreateConnection())

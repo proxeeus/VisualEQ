@@ -104,6 +104,22 @@ namespace VisualEQ.Database.Constants
             WHERE gridid IN @GridIds AND zoneid = @ZoneId
             ORDER BY gridid, number";
 
+        // Full sweep of every grid in a zone — used by the Grid List sidebar section so
+        // orphan grids (no spawn2 references them; quest scripts spawn NPCs onto them at
+        // runtime) become visible/editable. GetGridsBatch above is spawn-driven and would
+        // miss these entirely.
+        public const string GetAllZoneGrids = @"
+            SELECT id AS Id, zoneid AS ZoneId, type AS Type, type2 AS Type2
+            FROM grid
+            WHERE zoneid = @ZoneId
+            ORDER BY id";
+
+        public const string GetAllZoneGridEntries = @"
+            SELECT gridid AS GridId, number, x, y, z, heading, pause, centerpoint
+            FROM grid_entries
+            WHERE zoneid = @ZoneId
+            ORDER BY gridid, number";
+
         // Trilogy client's server-side zone-crossing triggers. Columns aliased so Dapper
         // maps deterministically regardless of MySQL's platform-dependent case handling.
         public const string GetTrilogyZonePoints = @"

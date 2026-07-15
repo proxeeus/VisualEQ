@@ -9,6 +9,7 @@ namespace VisualEQ.Database.Repositories.Interfaces
     {
         Task<IEnumerable<SpawnViewModel>> GetZoneSpawnsAsync(string zoneName);
         Task<IEnumerable<SpawnRecord>> GetZoneSpawnsFullAsync(string zoneName);
+        Task<IEnumerable<ZoneGridRecord>> GetZoneGridsAsync(string zoneName);
         Task<SpawnViewModel> GetSpawnByIdAsync(int spawnId);
         Task<bool> UpdateSpawnLocationAsync(int spawnId, Vector3 position, float heading);
     }
