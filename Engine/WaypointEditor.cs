@@ -65,6 +65,11 @@ namespace VisualEQ.Engine
         float _dragGroundOffset;
         Vector2 _dragHorizOffset;
         float _wheelZOffset;
+        // Sampled once at BeginActualDrag. When true, ground-plane drag skips the downward
+        // collision probe — place waypoints below water surface, inside dock recesses, etc.
+        // Mirrors _useCameraPlane's sample-once policy so a released Ctrl mid-drag doesn't
+        // re-engage the snap.
+        bool _freezeZ;
         const int DragThresholdPixels = 8;
         const float DefaultGroundOffset = 0.1f;
         // Downward-probe start Z — see ModelSelector for rationale.
@@ -183,7 +188,8 @@ namespace VisualEQ.Engine
                 var targetY = xyProj.Y + _dragHorizOffset.Y;
 
                 float targetZ = _dragStartPosition.Z + _wheelZOffset;
-                if (Collider != null)
+                // Ctrl held at drag start = freeze Z; skip the auto-snap probe entirely.
+                if (!_freezeZ && Collider != null)
                 {
                     var probe = new Vector3(targetX, targetY, HighProbeAltitude);
                     var hit = Collider.FindIntersection(probe, new Vector3(0, 0, -1), 0.5f);
@@ -208,6 +214,8 @@ namespace VisualEQ.Engine
 
             _useCameraPlane = _engine.GetPressedKeys().Contains(OpenTK.Input.Key.AltLeft)
                             || _engine.GetPressedKeys().Contains(OpenTK.Input.Key.AltRight);
+            _freezeZ = _engine.GetPressedKeys().Contains(OpenTK.Input.Key.ControlLeft)
+                     || _engine.GetPressedKeys().Contains(OpenTK.Input.Key.ControlRight);
             _wheelZOffset = 0f;
             _dragHorizOffset = Vector2.Zero;
             _dragGroundOffset = DefaultGroundOffset;
@@ -276,6 +284,7 @@ namespace VisualEQ.Engine
             }
             _isDragging = false;
             _dragPending = false;
+            _freezeZ = false;
         }
 
         // Abort an in-flight drag without recording an edit. Restores the selected handle's
@@ -292,6 +301,7 @@ namespace VisualEQ.Engine
             }
             _isDragging = false;
             _dragPending = false;
+            _freezeZ = false;
         }
 
         // ─── Shared math with ModelSelector; kept private-duplicated to avoid an intrusive

@@ -227,6 +227,22 @@ namespace VisualEQ.Views
         private object _wpActiveEditBeforeValue;
         private Func<object> _wpActiveEditReader;
 
+        // Spawn-position edit state. Only ONE ImGui item can be active at a time, so a
+        // single-slot tracker is sufficient. We store:
+        //   _spawnPosBeforeScalar — the tracked-axis DB value at activation, used for the
+        //     diff check on flush. Per-field (matches the waypoint/ZP inspector pattern) so
+        //     a neighboring widget's flush doesn't fire on this axis's live delta.
+        //   _spawnPosBeforeScene  — the whole scene position at activation, used to build
+        //     the SpawnMoveAction's from-vector.
+        // The per-axis scalar check is what prevents the "Y drag records X's + Y's + Z's
+        // flush all firing on the same delta" duplicate-action bug — each axis flushes
+        // only when ITS own DB value has moved.
+        private enum SpawnPosAxis { X, Y, Z }
+        private int? _spawnPosActiveSpawnId;
+        private SpawnPosAxis _spawnPosActiveAxis;
+        private float _spawnPosBeforeScalar;
+        private Vector3 _spawnPosBeforeScene;
+
         // Waypoint delete-confirmation state. Key is the "gridId:number" composite so the
         // arm survives frame-to-frame even if selection briefly clears.
         private string _wpDeleteArmedForKey;
@@ -749,7 +765,12 @@ namespace VisualEQ.Views
             ImGui.Text($"Spawn id: {record.Spawn.Id}");
             ImGui.Text($"Group: {record.Spawn.SpawnGroupName} (id {record.Spawn.SpawnGroupId})");
             ImGui.Text($"Respawn: {record.Spawn.RespawnTime}s ± {record.Spawn.Variance}s");
-            ImGui.Text($"Pos: X={displayX:F1} Y={displayY:F1} Z={displayZ:F1}");
+
+            if (_view.Controller.EditModeEnabled)
+                RenderSpawnPositionFields(sp);
+            else
+                ImGui.Text($"Pos: X={displayX:F1} Y={displayY:F1} Z={displayZ:F1}");
+
             ImGui.Text($"Heading: {sp.CurrentHeading:F0}");
             if (record.Spawn.PathGrid > 0)
                 ImGui.Text($"Path grid: {record.Spawn.PathGrid} ({record.Waypoints.Count} waypoints)");
@@ -914,6 +935,7 @@ namespace VisualEQ.Views
                         VisualEQ.EditSystem.GridEntryFieldEditAction.Field.Z,
                         wp.Z, surfaceZ));
             }
+            ImGui.Text("Tip: hold Ctrl while dragging to keep custom Z (below surface, etc.)");
         }
 
         void RenderWpFloatField(int gridId, int number,
@@ -1268,6 +1290,106 @@ namespace VisualEQ.Views
             _wasHeadingSliderActive = sliderActive;
         }
 
+        // Editable X/Y/Z fields for spawn position. Mirrors the waypoint DragFloat pattern:
+        // live-mutate sp.Model.Position for immediate visual feedback while typing/dragging,
+        // then emit a single SpawnMoveAction on release so undo/redo + pending buffer stay
+        // coherent. DB axes (X = scene.Y, Y = scene.X, Z = scene.Z) — same swap the display
+        // uses. Per-axis snapshots are captured BEFORE each DragFloat's write-back so the
+        // activation-transition baseline is the true pre-edit state.
+        void RenderSpawnPositionFields(SpawnPoint sp)
+        {
+            var spawnId = sp.Record.Spawn.Id;
+
+            ImGui.Text("Position (DB axes)");
+
+            // X (DB) ↔ scene.Y
+            var beforeX = sp.Model.Position;
+            var xVal = beforeX.Y;
+            var xChanged = ImGui.DragFloat($"x###{Id}siPosX{spawnId}",
+                ref xVal, 0f, 0f, 1f, "%.2f", 1f);
+            if (xChanged)
+                sp.Model.Position = new Vector3(beforeX.X, xVal, beforeX.Z);
+            HandleSpawnPosTransition(sp, SpawnPosAxis.X, beforeX.Y, beforeX);
+
+            // Y (DB) ↔ scene.X — re-read since X's write may have changed sp.Model.Position.
+            var beforeY = sp.Model.Position;
+            var yVal = beforeY.X;
+            var yChanged = ImGui.DragFloat($"y###{Id}siPosY{spawnId}",
+                ref yVal, 0f, 0f, 1f, "%.2f", 1f);
+            if (yChanged)
+                sp.Model.Position = new Vector3(yVal, beforeY.Y, beforeY.Z);
+            HandleSpawnPosTransition(sp, SpawnPosAxis.Y, beforeY.X, beforeY);
+
+            // Z (DB) ↔ scene.Z
+            var beforeZ = sp.Model.Position;
+            var zVal = beforeZ.Z;
+            var zChanged = ImGui.DragFloat($"z###{Id}siPosZ{spawnId}",
+                ref zVal, 0f, 0f, 1f, "%.2f", 1f);
+            if (zChanged)
+                sp.Model.Position = new Vector3(beforeZ.X, beforeZ.Y, zVal);
+            HandleSpawnPosTransition(sp, SpawnPosAxis.Z, beforeZ.Z, beforeZ);
+        }
+
+        void HandleSpawnPosTransition(SpawnPoint sp, SpawnPosAxis axis,
+            float beforeScalarIfStarting, Vector3 beforeSceneIfStarting)
+        {
+            var isActive = ImGui.IsAnyItemActive();
+            var wasThisFieldActive =
+                _spawnPosActiveSpawnId == sp.Record.Spawn.Id &&
+                _spawnPosActiveAxis == axis;
+
+            if (isActive && !wasThisFieldActive)
+            {
+                if (_spawnPosActiveSpawnId.HasValue) FlushSpawnPosEdit();
+                _spawnPosActiveSpawnId = sp.Record.Spawn.Id;
+                _spawnPosActiveAxis    = axis;
+                _spawnPosBeforeScalar  = beforeScalarIfStarting;
+                _spawnPosBeforeScene   = beforeSceneIfStarting;
+            }
+            else if (!isActive && wasThisFieldActive)
+            {
+                FlushSpawnPosEdit();
+            }
+        }
+
+        void FlushSpawnPosEdit()
+        {
+            if (!_spawnPosActiveSpawnId.HasValue) return;
+
+            var ctrl = _view.Controller;
+            var spawnId = _spawnPosActiveSpawnId.Value;
+            var axis    = _spawnPosActiveAxis;
+            var before  = _spawnPosBeforeScene;
+            var beforeScalar = _spawnPosBeforeScalar;
+            _spawnPosActiveSpawnId = null;
+
+            var sp = ctrl.SpawnManager.SpawnPoints.FirstOrDefault(p => p.Record.Spawn.Id == spawnId);
+            if (sp == null) return;
+
+            // Per-axis diff. This is the key correctness bit: IsAnyItemActive is global, so
+            // when the user drags Y, X's and Z's HandleSpawnPosTransition will ALSO see
+            // isActive=true and try to flush any prior-tracked axis. Comparing the whole
+            // vector would treat Y's delta as though it belonged to X (or Z), producing
+            // duplicate SpawnMoveActions and breaking undo. Comparing only the tracked axis
+            // means a flush from a neighboring widget is a clean no-op unless THAT axis
+            // was actually moved.
+            var after = sp.Model.Position;
+            float currentScalar;
+            switch (axis)
+            {
+                case SpawnPosAxis.X: currentScalar = after.Y; break;
+                case SpawnPosAxis.Y: currentScalar = after.X; break;
+                default:             currentScalar = after.Z; break;
+            }
+            if (Math.Abs(currentScalar - beforeScalar) < 0.001f)
+                return;
+
+            // Live mutation already happened during the drag; Apply's MarkMoved(after) is a
+            // visual no-op but is what wires IsDirty + buffer + undo state. Same flow the
+            // 3D-world drag uses (see Controller.HandleDragCompleted).
+            ctrl.RecordAction(new SpawnMoveAction(sp, before, after));
+        }
+
         // Snap-Z-to-water affordance for spawns. Always renders a diagnostic block in edit
         // mode so a user who expects the button but isn't over water can see WHY it's not
         // firing (out-of-region, no regions loaded, wrong zone). Button only enables when
@@ -1320,6 +1442,7 @@ namespace VisualEQ.Views
                 if (Vector3.DistanceSquared(scenePos, newScenePos) > 0.0001f)
                     _view.Controller.RecordAction(new SpawnMoveAction(sp, scenePos, newScenePos));
             }
+            ImGui.Text("Tip: hold Ctrl while dragging to keep custom Z (below surface, etc.)");
         }
 
         void RenderPendingChangesSection(int index)
