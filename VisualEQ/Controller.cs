@@ -381,6 +381,18 @@ namespace VisualEQ
                 sp.MarkMoved(scenePos, e.CurrentHeading);
             }
 
+            // Pending spawn deletes — hide each matching just-loaded SpawnPoint so the
+            // scene reflects the buffer. Applies AFTER spawn moves so a pending move
+            // + pending delete on the same id still gets the hide (the move was dropped
+            // when the delete happened, so buffer.Spawns won't have an entry, but this
+            // ordering also handles a hypothetical race).
+            foreach (var kv in buffer.SpawnDeletes)
+            {
+                var sp = SpawnManager.SpawnPoints.FirstOrDefault(p => p.Record.Spawn.Id == kv.Key);
+                if (sp == null) continue;
+                HideSpawnFromScene(sp);
+            }
+
             // Grid entry field edits — mutate every SpawnRecord.Waypoints copy that
             // references this waypoint so rendering picks up the pending state. Also
             // mutate the ZoneGrids parallel copy so orphan grids (unreferenced by any
@@ -592,6 +604,12 @@ namespace VisualEQ
                 if (sp.IsDirty) sp.Revert();
             foreach (var zp in ZonePointManager.AllPoints())
                 if (zp.IsDirty) zp.Revert();
+
+            // Pending spawn deletes — re-attach every hidden SpawnPoint. Snapshot the ids
+            // first because RestoreSpawnToScene mutates HiddenSpawnPoints.
+            var pendingDeleteIds = PendingBuffer.SpawnDeletes.Keys.ToList();
+            foreach (var id in pendingDeleteIds)
+                RestoreSpawnToScene(id);
 
             // Waypoint revert — GridWaypointMoveAction/GridEntryFieldEditAction mutate
             // sp.Record.Waypoints (and ZoneGrids.Waypoints) in place, so without these
@@ -1059,6 +1077,12 @@ namespace VisualEQ
                 }
             }
 
+            // Hidden SpawnPoints held pending-delete rows for revert. After a successful
+            // commit those rows are gone from the DB, so drop the in-memory parked copies
+            // to release the AniModelInstance references (the underlying AniModel stays
+            // shared in _modelCache regardless).
+            SpawnManager.HiddenSpawnPoints.Clear();
+
             PendingBuffer = new EditBuffer
             {
                 Zone       = CurrentZoneName,
@@ -1377,6 +1401,43 @@ namespace VisualEQ
             var zp = ZonePointManager.Selected;
             if (zp == null) return;
             RecordAction(new EditSystem.ZonePointDeleteAction(zp));
+        }
+
+        // Marks the currently-selected spawn as pending-delete. Gated on edit mode: same
+        // convention as move/rotate actions so the Delete key doesn't fire in read-only
+        // sessions. No-op when nothing is selected or the spawn is already pending-delete.
+        // Wired to the Delete key by EngineCore.OnKeyDown.
+        public void DeleteSelectedSpawn()
+        {
+            if (!EditModeEnabled) return;
+            var sp = SpawnManager.Selected;
+            if (sp == null) return;
+            // Idempotency: if this id is already in the buffer, don't push a duplicate action.
+            if (PendingBuffer != null && PendingBuffer.SpawnDeletes.ContainsKey(sp.Record.Spawn.Id)) return;
+            RecordAction(new EditSystem.SpawnDeleteAction(sp));
+        }
+
+        // Detaches a spawn from every scene register (SpawnManager visible list, engine
+        // model list, character-models pick list). Called by SpawnDeleteAction.Apply and
+        // by ApplyPendingBuffer during session recovery. The SpawnPoint itself is parked
+        // in SpawnManager.HiddenSpawnPoints so Restore can splice it back with no DB call.
+        public void HideSpawnFromScene(SpawnPoint sp)
+        {
+            if (sp == null) return;
+            Engine.Remove(sp.Model);
+            CharacterModels.Remove(sp.Model);
+            SpawnManager.Hide(sp);
+        }
+
+        // Inverse of HideSpawnFromScene — pulls the parked SpawnPoint out of
+        // HiddenSpawnPoints and re-registers it with the engine + selector list. No-op
+        // when the id isn't hidden (idempotent).
+        public void RestoreSpawnToScene(int spawnId)
+        {
+            var sp = SpawnManager.Restore(spawnId);
+            if (sp == null) return;
+            Engine.Add(sp.Model);
+            CharacterModels.Add(sp.Model);
         }
 
         // Sandwich fix: shift the landing coord (target_x/y) 50 units directly away from

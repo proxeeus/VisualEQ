@@ -56,6 +56,11 @@ namespace VisualEQ.SpawnSystem
         public SpawnPoint Selected { get; private set; }
         public int DirtyCount => SpawnPoints.Count(sp => sp.IsDirty);
 
+        // Spawn2 rows that were marked pending-delete but whose SpawnPoint objects are
+        // kept alive so Revert / Discard can splice them back into SpawnPoints without a
+        // DB round-trip. Keyed by spawn2.id. Cleared on zone unload alongside SpawnPoints.
+        public Dictionary<int, SpawnPoint> HiddenSpawnPoints { get; } = new Dictionary<int, SpawnPoint>();
+
         public event Action<SpawnPoint> SpawnSelected;
         public event Action<SpawnPoint> SpawnMoved;
 
@@ -68,9 +73,38 @@ namespace VisualEQ.SpawnSystem
         public void PrepareForLoad()
         {
             SpawnPoints.Clear();
+            HiddenSpawnPoints.Clear();
             Selected = null;
             _loadModelled = _loadPlaceholders = _loadSkipped = 0;
             _loadPlaceholderByRace = new Dictionary<int, (int, string, bool, string)>();
+        }
+
+        // Removes `sp` from the visible SpawnPoints list and parks it in HiddenSpawnPoints.
+        // Callers (SpawnDeleteAction / session recovery) also strip the model from
+        // Engine.AniModels and Controller.CharacterModels so it stops rendering + being
+        // pickable. Clears selection when `sp` was selected.
+        public void Hide(SpawnPoint sp)
+        {
+            if (sp == null) return;
+            var id = sp.Record.Spawn.Id;
+            if (Selected == sp)
+            {
+                Selected = null;
+                SpawnSelected?.Invoke(null);
+            }
+            SpawnPoints.Remove(sp);
+            HiddenSpawnPoints[id] = sp;
+        }
+
+        // Pulls a previously-hidden SpawnPoint back into SpawnPoints. Returns null when the
+        // id isn't hidden (idempotent — no-op on double-restore). Caller handles engine +
+        // CharacterModels re-attach so the ordering matches the delete path in reverse.
+        public SpawnPoint Restore(int spawnId)
+        {
+            if (!HiddenSpawnPoints.TryGetValue(spawnId, out var sp)) return null;
+            HiddenSpawnPoints.Remove(spawnId);
+            SpawnPoints.Add(sp);
+            return sp;
         }
 
         // Processes a slice of records. Call between PrepareForLoad and FinishLoad. Safe to

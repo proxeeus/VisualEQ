@@ -360,6 +360,7 @@ namespace VisualEQ.Engine
 
         public void Add(Model model) => Models.Add(model);
         public void Add(AniModelInstance modelInstance) => AniModels.Add(modelInstance);
+        public bool Remove(AniModelInstance modelInstance) => AniModels.Remove(modelInstance);
 
         public void AddRegion(string name, byte kind, Vector3 min, Vector3 max) =>
             Regions.Add(new LiquidRegion(name, kind, min, max));
@@ -655,6 +656,12 @@ namespace VisualEQ.Engine
                     // selected. Fires the FrameSelectionRequested event so Controller can
                     // resolve target + perform the fly-to.
                     Controller?.FrameSelection();
+                    break;
+                case Key.Delete:
+                    // Marks the currently-selected spawn as pending-delete. Gated on edit
+                    // mode inside Controller so the hotkey doesn't fire in read-only
+                    // sessions. Ctrl+Z / sidebar Revert un-delete; Commit finalizes.
+                    Controller?.DeleteSelectedSpawn();
                     break;
                 default:
                     KeyState[e.Key] = true;

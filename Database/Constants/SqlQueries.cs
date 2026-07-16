@@ -49,6 +49,12 @@ namespace VisualEQ.Database.Constants
             SET x = @X, y = @Y, z = @Z, heading = @Heading
             WHERE id = @SpawnId";
 
+        // Removes a spawn2 row by id. Does not touch spawngroup / spawnentry — those may
+        // be referenced by other spawn2 rows in this or other zones; a "cleanup orphan
+        // spawngroups" tool is a separate concern.
+        public const string DeleteSpawn2 = @"
+            DELETE FROM spawn2 WHERE id = @Id";
+
         // Used by the Phase 5 commit path to write waypoint drags back to the DB. Key is
         // (gridid, number, zoneid) — grid_entries has no primary key beyond that composite.
         public const string UpdateGridEntry = @"

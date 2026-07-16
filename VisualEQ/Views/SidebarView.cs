@@ -179,6 +179,7 @@ namespace VisualEQ.Views
         private EditCommitter.Result _commitResult;
         private int _commitEditCountSnapshot;
         private int _commitSpawnCountSnapshot;
+        private int _commitSpawnDeleteCountSnapshot;
         private int _commitGridCountSnapshot;
         private int _commitGridInsertCountSnapshot;
         private int _commitGridDeleteCountSnapshot;
@@ -224,6 +225,10 @@ namespace VisualEQ.Views
         private int _zpDeleteArmedForId;
         private float _zpDeleteArmedAt;
         private const float DeleteConfirmSeconds = 3f;
+
+        // Spawn Info delete button — same two-click arm/confirm pattern as zone-points.
+        private int _spDeleteArmedForId;
+        private float _spDeleteArmedAt;
 
         // Waypoint inspector state — parallel to _zpActiveEdit* but keyed on (gridId, number)
         // instead of a single row id.
@@ -381,6 +386,7 @@ namespace VisualEQ.Views
             if (buffer == null || buffer.IsEmpty) return;
             _commitEditCountSnapshot        = buffer.TotalPending;
             _commitSpawnCountSnapshot       = buffer.Spawns.Count;
+            _commitSpawnDeleteCountSnapshot = buffer.SpawnDeletes.Count;
             _commitGridCountSnapshot        = buffer.GridEntries.Count;
             _commitGridInsertCountSnapshot  = buffer.GridEntryInserts.Count;
             _commitGridDeleteCountSnapshot  = buffer.GridEntryDeletes.Count;
@@ -431,6 +437,8 @@ namespace VisualEQ.Views
             ImGui.Text($"Commit {_commitEditCountSnapshot} pending edits?");
             if (_commitSpawnCountSnapshot > 0)
                 ImGui.Text($"  {_commitSpawnCountSnapshot} spawn move(s)");
+            if (_commitSpawnDeleteCountSnapshot > 0)
+                ImGui.Text($"  {_commitSpawnDeleteCountSnapshot} spawn delete(s)");
             if (_commitGridCountSnapshot > 0)
                 ImGui.Text($"  {_commitGridCountSnapshot} waypoint edit(s)");
             if (_commitGridInsertCountSnapshot > 0)
@@ -480,6 +488,8 @@ namespace VisualEQ.Views
                 ImGui.Text("Commit successful.");
                 ImGui.Separator();
                 ImGui.Text($"  {r.SpawnRowsWritten} spawn2 row(s) updated");
+                if (r.SpawnDeletesWritten > 0)
+                    ImGui.Text($"  {r.SpawnDeletesWritten} spawn2 row(s) deleted");
                 ImGui.Text($"  {r.GridRowsWritten} grid_entries row(s) updated");
                 if (r.GridEntryInsertsWritten > 0)
                     ImGui.Text($"  {r.GridEntryInsertsWritten} grid_entries row(s) inserted");
@@ -791,6 +801,34 @@ namespace VisualEQ.Views
                 ImGui.Text("(placeholder model)");
             if (sp.IsDirty)
                 ImGui.Text("(unsaved changes)");
+
+            // Delete affordance — two-click confirm to prevent misclicks. Mirrors the
+            // zone-point Delete flow. Only visible in edit mode; the Delete key hotkey
+            // fires the same action.
+            if (_view.Controller.EditModeEnabled)
+            {
+                var spawnId = record.Spawn.Id;
+                if (_spDeleteArmedForId == spawnId &&
+                    (FrameTime - _spDeleteArmedAt) < DeleteConfirmSeconds)
+                {
+                    if (ImGui.Button($"Confirm delete###{Id}spDelC", new Vector2(160, 24)))
+                    {
+                        _view.Controller.DeleteSelectedSpawn();
+                        _spDeleteArmedForId = 0;
+                    }
+                    ImGui.SameLine();
+                    if (ImGui.Button($"Cancel###{Id}spDelX", new Vector2(90, 24)))
+                        _spDeleteArmedForId = 0;
+                }
+                else
+                {
+                    if (ImGui.Button($"Delete this spawn###{Id}spDel", new Vector2(180, 24)))
+                    {
+                        _spDeleteArmedForId = spawnId;
+                        _spDeleteArmedAt    = FrameTime;
+                    }
+                }
+            }
 
             if (_view.Controller.EditModeEnabled)
                 RenderHeadingSlider(sp);
@@ -1553,6 +1591,10 @@ namespace VisualEQ.Views
                 .OrderByDescending(s => s.LastModifiedAt)
                 .Take(maxItems)
                 .ToList();
+            var recentSpawnDeletes = buffer.SpawnDeletes.Values
+                .OrderByDescending(s => s.DeletedAt)
+                .Take(maxItems)
+                .ToList();
             var recentGrids = buffer.GridEntries.Values
                 .OrderByDescending(g => g.LastModifiedAt)
                 .Take(maxItems)
@@ -1570,7 +1612,7 @@ namespace VisualEQ.Views
                 .Take(maxItems)
                 .ToList();
             var hidden = total
-                - recentSpawns.Count - recentGrids.Count
+                - recentSpawns.Count - recentSpawnDeletes.Count - recentGrids.Count
                 - recentGridMeta.Count - recentInserts.Count - recentDeletes.Count;
 
             // Fixed-height list child. Wheel scroll IS handled by the child when the
@@ -1584,6 +1626,13 @@ namespace VisualEQ.Views
                 ImGui.Text($"Spawn moves ({buffer.Spawns.Count}):");
                 foreach (var edit in recentSpawns)
                     RenderPendingSpawnRow(ctrl, edit);
+            }
+
+            if (recentSpawnDeletes.Count > 0)
+            {
+                ImGui.Text($"Spawn deletes ({buffer.SpawnDeletes.Count}):");
+                foreach (var del in recentSpawnDeletes)
+                    RenderPendingSpawnDeleteRow(ctrl, del);
             }
 
             if (recentGrids.Count > 0)
@@ -1728,6 +1777,19 @@ namespace VisualEQ.Views
             ImGui.SameLine();
             if (ImGui.Button($"Revert###{Id}pcRev{edit.SpawnId}", new Vector2(70, 22)))
                 RevertSpawnEdit(ctrl, edit);
+        }
+
+        void RenderPendingSpawnDeleteRow(Controller ctrl, VisualEQ.EditSystem.SpawnDelete del)
+        {
+            var name = string.IsNullOrEmpty(del.DisplayName) ? "?" : del.DisplayName;
+            ImGui.Text($"'{name}' (#{del.SpawnId}) [DELETE]");
+            ImGui.SameLine();
+            if (ImGui.Button($"Revert###{Id}pcRevSd{del.SpawnId}", new Vector2(70, 22)))
+            {
+                // Symmetric with SpawnDeleteAction — Apply un-hides, Revert re-hides. Undo
+                // history stays coherent: Ctrl+Z after this re-deletes, another Ctrl+Z restores.
+                ctrl.RecordAction(new VisualEQ.EditSystem.SpawnRestoreAction(del.SpawnId, del.DisplayName));
+            }
         }
 
         // Records a SpawnMoveAction whose target is the original DB position. The action's

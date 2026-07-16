@@ -35,6 +35,11 @@ namespace VisualEQ.Engine
         // No-op when nothing is selected.
         void FrameSelection();
 
+        // Wired to Delete — marks the currently-selected spawn as pending-delete. Gated
+        // on edit mode by the implementation so the hotkey is a no-op in read-only
+        // sessions. No-op when nothing is selected.
+        void DeleteSelectedSpawn();
+
         // ─── Drag-to-create pipeline hooks ───────────────────────────────────────────
         // When true, EngineCore intercepts mouse input BEFORE the normal selector chain
         // (zone-point / waypoint / spawn) so left-click-drag can draw a preview + commit
