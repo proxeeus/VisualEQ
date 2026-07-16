@@ -24,9 +24,16 @@ namespace VisualEQ.EditSystem
         //   v5 — adds Centerpoint on GridEntryEdit, plus Grids + GridEntryInserts +
         //        GridEntryDeletes for grid metadata edits and per-waypoint add/delete
         //   v6 — adds GridInserts for whole-grid creation (temp id → real id at commit)
-        public int SchemaVersion { get; set; } = 6;
+        //   v7 — adds SpawnDeletes for pending spawn2 row removals (delete-key + commit)
+        public int SchemaVersion { get; set; } = 7;
 
         public Dictionary<int, SpawnEdit> Spawns { get; set; } = new Dictionary<int, SpawnEdit>();
+
+        // Pending spawn2 row deletes — DB ids of rows the user removed via Delete key or
+        // sidebar. The removed SpawnPoint object is held live in SpawnManager.HiddenSpawnPoints
+        // so Revert / Discard can re-attach it to the scene without a DB round-trip; a fresh
+        // session load re-fetches from DB and hides again by matching this set.
+        public Dictionary<int, SpawnDelete> SpawnDeletes { get; set; } = new Dictionary<int, SpawnDelete>();
         public Dictionary<string, GridEntryEdit> GridEntries { get; set; } = new Dictionary<string, GridEntryEdit>();
         public Dictionary<int, ZonePointEdit> ZonePoints { get; set; } = new Dictionary<int, ZonePointEdit>();
 
@@ -60,13 +67,13 @@ namespace VisualEQ.EditSystem
         public Dictionary<int, NpcEdit> Npcs { get; set; } = new Dictionary<int, NpcEdit>();
 
         public bool IsEmpty =>
-            Spawns.Count == 0 && GridEntries.Count == 0 &&
+            Spawns.Count == 0 && SpawnDeletes.Count == 0 && GridEntries.Count == 0 &&
             ZonePoints.Count == 0 && ZonePointInserts.Count == 0 && ZonePointDeletes.Count == 0 &&
             Grids.Count == 0 && GridInserts.Count == 0 &&
             GridEntryInserts.Count == 0 && GridEntryDeletes.Count == 0 &&
             Npcs.Count == 0;
         public int TotalPending =>
-            Spawns.Count + GridEntries.Count +
+            Spawns.Count + SpawnDeletes.Count + GridEntries.Count +
             ZonePoints.Count + ZonePointInserts.Count + ZonePointDeletes.Count +
             Grids.Count + GridInserts.Count +
             GridEntryInserts.Count + GridEntryDeletes.Count +
@@ -98,6 +105,17 @@ namespace VisualEQ.EditSystem
         // NPC's name). Not authoritative — DB is source of truth on commit.
         public string DisplayName { get; set; }
         public DateTime LastModifiedAt { get; set; }
+    }
+
+    // Pending spawn2 row delete. Persisted fields are only what the sidebar + commit need:
+    // the id (PK for the DELETE statement) and a display label. The live SpawnPoint that
+    // was removed from the scene is held in SpawnManager.HiddenSpawnPoints so Revert /
+    // Discard can splice it back without reloading from DB.
+    public class SpawnDelete
+    {
+        public int SpawnId { get; set; }
+        public string DisplayName { get; set; }
+        public DateTime DeletedAt { get; set; }
     }
 
     public class GridEntryEdit

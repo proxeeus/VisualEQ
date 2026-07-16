@@ -15,6 +15,7 @@ namespace VisualEQ.EditSystem
             public bool Success;
             public string Error;
             public int SpawnRowsWritten;
+            public int SpawnDeletesWritten;
             public int GridRowsWritten;
             public int GridInsertsWritten;
             public int GridEntryInsertsWritten;
@@ -63,6 +64,20 @@ namespace VisualEQ.EditSystem
                     {
                         try
                         {
+                            // DELETE spawn2 rows first — matches the "delete before update"
+                            // convention used by grid_entries / trilogy_zone_points, so a
+                            // hypothetical "delete id 42, then move id 42" in the same buffer
+                            // (which the delete-action already prevents by dropping any prior
+                            // Spawns entry) can't accidentally UPDATE a row we're deleting.
+                            int spawnDeletes = 0;
+                            foreach (var kv in buffer.SpawnDeletes)
+                            {
+                                spawnDeletes += await connection.ExecuteAsync(
+                                    SqlQueries.DeleteSpawn2,
+                                    new { Id = kv.Key },
+                                    tx);
+                            }
+
                             int spawnRows = 0;
                             foreach (var kv in buffer.Spawns)
                             {
@@ -275,6 +290,7 @@ namespace VisualEQ.EditSystem
                             {
                                 Success                  = true,
                                 SpawnRowsWritten         = spawnRows,
+                                SpawnDeletesWritten      = spawnDeletes,
                                 GridRowsWritten          = gridRows,
                                 GridInsertsWritten       = gridInserts,
                                 GridEntryInsertsWritten  = gridEntryInserts,
