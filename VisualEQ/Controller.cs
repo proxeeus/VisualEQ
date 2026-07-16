@@ -83,6 +83,50 @@ namespace VisualEQ
             GridSelectedChanged?.Invoke(gridId);
         }
 
+        // Numeric zoneidnumber of the current zone (from the zone table). Populated by
+        // LoadZoneGridsSync; needed by GridInsertAction so it can stamp new grid rows
+        // with the correct FK without a fresh DB round-trip.
+        public int? CurrentZoneId { get; private set; }
+
+        // Negative temp-id counter for pending grid inserts — mirrors
+        // ZonePointManager.NextTempId. Real grid ids are always positive, so a negative
+        // sentinel unambiguously flags a pre-commit grid throughout scene + buffer.
+        int _nextTempGridId = -1;
+        public int NextTempGridId() => _nextTempGridId--;
+
+        // Grid Mode — sub-mode of Edit Mode. When active, EngineCore intercepts LMB
+        // double-clicks on collision geometry and routes them to OnGridModeDoubleClick
+        // for waypoint placement. Auto-exits when EditModeEnabled goes false so a stale
+        // Grid Mode never outlives its parent.
+        bool _gridModeActive;
+        public bool GridModeActive => _gridModeActive;
+        public event Action<bool> GridModeChanged;
+
+        public void EnterGridMode()
+        {
+            if (_gridModeActive) return;
+            if (!EditModeEnabled)
+            {
+                Console.WriteLine("[Controller] EnterGridMode ignored — edit mode is off.");
+                return;
+            }
+            _gridModeActive = true;
+            GridModeChanged?.Invoke(true);
+        }
+
+        public void ExitGridMode()
+        {
+            if (!_gridModeActive) return;
+            _gridModeActive = false;
+            GridModeChanged?.Invoke(false);
+        }
+
+        public void ToggleGridMode()
+        {
+            if (_gridModeActive) ExitGridMode();
+            else EnterGridMode();
+        }
+
         // ─── Drag-to-create state ────────────────────────────────────────────────────
         // When active, the mouse pipeline is intercepted before zone-point / waypoint /
         // spawn selectors so left-click-drag on the ground plane draws a preview
@@ -267,6 +311,7 @@ namespace VisualEQ
                 if (Settings.EditModeEnabled == value) return;
                 Settings.EditModeEnabled = value;
                 SettingsManager.Save(Settings);
+                if (!value) ExitGridMode();  // Grid Mode is a sub-mode; can't outlive Edit Mode.
                 EditModeChanged?.Invoke(value);
             }
         }
@@ -388,6 +433,24 @@ namespace VisualEQ
                     zg.Grid.Type  = e.CurrentType;
                     zg.Grid.Type2 = e.CurrentType2;
                 }
+            }
+
+            // Pending whole-grid inserts — recreate each temp ZoneGridRecord in the scene
+            // (must happen BEFORE GridEntryInserts so the seed waypoint has a matching
+            // ZoneGrid to attach to). Also advance _nextTempGridId past the recovered
+            // temps so a fresh CreateNewGridAtCamera() call won't collide.
+            foreach (var kv in buffer.GridInserts)
+            {
+                var ins = kv.Value;
+                if (ZoneGrids.Any(g => g.Grid != null && g.Grid.Id == ins.TempId)) continue;
+                ZoneGrids.Add(new Database.Models.ZoneGridRecord
+                {
+                    Grid       = new Database.Models.Grid { Id = ins.TempId, ZoneId = ins.ZoneId, Type = ins.Type, Type2 = ins.Type2 },
+                    Waypoints  = new List<Database.Models.GridEntry>(),  // seed waypoint arrives via GridEntryInserts below
+                    SpawnCount = 0,
+                });
+                if (ins.TempId <= _nextTempGridId)
+                    _nextTempGridId = ins.TempId - 1;
             }
 
             // Pending inserts — add each temp waypoint to every referring spawn's list and
@@ -594,6 +657,19 @@ namespace VisualEQ
                 {
                     zg.Waypoints.RemoveAll(w =>
                         w.GridId == ins.GridId && w.Number == ins.Number);
+                }
+            }
+
+            // Pending whole-grid inserts — drop each temp ZoneGridRecord from the scene.
+            // (GridEntryInserts loop above already stripped any seed waypoints referring
+            // to these temp ids.)
+            foreach (var ins in PendingBuffer.GridInserts.Values)
+            {
+                ZoneGrids.RemoveAll(g => g.Grid != null && g.Grid.Id == ins.TempId);
+                if (SelectedGridId == ins.TempId)
+                {
+                    SelectedGridId = null;
+                    GridSelectedChanged?.Invoke(null);
                 }
             }
 
@@ -967,6 +1043,20 @@ namespace VisualEQ
                 }
                 // Deletes were already applied in-memory when the DeleteAction ran; no
                 // scene mutation needed here.
+
+                // Grid inserts get real ids assigned during commit. Simpler than remapping
+                // every ZoneGridRecord/waypoint that referenced a temp id: reload the whole
+                // Grid List from DB. Cheap (small table), keeps the Grid List and any
+                // subsequent selection coherent. Clear any dangling temp-id selection.
+                if (result.GridInsertsWritten > 0)
+                {
+                    if (SelectedGridId.HasValue && SelectedGridId.Value < 0)
+                    {
+                        SelectedGridId = null;
+                        GridSelectedChanged?.Invoke(null);
+                    }
+                    LoadZoneGridsSync(CurrentZoneName);
+                }
             }
 
             PendingBuffer = new EditBuffer
@@ -1044,6 +1134,8 @@ namespace VisualEQ
             ZonePointManager.Clear();
             ZoneShortNames.Clear();
             ZoneGrids.Clear();
+            CurrentZoneId = null;
+            _nextTempGridId = -1;
             if (SelectedGridId != null)
             {
                 SelectedGridId = null;
@@ -1186,6 +1278,95 @@ namespace VisualEQ
             // handle to tune.
             var created = ZonePointManager.ZonePoints.FirstOrDefault(z => z.Row.Id == row.Id);
             if (created != null) ZonePointManager.Select(created);
+        }
+
+        // Grid Mode double-click handler — called by EngineCore when the user double-
+        // clicks a collision surface with Grid Mode active. Target grid resolution:
+        //   1. If SelectedGridId is set → append waypoint there (sidebar-picked grid).
+        //   2. Else if a waypoint is selected in the WaypointEditor → target its grid.
+        //   3. Else → create a new grid + first waypoint at the hit point.
+        // hitPoint is scene-space (x=east, y=north-in-scene, z=up); the DB swap happens
+        // here so downstream code always sees DB coords.
+        public void OnGridModeDoubleClick(Vector3 hitPoint)
+        {
+            if (CurrentZoneName == null || CurrentZoneId == null)
+            {
+                Console.WriteLine("[Controller] Grid Mode double-click ignored — no zone/zoneId.");
+                return;
+            }
+
+            var dbX = hitPoint.Y;
+            var dbY = hitPoint.X;
+            var dbZ = hitPoint.Z;
+
+            var targetGridId = SelectedGridId;
+            if (targetGridId == null)
+            {
+                var wp = Engine.WaypointEditor?.Selected;
+                if (wp.HasValue) targetGridId = wp.Value.GridId;
+            }
+
+            if (targetGridId.HasValue)
+            {
+                // Compute next waypoint number for the target grid (scan both SpawnPoints
+                // and ZoneGrids — matches RenderWaypointAddButton's behaviour).
+                var gridId = targetGridId.Value;
+                int maxNumber = 0;
+                foreach (var sp in SpawnManager.SpawnPoints)
+                    foreach (var w in sp.Record.Waypoints)
+                        if (w.GridId == gridId && w.Number > maxNumber)
+                            maxNumber = w.Number;
+                foreach (var zg in ZoneGrids)
+                    foreach (var w in zg.Waypoints)
+                        if (w.GridId == gridId && w.Number > maxNumber)
+                            maxNumber = w.Number;
+
+                RecordAction(new EditSystem.GridEntryInsertAction(
+                    gridId, CurrentZoneId.Value, maxNumber + 1,
+                    (float)dbX, (float)dbY, (float)dbZ,
+                    heading: 0f, pause: 0, centerpoint: 0));
+                return;
+            }
+
+            // No grid targeted → create a fresh one at the hit point.
+            var tempId = NextTempGridId();
+            RecordAction(new EditSystem.GridInsertAction(
+                tempId, CurrentZoneId.Value,
+                type: 0, type2: 0,
+                seedX: (float)dbX, seedY: (float)dbY, seedZ: (float)dbZ));
+        }
+
+        // Grid List sidebar entry point — creates a fresh grid with one seed waypoint at
+        // the camera XY (ground-snapped Z). Defaults: type=0 (Circular), type2=0 (Half-
+        // random pause) — the two most common EQEmu wander settings. User can edit via
+        // the Grid Info combos in the Waypoint Info section post-creation. No-op if no
+        // zone is loaded, no DB connection, or the zone's numeric id wasn't resolved.
+        public void CreateNewGridAtCamera()
+        {
+            if (CurrentZoneName == null || CurrentZoneId == null)
+            {
+                Console.WriteLine("[Controller] CreateNewGridAtCamera skipped — no zone loaded or CurrentZoneId unresolved.");
+                return;
+            }
+
+            // Scene camera position → DB coords (swap XY). Ground-snap Z so the seed
+            // waypoint sits on terrain, not floating.
+            var cam = Camera.Position;
+            float dbX = cam.Y;
+            float dbY = cam.X;
+            float dbZ = cam.Z;
+            if (Collider != null)
+            {
+                var probe = new Vector3(cam.X, cam.Y, cam.Z + 5f);
+                var hit = Collider.FindIntersection(probe, new Vector3(0, 0, -1), 0.5f);
+                if (hit.HasValue) dbZ = hit.Value.Item2.Z;
+            }
+
+            var tempId = NextTempGridId();
+            RecordAction(new EditSystem.GridInsertAction(
+                tempId, CurrentZoneId.Value,
+                type: 0, type2: 0,
+                seedX: dbX, seedY: dbY, seedZ: dbZ));
         }
 
         // Removes the currently-selected zone_point (persisted rows go to buffer.Deletes,
@@ -1416,6 +1597,23 @@ namespace VisualEQ
                     g.SpawnCount = SpawnManager.SpawnPoints.Count(sp => sp.Record.Spawn.PathGrid == g.Grid.Id);
                     ZoneGrids.Add(g);
                 }
+
+                // Cache CurrentZoneId for GridInsertAction. First prefer any loaded
+                // grid's ZoneId (free — no extra round-trip); fall back to a direct
+                // GetZoneId query for the edge case where the zone has zero grids.
+                if (records.Count > 0)
+                    CurrentZoneId = records[0].Grid.ZoneId;
+                else
+                {
+                    using (var conn = DbFactory.CreateConnection())
+                    {
+                        conn.Open();
+                        var zid = Dapper.SqlMapper.QueryFirstOrDefault<int>(
+                            conn, Database.Constants.SqlQueries.GetZoneId,
+                            new { ZoneName = zoneName });
+                        CurrentZoneId = zid == 0 ? (int?)null : zid;
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -1555,9 +1753,16 @@ namespace VisualEQ
                     lines.Add((a, b, baseColor));
                 }
 
-                const float armLength = 5f;
-                const float selectedArmLength = 9f;
+                // Waypoint markers were getting lost on bright surfaces (cshome marble
+                // floor, freporte cobblestone). Two changes: (1) bumped arm length so
+                // the ground-plane cross has more presence; (2) the vertical arm is now
+                // an upward pole only, so the marker protrudes into the air above the
+                // floor instead of half-burying itself.
+                const float armLength = 8f;
+                const float selectedArmLength = 12f;
                 const float draggingArmLength = 20f;
+                const float PoleMultiplier = 2.5f;   // vertical pole = arm × this
+                const float FloorLift = 0.5f;        // lift X/Y arms this much above WP to avoid z-fighting with the floor
                 foreach (var wp in waypoints)
                 {
                     var isSelected = selectedHandle.HasValue
@@ -1575,9 +1780,13 @@ namespace VisualEQ
                     else if (isSelected)          { color = green;       arm = selectedArmLength; }
                     else                          { color = baseColor;   arm = armLength; }
 
-                    lines.Add((scenePos - new Vector3(arm, 0, 0), scenePos + new Vector3(arm, 0, 0), color));
-                    lines.Add((scenePos - new Vector3(0, arm, 0), scenePos + new Vector3(0, arm, 0), color));
-                    lines.Add((scenePos - new Vector3(0, 0, arm), scenePos + new Vector3(0, 0, arm), color));
+                    var xyLevel = scenePos + new Vector3(0, 0, FloorLift);
+                    lines.Add((xyLevel - new Vector3(arm, 0, 0), xyLevel + new Vector3(arm, 0, 0), color));
+                    lines.Add((xyLevel - new Vector3(0, arm, 0), xyLevel + new Vector3(0, arm, 0), color));
+                    // Upward pole only (previously ±arm on Z, but the negative half was
+                    // buried in the floor). Now every waypoint has a visible vertical
+                    // beacon even on flat, brightly-lit surfaces.
+                    lines.Add((scenePos, scenePos + new Vector3(0, 0, arm * PoleMultiplier), color));
 
                     // Heading arrow — points in the direction the NPC will face at this
                     // waypoint. Same 0-511 convention as spawn2.heading (grid_entries.heading

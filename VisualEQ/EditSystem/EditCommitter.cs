@@ -16,6 +16,7 @@ namespace VisualEQ.EditSystem
             public string Error;
             public int SpawnRowsWritten;
             public int GridRowsWritten;
+            public int GridInsertsWritten;
             public int GridEntryInsertsWritten;
             public int GridEntryDeletesWritten;
             public int GridMetaRowsWritten;
@@ -49,7 +50,8 @@ namespace VisualEQ.EditSystem
                     if (buffer.GridEntries.Count > 0 ||
                         buffer.GridEntryInserts.Count > 0 ||
                         buffer.GridEntryDeletes.Count > 0 ||
-                        buffer.Grids.Count > 0)
+                        buffer.Grids.Count > 0 ||
+                        buffer.GridInserts.Count > 0)
                     {
                         zoneId = await connection.QueryFirstOrDefaultAsync<int?>(
                             SqlQueries.GetZoneId, new { ZoneName = zoneName });
@@ -90,15 +92,43 @@ namespace VisualEQ.EditSystem
                                     tx);
                             }
 
+                            // Whole-grid INSERTs — assign a real (positive) id via
+                            // MAX(id)+1 FOR UPDATE, then INSERT the grid row. Keep the
+                            // temp→real mapping so the GridEntryInserts loop below can
+                            // remap each seed waypoint's GridId before writing.
+                            int gridInserts = 0;
+                            var insertedGridIdMap = new System.Collections.Generic.Dictionary<int, int>();
+                            foreach (var kv in buffer.GridInserts)
+                            {
+                                var ins = kv.Value;
+                                var newId = await connection.ExecuteScalarAsync<int>(
+                                    SqlQueries.NextGridIdForZone,
+                                    new { ZoneId = ins.ZoneId },
+                                    tx);
+                                await connection.ExecuteAsync(
+                                    SqlQueries.InsertGrid,
+                                    new { Id = newId, ZoneId = ins.ZoneId, Type = ins.Type, Type2 = ins.Type2 },
+                                    tx);
+                                insertedGridIdMap[ins.TempId] = newId;
+                                gridInserts++;
+                            }
+
                             int gridEntryInserts = 0;
                             foreach (var kv in buffer.GridEntryInserts)
                             {
                                 var ins = kv.Value;
+                                // Remap negative temp GridId to the freshly-assigned real
+                                // id from the GridInserts loop above. Non-temp GridIds
+                                // (waypoint additions to existing grids) pass through
+                                // unchanged.
+                                var effectiveGridId = insertedGridIdMap.TryGetValue(ins.GridId, out var realId)
+                                    ? realId
+                                    : ins.GridId;
                                 gridEntryInserts += await connection.ExecuteAsync(
                                     SqlQueries.InsertGridEntry,
                                     new
                                     {
-                                        GridId      = ins.GridId,
+                                        GridId      = effectiveGridId,
                                         ZoneId      = zoneId,
                                         Number      = ins.Number,
                                         X           = ins.X,
@@ -246,6 +276,7 @@ namespace VisualEQ.EditSystem
                                 Success                  = true,
                                 SpawnRowsWritten         = spawnRows,
                                 GridRowsWritten          = gridRows,
+                                GridInsertsWritten       = gridInserts,
                                 GridEntryInsertsWritten  = gridEntryInserts,
                                 GridEntryDeletesWritten  = gridEntryDeletes,
                                 GridMetaRowsWritten      = gridMetaRows,

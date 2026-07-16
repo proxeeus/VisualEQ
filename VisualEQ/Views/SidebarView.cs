@@ -183,6 +183,7 @@ namespace VisualEQ.Views
         private int _commitGridInsertCountSnapshot;
         private int _commitGridDeleteCountSnapshot;
         private int _commitGridMetaCountSnapshot;
+        private int _commitGridWholeInsertsSnapshot;
 
         // Simple confirm modals — no extra state beyond "is it open?" + a snapshot count
         // so the dialog can display consistent numbers even if the buffer mutates while
@@ -384,6 +385,7 @@ namespace VisualEQ.Views
             _commitGridInsertCountSnapshot  = buffer.GridEntryInserts.Count;
             _commitGridDeleteCountSnapshot  = buffer.GridEntryDeletes.Count;
             _commitGridMetaCountSnapshot    = buffer.Grids.Count;
+            _commitGridWholeInsertsSnapshot = buffer.GridInserts.Count;
             _commitPhase = CommitPhase.Confirm;
             _commitResult = null;
         }
@@ -437,6 +439,8 @@ namespace VisualEQ.Views
                 ImGui.Text($"  {_commitGridDeleteCountSnapshot} waypoint delete(s)");
             if (_commitGridMetaCountSnapshot > 0)
                 ImGui.Text($"  {_commitGridMetaCountSnapshot} grid metadata edit(s)");
+            if (_commitGridWholeInsertsSnapshot > 0)
+                ImGui.Text($"  {_commitGridWholeInsertsSnapshot} new grid(s)");
             ImGui.Separator();
             ImGui.Text($"Target: {db.Server}/{db.Database}");
             ImGui.Text("Runs as a single transaction — all-or-nothing.");
@@ -483,6 +487,8 @@ namespace VisualEQ.Views
                     ImGui.Text($"  {r.GridEntryDeletesWritten} grid_entries row(s) deleted");
                 if (r.GridMetaRowsWritten > 0)
                     ImGui.Text($"  {r.GridMetaRowsWritten} grid row(s) updated");
+                if (r.GridInsertsWritten > 0)
+                    ImGui.Text($"  {r.GridInsertsWritten} grid row(s) inserted");
                 ImGui.Text($"  {r.ZonePointRowsWritten} trilogy_zone_points row(s) updated");
                 if (r.ZonePointInsertsWritten > 0)
                     ImGui.Text($"  {r.ZonePointInsertsWritten} trilogy_zone_points row(s) inserted");
@@ -1796,6 +1802,32 @@ namespace VisualEQ.Views
             if (!ImGui.CollapsingHeader($"Grid List ({total})###{Id}gl", 0))
                 return;
 
+            // Grid Mode toggle — the primary create/extend flow. When active, double-
+            // clicking any collision surface either appends a waypoint to the selected
+            // grid or creates a new grid + first waypoint at the click. Escape exits.
+            if (ctrl.EditModeEnabled)
+            {
+                var label = ctrl.GridModeActive
+                    ? $"Grid Mode: ON — double-click to place###{Id}glMode"
+                    : $"Grid Mode: OFF — click to enable###{Id}glMode";
+                if (ImGui.Button(label, new Vector2(280, 24)))
+                    ctrl.ToggleGridMode();
+
+                if (ctrl.GridModeActive)
+                {
+                    var targetLabel = ctrl.SelectedGridId.HasValue
+                        ? $"Target: grid {ctrl.SelectedGridId.Value} (append waypoint)"
+                        : "Target: NEW GRID (no grid selected)";
+                    ImGui.Text(targetLabel);
+                    ImGui.Text("Escape to exit. Spawn clicks disabled in Grid Mode.");
+                }
+
+                // Kept as a fallback for cases where the cursor can't reach a good surface
+                // (e.g. camera stuck inside geometry). Grid Mode is the recommended path.
+                if (ImGui.Button($"+ New Grid at camera (fallback)###{Id}glNew", new Vector2(280, 20)))
+                    ctrl.CreateNewGridAtCamera();
+            }
+
             if (total == 0)
             {
                 ImGui.Text("No grids loaded for this zone.");
@@ -1806,24 +1838,38 @@ namespace VisualEQ.Views
             ImGui.InputText($"###{Id}glF", _gridListFilter, (uint)_gridListFilter.Length, InputTextFlags.Default, null);
             var filter = ReadBuffer(_gridListFilter).Trim();
 
+            // Sort order: pending [N] first (negative ids → top), then attached [A],
+            // then orphan [O]; each bucket sorted by id ascending.
+            int Rank(VisualEQ.Database.Models.ZoneGridRecord zg)
+            {
+                if (zg.Grid.Id < 0) return 0;             // pending insert
+                if (zg.SpawnCount > 0) return 1;          // attached
+                return 2;                                 // orphan
+            }
+
             var matches = ctrl.ZoneGrids
                 .Where(zg => filter.Length == 0 || zg.Grid.Id.ToString().IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0)
-                // Attached first (SpawnCount > 0), then orphan; within each group sort by id.
-                .OrderByDescending(zg => zg.SpawnCount > 0)
+                .OrderBy(Rank)
                 .ThenBy(zg => zg.Grid.Id)
                 .ToList();
 
-            var attachedCount = ctrl.ZoneGrids.Count(zg => zg.SpawnCount > 0);
-            var orphanCount   = total - attachedCount;
-            ImGui.Text($"{matches.Count} of {total} — {attachedCount} attached, {orphanCount} orphan");
+            var pendingCount  = ctrl.ZoneGrids.Count(zg => zg.Grid.Id < 0);
+            var attachedCount = ctrl.ZoneGrids.Count(zg => zg.Grid.Id >= 0 && zg.SpawnCount > 0);
+            var orphanCount   = total - attachedCount - pendingCount;
+            var summary = pendingCount > 0
+                ? $"{matches.Count} of {total} — {pendingCount} pending, {attachedCount} attached, {orphanCount} orphan"
+                : $"{matches.Count} of {total} — {attachedCount} attached, {orphanCount} orphan";
+            ImGui.Text(summary);
 
             ImGui.BeginChild($"###{Id}glList", new Vector2(0, 220), true, WindowFlags.Default);
             foreach (var zg in matches)
             {
+                var isPending  = zg.Grid.Id < 0;
                 var isAttached = zg.SpawnCount > 0;
-                var prefix = isAttached ? "[A]" : "[O]";
-                var attachedSuffix = isAttached ? $" — {zg.SpawnCount} spawn{(zg.SpawnCount == 1 ? "" : "s")}" : "";
-                var label = $"{prefix} Grid {zg.Grid.Id} — {zg.Waypoints.Count} wp{(zg.Waypoints.Count == 1 ? "" : "s")}{attachedSuffix}###{Id}gl{zg.Grid.Id}";
+                var prefix = isPending ? "[N]" : (isAttached ? "[A]" : "[O]");
+                var attachedSuffix = (!isPending && isAttached) ? $" — {zg.SpawnCount} spawn{(zg.SpawnCount == 1 ? "" : "s")}" : "";
+                var pendingSuffix  = isPending ? " (uncommitted)" : "";
+                var label = $"{prefix} Grid {zg.Grid.Id} — {zg.Waypoints.Count} wp{(zg.Waypoints.Count == 1 ? "" : "s")}{attachedSuffix}{pendingSuffix}###{Id}gl{zg.Grid.Id}";
                 var isSelected = ctrl.SelectedGridId == zg.Grid.Id;
                 if (ImGui.Selectable(label, isSelected))
                 {

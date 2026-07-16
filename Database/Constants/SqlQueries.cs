@@ -120,6 +120,20 @@ namespace VisualEQ.Database.Constants
             WHERE zoneid = @ZoneId
             ORDER BY gridid, number";
 
+        // grid.id isn't AUTO_INCREMENT — it's a user-assigned composite PK with zoneid.
+        // On commit we compute the next id inside the same transaction: FOR UPDATE locks
+        // the peer rows for this zone so two concurrent commits get sequential ids
+        // instead of colliding on the PK.
+        public const string NextGridIdForZone = @"
+            SELECT COALESCE(MAX(id), 0) + 1
+            FROM grid
+            WHERE zoneid = @ZoneId
+            FOR UPDATE";
+
+        public const string InsertGrid = @"
+            INSERT INTO grid (id, zoneid, type, type2)
+            VALUES (@Id, @ZoneId, @Type, @Type2)";
+
         // Trilogy client's server-side zone-crossing triggers. Columns aliased so Dapper
         // maps deterministically regardless of MySQL's platform-dependent case handling.
         public const string GetTrilogyZonePoints = @"

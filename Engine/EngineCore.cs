@@ -43,6 +43,15 @@ namespace VisualEQ.Engine
         bool MouseLooking;
         (double, double) MouseBeforeLook;
 
+        // Grid Mode double-click detection. Tracks the previous LMB-down frame time and
+        // window coords; a subsequent LMB-down within threshold + within a few pixels
+        // (both) is treated as a double-click. Only consulted when Controller.GridModeActive.
+        float _lastLmbDownTime = -100f;
+        int _lastLmbDownX;
+        int _lastLmbDownY;
+        const float GridModeDoubleClickSec = 0.4f;
+        const int GridModeDoubleClickPx    = 6;
+
         (double X, double Y) MousePosition
         {
             get
@@ -199,6 +208,30 @@ namespace VisualEQ.Engine
                         return;
                     }
 
+                    // Grid Mode double-click → place waypoint. First click still falls
+                    // through to the selector chain below (so user can click a waypoint
+                    // to change target grid) but we suppress ModelSelector's empty-ground
+                    // deselect so SelectedGridId survives across click pairs.
+                    var isDoubleClick = Controller != null && Controller.GridModeActive
+                        && (FrameTime - _lastLmbDownTime) < GridModeDoubleClickSec
+                        && Math.Abs(e.X - _lastLmbDownX) < GridModeDoubleClickPx
+                        && Math.Abs(e.Y - _lastLmbDownY) < GridModeDoubleClickPx;
+                    _lastLmbDownTime = FrameTime;
+                    _lastLmbDownX    = e.X;
+                    _lastLmbDownY    = e.Y;
+
+                    if (isDoubleClick && Collider != null)
+                    {
+                        var rayOrigin = Camera.Position + new Vector3(0, 0, FpsCamera.CameraHeight);
+                        var rayDir    = ScreenToWorldRay(e.X, e.Y);
+                        var hit       = Collider.FindIntersection(rayOrigin, rayDir, 0.5f);
+                        if (hit.HasValue)
+                        {
+                            Controller.OnGridModeDoubleClick(hit.Value.Item2);
+                            return;
+                        }
+                    }
+
                     if (ZonePointEditor != null && ZonePointEditor.TrySelect(e.X, e.Y))
                     {
                         ZonePointDragging = true;
@@ -212,6 +245,13 @@ namespace VisualEQ.Engine
                         WaypointEditor.StartDrag(e.X, e.Y);
                         return;
                     }
+
+                    // Skip ModelSelector entirely in Grid Mode: its empty-ground path
+                    // deselects the current model, which would drop the WaypointEditor's
+                    // implicit "target grid" between the first and second click of a
+                    // double-click pair. Cost: spawns aren't clickable in Grid Mode
+                    // (user must exit to click spawns).
+                    if (Controller != null && Controller.GridModeActive) return;
 
                     dynamic modelSelector = Controller?.ModelSelector;
                     if (modelSelector?.TrySelect(e.X, e.Y) == true)
@@ -576,7 +616,12 @@ namespace VisualEQ.Engine
                     Controller?.ToggleEditMode();
                     break;
                 case Key.Escape:
-                    // Priority: cancel creation → cancel drag → clear selection.
+                    // Priority: exit grid mode → cancel creation → cancel drag → clear selection.
+                    if (Controller != null && Controller.GridModeActive)
+                    {
+                        Controller.ExitGridMode();
+                        break;
+                    }
                     if (Controller != null && Controller.IsCreationActive)
                     {
                         Controller.CancelCreation();

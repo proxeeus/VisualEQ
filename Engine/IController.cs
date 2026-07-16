@@ -49,5 +49,20 @@ namespace VisualEQ.Engine
 
         // Wired to Escape when creation is active — abandons the drag without commit.
         void CancelCreation();
+
+        // ─── Grid Mode ───────────────────────────────────────────────────────────────
+        // Sub-mode of Edit Mode. When active, LMB double-click on a collision surface
+        // places a waypoint: appends to the selected grid, or creates a new grid + first
+        // waypoint if none is selected. Controller must auto-exit when EditModeEnabled
+        // flips false so a stale Grid Mode doesn't survive a mode toggle.
+        bool GridModeActive { get; }
+
+        // Called by EngineCore when a valid LMB double-click lands on collision geometry
+        // while GridModeActive == true. hitPoint is scene-space (X/Y swapped from DB).
+        void OnGridModeDoubleClick(System.Numerics.Vector3 hitPoint);
+
+        // Wired to Escape — exits Grid Mode without placing anything. Runs before the
+        // other Escape cancels (creation drag, waypoint drag, etc.).
+        void ExitGridMode();
     }
 }
