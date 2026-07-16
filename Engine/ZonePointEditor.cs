@@ -189,30 +189,20 @@ namespace VisualEQ.Engine
             var rayOrigin = Camera.Position + new Vector3(0, 0, FpsCamera.CameraHeight);
             var rayDir    = ScreenToWorldRay(mouseX, mouseY);
 
-            Handle? best = null;
-            float bestScreenDist2 = float.MaxValue;
-
-            foreach (var h in _candidates)
-            {
-                var to = h.ScenePos - rayOrigin;
-                var proj = Vector3.Dot(to, rayDir);
-                if (proj < 0) continue;
-
-                var worldRadius = BaseRadiusFor(h.Kind, h.IsIncoming) + proj * 0.005f;
-                var closestPoint = rayOrigin + rayDir * proj;
-                var d2 = Vector3.DistanceSquared(closestPoint, h.ScenePos);
-                if (d2 >= worldRadius * worldRadius) continue;
-
-                // Passed the ray-sphere filter. Project to screen and measure pixel
-                // distance to cursor — that determines the winner.
-                if (!TryProjectToScreen(h.ScenePos, out var screenPos)) continue;
-                var screenDist2 = (screenPos - mouse).LengthSquared();
-                if (screenDist2 < bestScreenDist2)
-                {
-                    best = h;
-                    bestScreenDist2 = screenDist2;
-                }
-            }
+            // Ray/sphere world-space picker with per-kind radii (see BaseRadiusFor).
+            // Reduced from the old formula (14/20 base, 0.005 scale) — was letting
+            // distant handles occupy huge world volumes and steal clicks meant for
+            // nearby handles. Screen-space pixel distance to the mouse still ranks
+            // survivors so nearby-in-screen wins over merely-inside-sphere.
+            //
+            // Two passes preserve the "incoming pads take priority over owned handles
+            // sitting on top of them" invariant — a landing pad inside an owned box
+            // remains clickable even when the box's center handle is closer to camera.
+            Handle? best = PickBestHandle(_candidates.Where(h => h.IsIncoming),
+                mouse, rayOrigin, rayDir);
+            if (!best.HasValue)
+                best = PickBestHandle(_candidates.Where(h => !h.IsIncoming),
+                    mouse, rayOrigin, rayDir);
 
             if (best.HasValue)
             {
@@ -272,17 +262,51 @@ namespace VisualEQ.Engine
             return tmax >= 0;
         }
 
-        // Per-kind base world-space hit radius. Incoming pads get the largest so they
-        // stay easy to click even overlapping owned handles. All are additionally
-        // scaled by camera-space depth so far-away handles don't require pixel-perfect
-        // aim (scale factor kept small so nearby handles stay precise).
+        // Ray/sphere test with screen-space tiebreak. Ray/sphere filter first (fast,
+        // and rejects handles well off the click direction), then pixel distance
+        // ranks candidates so the visually-closest one wins. Reused across the
+        // incoming-pads pass and the owned-handles pass so the two share tolerances.
+        Handle? PickBestHandle(
+            System.Collections.Generic.IEnumerable<Handle> candidates,
+            Vector2 mouse, Vector3 rayOrigin, Vector3 rayDir)
+        {
+            Handle? best = null;
+            float bestScreenDist2 = float.MaxValue;
+
+            foreach (var h in candidates)
+            {
+                var to = h.ScenePos - rayOrigin;
+                var proj = Vector3.Dot(to, rayDir);
+                if (proj < 0) continue;
+
+                var worldRadius = BaseRadiusFor(h.Kind, h.IsIncoming) + proj * 0.005f;
+                var closestPoint = rayOrigin + rayDir * proj;
+                var d2 = Vector3.DistanceSquared(closestPoint, h.ScenePos);
+                if (d2 >= worldRadius * worldRadius) continue;
+
+                if (!TryProjectToScreen(h.ScenePos, out var screenPos)) continue;
+                var screenDist2 = (screenPos - mouse).LengthSquared();
+                if (screenDist2 < bestScreenDist2)
+                {
+                    best = h;
+                    bestScreenDist2 = screenDist2;
+                }
+            }
+            return best;
+        }
+
+        // Per-kind base world-space hit radius. Reduced from the old 14/20 defaults —
+        // still generous enough to make handles easy to click at typical camera
+        // distance, but small enough that distant handles don't reach across the
+        // scene. Distance scale (proj * 0.005) applied at the callsite adds a small
+        // "distant handles don't need pixel-perfect aim" allowance.
         static float BaseRadiusFor(HandleKind kind, bool isIncoming)
         {
-            if (isIncoming) return 20f;
+            if (isIncoming) return 10f;   // was 20 — still the largest to preserve pad priority
             switch (kind)
             {
-                case HandleKind.Center: return 14f;
-                default:                return 10f;   // corners, faces, plane end-caps
+                case HandleKind.Center: return 6f;   // was 14
+                default:                return 4f;   // was 10 — corners / faces / plane end-caps
             }
         }
 
