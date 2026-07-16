@@ -93,16 +93,22 @@ namespace VisualEQ.Engine
         // True once the drag has actually engaged (past the threshold).
         public bool IsDragging => isDragging;
 
-        // Screen-space model picker. For every model we project its torso point to
-        // pixel coords, measure the pixel distance to the mouse, and pick the model
-        // whose projection is closest. Camera distance is a tiebreaker so overlapping
+        // Ray-vs-vertical-cylinder picker. The ray from camera through the click pixel
+        // is well-tested (ScreenToWorldRay powers FlyToCursor, WaypointEditor, and
+        // ZonePointEditor); we take the closest approach between that ray and each
+        // model's vertical spine (feet → head), and pick the model whose spine sits
+        // inside a modest radius. Camera distance ranks candidates so overlapping
         // spawns (EQEmu respawn-rotation stacks) resolve to the front one.
         //
-        // Replaces the old world-space sphere test whose 15+ unit radius scaled with
-        // distance — that meant distant models occupied huge world volumes and could
-        // steal clicks from nearby models whose "feet" happened to sit far from the
-        // pierced ray point. Screen-space matches the user's mental model ("I clicked
-        // that pixel") and behaves consistently across scale + distance.
+        // The old world-sphere approach aimed at Position (feet) with a 15+dist*0.008
+        // radius that ballooned with distance — clicks nowhere near a distant model
+        // could still land inside its huge selection volume, letting it steal focus
+        // from nearby models. This version:
+        //   * aims at the spine, not the feet, so clicks on the head still hit
+        //   * uses a small model-scaled radius (~2 world units for a humanoid) so
+        //     distant models require actually clicking on the model, not near it
+        //   * keeps a small +dist*0.005 tolerance so distant-but-visible models don't
+        //     need pixel-perfect aim
         public bool TrySelect(int mouseX, int mouseY)
         {
             if (models.Count == 0)
@@ -111,66 +117,56 @@ namespace VisualEQ.Engine
                 return false;
             }
 
-            // Generous enough that clicks on the arms / weapons of a humanoid still
-            // hit, tight enough that distant background models can't steal a click.
-            // Kept as a fixed value in pixels — not scaled with distance — precisely
-            // because the point of screen-space is "same tolerance regardless of how
-            // far the model is." Tune from actual use before making it adaptive.
-            const float PixelHitRadius   = 25f;
-            const float PixelHitRadiusSq = PixelHitRadius * PixelHitRadius;
+            var rayOrigin = Camera.Position + new Vector3(0, 0, FpsCamera.CameraHeight);
+            var rayDir    = ScreenToWorldRay(mouseX, mouseY);
 
-            // ~2 px tolerance around "same pixel" so tiebreak kicks in for genuinely
-            // overlapping projections (stacked spawns) without ping-ponging on
-            // sub-pixel noise between adjacent-but-separated models.
-            const float PixelTieEpsilonSq = 4f;
-
-            var vp    = FpsCamera.Matrix * ProjectionMat;
-            var eye   = Camera.Position + new Vector3(0, 0, FpsCamera.CameraHeight);
-
-            AniModelInstance bestModel = null;
-            float bestPixelDistSq = PixelHitRadiusSq;
-            float bestCameraDistSq = float.MaxValue;
+            AniModelInstance best = null;
+            float bestCamDist = float.MaxValue;
 
             foreach (var model in models)
             {
-                // Aim at torso height, not feet. Model.Position is the spawn2 XYZ
-                // (ground-level). +3 world units × instance Scale approximates the
-                // torso for humanoids; giants (Scale > 1) get proportionally taller
-                // aim-point, dwarves / halflings (Scale < 1) get proportionally shorter.
-                var worldTorso = model.Position + new Vector3(0, 0, 3f * model.Scale);
+                // Vertical spine from feet to head. Height ≈ 6 world units per unit
+                // of Scale (matches SpawnManager's authored-height convention). We
+                // pick a torso point (midway) as the projection target — clicks on
+                // the head or the feet are both ~3 units from it, which fits under
+                // any reasonable radius.
+                var height   = 6f * model.Scale;
+                var feet     = model.Position;
+                var head     = feet + new Vector3(0, 0, height);
+                var torso    = feet + new Vector3(0, 0, height * 0.5f);
 
-                // Project world → clip → NDC → pixel. Reject behind-camera and any
-                // point whose W is degenerate (numerical instability protection).
-                var clip = Vector4.Transform(new Vector4(worldTorso, 1f), vp);
-                if (clip.W <= 0.001f) continue;
+                // Distance-along-ray to the torso (used for camera-distance ranking
+                // + the "behind camera" cull).
+                var toTorso = torso - rayOrigin;
+                var proj = Vector3.Dot(toTorso, rayDir);
+                if (proj < 0) continue;
 
-                var ndcX = clip.X / clip.W;
-                var ndcY = clip.Y / clip.W;
-                var screenX = (ndcX * 0.5f + 0.5f) * engine.Width;
-                var screenY = (1f - (ndcY * 0.5f + 0.5f)) * engine.Height;
+                // Approximate ray-vs-cylinder: compare the ray's closest approach to
+                // the spine against a per-model radius. Uses the segment-to-line
+                // distance in world space, clamped so a ray that passes above/below
+                // the head/feet doesn't count.
+                var rayPoint = rayOrigin + rayDir * proj;
+                var spineT   = System.Math.Max(0f, System.Math.Min(1f,
+                    Vector3.Dot(rayPoint - feet, head - feet) / (height * height)));
+                var spinePt  = feet + (head - feet) * spineT;
+                var dist     = Vector3.Distance(rayPoint, spinePt);
 
-                var dx = screenX - mouseX;
-                var dy = screenY - mouseY;
-                var pixelDistSq = dx * dx + dy * dy;
+                // Radius: ~2 world units for a scale-1 humanoid (about mesh width),
+                // plus a small distance term so distant humanoids don't require pixel-
+                // perfect aim. Much smaller than the old 15+dist*0.008 base.
+                var radius = 2.5f * model.Scale + proj * 0.005f;
+                if (dist > radius) continue;
 
-                if (pixelDistSq > PixelHitRadiusSq) continue;
-
-                var camDistSq = Vector3.DistanceSquared(worldTorso, eye);
-
-                // Primary: closer pixel. Tie (within epsilon): closer camera distance.
-                var pixelDelta = pixelDistSq - bestPixelDistSq;
-                if (pixelDelta < -PixelTieEpsilonSq ||
-                    (System.Math.Abs(pixelDelta) < PixelTieEpsilonSq && camDistSq < bestCameraDistSq))
+                if (proj < bestCamDist)
                 {
-                    bestModel = model;
-                    bestPixelDistSq = pixelDistSq;
-                    bestCameraDistSq = camDistSq;
+                    best = model;
+                    bestCamDist = proj;
                 }
             }
 
-            if (bestModel != null)
+            if (best != null)
             {
-                SelectModel(bestModel);
+                SelectModel(best);
                 return true;
             }
 
