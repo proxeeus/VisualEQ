@@ -23,7 +23,8 @@ namespace VisualEQ.EditSystem
         //   v4 — adds ZonePointInserts + ZonePointDeletes for new-row / delete-row support
         //   v5 — adds Centerpoint on GridEntryEdit, plus Grids + GridEntryInserts +
         //        GridEntryDeletes for grid metadata edits and per-waypoint add/delete
-        public int SchemaVersion { get; set; } = 5;
+        //   v6 — adds GridInserts for whole-grid creation (temp id → real id at commit)
+        public int SchemaVersion { get; set; } = 6;
 
         public Dictionary<int, SpawnEdit> Spawns { get; set; } = new Dictionary<int, SpawnEdit>();
         public Dictionary<string, GridEntryEdit> GridEntries { get; set; } = new Dictionary<string, GridEntryEdit>();
@@ -49,18 +50,26 @@ namespace VisualEQ.EditSystem
         // Discard/Revert can restore the waypoint into the scene.
         public Dictionary<string, GridEntryDelete> GridEntryDeletes { get; set; } = new Dictionary<string, GridEntryDelete>();
 
+        // Pending whole-grid inserts. Key = negative temp id (see Controller.NextTempGridId).
+        // On commit each becomes an INSERT into `grid` with a MAX(id)+1 resolution; the real
+        // id then replaces the temp id via post-commit ZoneGrids reload. The seed waypoint
+        // for a new grid is a normal GridEntryInsert entry with GridId = temp id.
+        public Dictionary<int, GridInsert> GridInserts { get; set; } = new Dictionary<int, GridInsert>();
+
         // Reserved for Phase 5.9+ (npc_types edits).
         public Dictionary<int, NpcEdit> Npcs { get; set; } = new Dictionary<int, NpcEdit>();
 
         public bool IsEmpty =>
             Spawns.Count == 0 && GridEntries.Count == 0 &&
             ZonePoints.Count == 0 && ZonePointInserts.Count == 0 && ZonePointDeletes.Count == 0 &&
-            Grids.Count == 0 && GridEntryInserts.Count == 0 && GridEntryDeletes.Count == 0 &&
+            Grids.Count == 0 && GridInserts.Count == 0 &&
+            GridEntryInserts.Count == 0 && GridEntryDeletes.Count == 0 &&
             Npcs.Count == 0;
         public int TotalPending =>
             Spawns.Count + GridEntries.Count +
             ZonePoints.Count + ZonePointInserts.Count + ZonePointDeletes.Count +
-            Grids.Count + GridEntryInserts.Count + GridEntryDeletes.Count +
+            Grids.Count + GridInserts.Count +
+            GridEntryInserts.Count + GridEntryDeletes.Count +
             Npcs.Count;
 
         // Composite key helper for grid entries: (gridId, number).
@@ -139,6 +148,18 @@ namespace VisualEQ.EditSystem
         public float Heading { get; set; }
         public int Pause { get; set; }
         public byte Centerpoint { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
+
+    // Pending whole-grid insert. Real (id, zoneid) PK gets assigned at commit time via
+    // MAX(id)+1 within the transaction; TempId is the negative sentinel used in-scene
+    // and as the GridEntryInsert.GridId of the seed waypoint until commit remaps it.
+    public class GridInsert
+    {
+        public int TempId { get; set; }
+        public int ZoneId { get; set; }
+        public int Type { get; set; }
+        public int Type2 { get; set; }
         public DateTime CreatedAt { get; set; }
     }
 

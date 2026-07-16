@@ -50,13 +50,16 @@ namespace VisualEQ.EditSystem
                 // v4 → v5: adds Centerpoint on GridEntryEdit (defaults to 0, matching the
                 //         DB default), plus Grids / GridEntryInserts / GridEntryDeletes
                 //         collections. New collections default to empty.
-                if (buffer.SchemaVersion < 5) buffer.SchemaVersion = 5;
+                // v5 → v6: adds GridInserts for whole-grid creation. Defaults to empty
+                //         (pre-v6 buffers never carried pending grid inserts).
+                if (buffer.SchemaVersion < 6) buffer.SchemaVersion = 6;
                 if (buffer.ZonePoints == null) buffer.ZonePoints = new System.Collections.Generic.Dictionary<int, ZonePointEdit>();
                 if (buffer.ZonePointInserts == null) buffer.ZonePointInserts = new System.Collections.Generic.Dictionary<int, ZonePointInsert>();
                 if (buffer.ZonePointDeletes == null) buffer.ZonePointDeletes = new System.Collections.Generic.HashSet<int>();
                 if (buffer.Grids == null) buffer.Grids = new System.Collections.Generic.Dictionary<string, GridEdit>();
                 if (buffer.GridEntryInserts == null) buffer.GridEntryInserts = new System.Collections.Generic.Dictionary<string, GridEntryInsert>();
                 if (buffer.GridEntryDeletes == null) buffer.GridEntryDeletes = new System.Collections.Generic.Dictionary<string, GridEntryDelete>();
+                if (buffer.GridInserts == null) buffer.GridInserts = new System.Collections.Generic.Dictionary<int, GridInsert>();
                 return buffer;
             }
             catch (Exception ex)

@@ -83,6 +83,17 @@ namespace VisualEQ
             GridSelectedChanged?.Invoke(gridId);
         }
 
+        // Numeric zoneidnumber of the current zone (from the zone table). Populated by
+        // LoadZoneGridsSync; needed by GridInsertAction so it can stamp new grid rows
+        // with the correct FK without a fresh DB round-trip.
+        public int? CurrentZoneId { get; private set; }
+
+        // Negative temp-id counter for pending grid inserts — mirrors
+        // ZonePointManager.NextTempId. Real grid ids are always positive, so a negative
+        // sentinel unambiguously flags a pre-commit grid throughout scene + buffer.
+        int _nextTempGridId = -1;
+        public int NextTempGridId() => _nextTempGridId--;
+
         // ─── Drag-to-create state ────────────────────────────────────────────────────
         // When active, the mouse pipeline is intercepted before zone-point / waypoint /
         // spawn selectors so left-click-drag on the ground plane draws a preview
@@ -390,6 +401,24 @@ namespace VisualEQ
                 }
             }
 
+            // Pending whole-grid inserts — recreate each temp ZoneGridRecord in the scene
+            // (must happen BEFORE GridEntryInserts so the seed waypoint has a matching
+            // ZoneGrid to attach to). Also advance _nextTempGridId past the recovered
+            // temps so a fresh CreateNewGridAtCamera() call won't collide.
+            foreach (var kv in buffer.GridInserts)
+            {
+                var ins = kv.Value;
+                if (ZoneGrids.Any(g => g.Grid != null && g.Grid.Id == ins.TempId)) continue;
+                ZoneGrids.Add(new Database.Models.ZoneGridRecord
+                {
+                    Grid       = new Database.Models.Grid { Id = ins.TempId, ZoneId = ins.ZoneId, Type = ins.Type, Type2 = ins.Type2 },
+                    Waypoints  = new List<Database.Models.GridEntry>(),  // seed waypoint arrives via GridEntryInserts below
+                    SpawnCount = 0,
+                });
+                if (ins.TempId <= _nextTempGridId)
+                    _nextTempGridId = ins.TempId - 1;
+            }
+
             // Pending inserts — add each temp waypoint to every referring spawn's list and
             // to the matching ZoneGrid (orphan grids only reach here via the latter).
             foreach (var kv in buffer.GridEntryInserts)
@@ -594,6 +623,19 @@ namespace VisualEQ
                 {
                     zg.Waypoints.RemoveAll(w =>
                         w.GridId == ins.GridId && w.Number == ins.Number);
+                }
+            }
+
+            // Pending whole-grid inserts — drop each temp ZoneGridRecord from the scene.
+            // (GridEntryInserts loop above already stripped any seed waypoints referring
+            // to these temp ids.)
+            foreach (var ins in PendingBuffer.GridInserts.Values)
+            {
+                ZoneGrids.RemoveAll(g => g.Grid != null && g.Grid.Id == ins.TempId);
+                if (SelectedGridId == ins.TempId)
+                {
+                    SelectedGridId = null;
+                    GridSelectedChanged?.Invoke(null);
                 }
             }
 
@@ -967,6 +1009,20 @@ namespace VisualEQ
                 }
                 // Deletes were already applied in-memory when the DeleteAction ran; no
                 // scene mutation needed here.
+
+                // Grid inserts get real ids assigned during commit. Simpler than remapping
+                // every ZoneGridRecord/waypoint that referenced a temp id: reload the whole
+                // Grid List from DB. Cheap (small table), keeps the Grid List and any
+                // subsequent selection coherent. Clear any dangling temp-id selection.
+                if (result.GridInsertsWritten > 0)
+                {
+                    if (SelectedGridId.HasValue && SelectedGridId.Value < 0)
+                    {
+                        SelectedGridId = null;
+                        GridSelectedChanged?.Invoke(null);
+                    }
+                    LoadZoneGridsSync(CurrentZoneName);
+                }
             }
 
             PendingBuffer = new EditBuffer
@@ -1044,6 +1100,8 @@ namespace VisualEQ
             ZonePointManager.Clear();
             ZoneShortNames.Clear();
             ZoneGrids.Clear();
+            CurrentZoneId = null;
+            _nextTempGridId = -1;
             if (SelectedGridId != null)
             {
                 SelectedGridId = null;
@@ -1186,6 +1244,39 @@ namespace VisualEQ
             // handle to tune.
             var created = ZonePointManager.ZonePoints.FirstOrDefault(z => z.Row.Id == row.Id);
             if (created != null) ZonePointManager.Select(created);
+        }
+
+        // Grid List sidebar entry point — creates a fresh grid with one seed waypoint at
+        // the camera XY (ground-snapped Z). Defaults: type=0 (Circular), type2=0 (Half-
+        // random pause) — the two most common EQEmu wander settings. User can edit via
+        // the Grid Info combos in the Waypoint Info section post-creation. No-op if no
+        // zone is loaded, no DB connection, or the zone's numeric id wasn't resolved.
+        public void CreateNewGridAtCamera()
+        {
+            if (CurrentZoneName == null || CurrentZoneId == null)
+            {
+                Console.WriteLine("[Controller] CreateNewGridAtCamera skipped — no zone loaded or CurrentZoneId unresolved.");
+                return;
+            }
+
+            // Scene camera position → DB coords (swap XY). Ground-snap Z so the seed
+            // waypoint sits on terrain, not floating.
+            var cam = Camera.Position;
+            float dbX = cam.Y;
+            float dbY = cam.X;
+            float dbZ = cam.Z;
+            if (Collider != null)
+            {
+                var probe = new Vector3(cam.X, cam.Y, cam.Z + 5f);
+                var hit = Collider.FindIntersection(probe, new Vector3(0, 0, -1), 0.5f);
+                if (hit.HasValue) dbZ = hit.Value.Item2.Z;
+            }
+
+            var tempId = NextTempGridId();
+            RecordAction(new EditSystem.GridInsertAction(
+                tempId, CurrentZoneId.Value,
+                type: 0, type2: 0,
+                seedX: dbX, seedY: dbY, seedZ: dbZ));
         }
 
         // Removes the currently-selected zone_point (persisted rows go to buffer.Deletes,
@@ -1415,6 +1506,23 @@ namespace VisualEQ
                 {
                     g.SpawnCount = SpawnManager.SpawnPoints.Count(sp => sp.Record.Spawn.PathGrid == g.Grid.Id);
                     ZoneGrids.Add(g);
+                }
+
+                // Cache CurrentZoneId for GridInsertAction. First prefer any loaded
+                // grid's ZoneId (free — no extra round-trip); fall back to a direct
+                // GetZoneId query for the edge case where the zone has zero grids.
+                if (records.Count > 0)
+                    CurrentZoneId = records[0].Grid.ZoneId;
+                else
+                {
+                    using (var conn = DbFactory.CreateConnection())
+                    {
+                        conn.Open();
+                        var zid = Dapper.SqlMapper.QueryFirstOrDefault<int>(
+                            conn, Database.Constants.SqlQueries.GetZoneId,
+                            new { ZoneName = zoneName });
+                        CurrentZoneId = zid == 0 ? (int?)null : zid;
+                    }
                 }
             }
             catch (Exception ex)

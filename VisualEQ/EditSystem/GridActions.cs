@@ -146,6 +146,119 @@ namespace VisualEQ.EditSystem
         }
     }
 
+    // Creates a whole new grid — one grid row + one seed waypoint. The temp id is a
+    // negative sentinel from Controller.NextTempGridId; on commit the committer runs
+    // MAX(id)+1 inside the transaction to assign a real id, INSERTs both rows, then
+    // triggers a ZoneGrids reload so the temp id disappears from the sidebar.
+    //
+    // Grid metadata (type/type2) is captured on the action for revert; seed waypoint
+    // fields are captured too so revert cleanly pulls both from the buffer and scene.
+    public sealed class GridInsertAction : IEditAction
+    {
+        public int TempId { get; }
+        public int ZoneId { get; }
+        public int Type { get; }
+        public int Type2 { get; }
+        public float SeedX { get; }
+        public float SeedY { get; }
+        public float SeedZ { get; }
+        public DateTime Timestamp { get; }
+
+        public string Description => $"Created grid {TempId} (temp)";
+        public string TargetKey   => $"grid:{TempId}:new";
+
+        public GridInsertAction(int tempId, int zoneId, int type, int type2,
+            float seedX, float seedY, float seedZ)
+        {
+            TempId    = tempId;
+            ZoneId    = zoneId;
+            Type      = type;
+            Type2     = type2;
+            SeedX     = seedX;
+            SeedY     = seedY;
+            SeedZ     = seedZ;
+            Timestamp = DateTime.UtcNow;
+        }
+
+        public void Apply(Controller controller)
+        {
+            // Scene: fresh ZoneGridRecord with the seed waypoint. Orphan by construction
+            // (SpawnCount = 0) — no spawn2 row can reference a temp id.
+            if (!controller.ZoneGrids.Any(g => g.Grid != null && g.Grid.Id == TempId))
+            {
+                controller.ZoneGrids.Add(new Database.Models.ZoneGridRecord
+                {
+                    Grid = new Grid { Id = TempId, ZoneId = ZoneId, Type = Type, Type2 = Type2 },
+                    Waypoints = new List<GridEntry>
+                    {
+                        new GridEntry
+                        {
+                            GridId = TempId, Number = 1,
+                            X = SeedX, Y = SeedY, Z = SeedZ,
+                            Heading = 0, Pause = 0, Centerpoint = 0,
+                        }
+                    },
+                    SpawnCount = 0,
+                });
+            }
+
+            // Buffer: one GridInsert + one GridEntryInsert (the seed waypoint) — both keyed
+            // on TempId so the committer can remap them together.
+            var buffer = controller.PendingBuffer;
+            if (buffer != null)
+            {
+                buffer.GridInserts[TempId] = new GridInsert
+                {
+                    TempId    = TempId,
+                    ZoneId    = ZoneId,
+                    Type      = Type,
+                    Type2     = Type2,
+                    CreatedAt = DateTime.UtcNow,
+                };
+                buffer.GridEntryInserts[EditBuffer.GridEntryKey(TempId, 1)] = new GridEntryInsert
+                {
+                    GridId      = TempId,
+                    ZoneId      = ZoneId,
+                    Number      = 1,
+                    X           = SeedX,
+                    Y           = SeedY,
+                    Z           = SeedZ,
+                    Heading     = 0,
+                    Pause       = 0,
+                    Centerpoint = 0,
+                    CreatedAt   = DateTime.UtcNow,
+                };
+                controller.MarkBufferDirty();
+            }
+
+            // Auto-select so the polyline renders + Waypoint Info picks up the seed on first click.
+            controller.SelectGrid(TempId);
+        }
+
+        public void Revert(Controller controller)
+        {
+            controller.ZoneGrids.RemoveAll(g => g.Grid != null && g.Grid.Id == TempId);
+
+            var buffer = controller.PendingBuffer;
+            if (buffer != null)
+            {
+                buffer.GridInserts.Remove(TempId);
+                buffer.GridEntryInserts.Remove(EditBuffer.GridEntryKey(TempId, 1));
+                // Purge any accumulated field edits on the seed waypoint too — the whole
+                // row no longer exists.
+                buffer.GridEntries.Remove(EditBuffer.GridEntryKey(TempId, 1));
+                controller.MarkBufferDirty();
+            }
+
+            if (controller.SelectedGridId == TempId)
+                controller.SelectGrid(null);
+
+            var sel = controller.Engine.WaypointEditor.Selected;
+            if (sel.HasValue && sel.Value.GridId == TempId)
+                controller.Engine.WaypointEditor.ClearSelection();
+        }
+    }
+
     // Adds a new waypoint at the end of the grid (Number = max+1). Snapshot fields let
     // Revert restore the exact row that was inserted (position, heading, pause,
     // centerpoint).
@@ -200,6 +313,24 @@ namespace VisualEQ.EditSystem
                         Centerpoint = Centerpoint,
                     });
                 }
+                // Orphan / pending-insert grids only live in ZoneGrids — must add here too so
+                // the polyline updates immediately (matches ApplyPendingBuffer's parallel loop).
+                foreach (var zg in controller.ZoneGrids)
+                {
+                    if (zg.Grid == null || zg.Grid.Id != GridId) continue;
+                    if (zg.Waypoints.Any(w => w.GridId == GridId && w.Number == Number)) continue;
+                    zg.Waypoints.Add(new GridEntry
+                    {
+                        GridId      = GridId,
+                        Number      = Number,
+                        X           = X,
+                        Y           = Y,
+                        Z           = Z,
+                        Heading     = Heading,
+                        Pause       = Pause,
+                        Centerpoint = Centerpoint,
+                    });
+                }
             }
 
             var buffer = controller.PendingBuffer;
@@ -227,6 +358,10 @@ namespace VisualEQ.EditSystem
             foreach (var sp in controller.SpawnManager.SpawnPoints)
             {
                 sp.Record.Waypoints.RemoveAll(w => w.GridId == GridId && w.Number == Number);
+            }
+            foreach (var zg in controller.ZoneGrids)
+            {
+                zg.Waypoints.RemoveAll(w => w.GridId == GridId && w.Number == Number);
             }
 
             var buffer = controller.PendingBuffer;
