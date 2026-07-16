@@ -71,6 +71,12 @@ namespace VisualEQ.Engine
         // while GridModeActive == true. hitPoint is scene-space (X/Y swapped from DB).
         void OnGridModeDoubleClick(System.Numerics.Vector3 hitPoint);
 
+        // Called by EngineCore on Ctrl+LMB double-click on a terrain hit (outside
+        // grid mode). Implementations open an NPC picker; on confirm they'll place
+        // a new spawn at `hitPoint`. Scene-space coords, same convention as
+        // OnGridModeDoubleClick.
+        void OnCtrlDoubleClickTerrain(System.Numerics.Vector3 hitPoint);
+
         // Wired to Escape — exits Grid Mode without placing anything. Runs before the
         // other Escape cancels (creation drag, waypoint drag, etc.).
         void ExitGridMode();

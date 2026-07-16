@@ -12,6 +12,7 @@ namespace VisualEQ.Database.Repositories.Interfaces
         Task<IEnumerable<ZoneGridRecord>> GetZoneGridsAsync(string zoneName);
         Task<SpawnViewModel> GetSpawnByIdAsync(int spawnId);
         Task<IEnumerable<NpcType>> GetNpcTypesBatchAsync(IEnumerable<int> npcIds);
+        Task<IEnumerable<NpcType>> SearchNpcTypesAsync(string nameFilter, int limit);
         Task<bool> UpdateSpawnLocationAsync(int spawnId, Vector3 position, float heading);
     }
 } 

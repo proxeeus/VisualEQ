@@ -137,6 +137,20 @@ namespace VisualEQ.Database.Constants
             FROM npc_types
             WHERE id IN @NpcIds";
 
+        // NPC picker search — substring match on npc_types.name. Caller passes @Filter
+        // pre-wrapped with '%' wildcards (empty @Filter still returns rows, LIMIT
+        // caps the load). Ordered by name so the UI list stays stable across
+        // keystrokes. Same column set as GetNpcTypesBatch so the returned rows
+        // plug straight into the model-resolution pipeline.
+        public const string SearchNpcTypes = @"
+            SELECT id, name, lastname AS LastName, level, race,
+                   `class` AS Class, bodytype AS BodyType, size, gender,
+                   texture, helmtexture AS HelmTexture, face
+            FROM npc_types
+            WHERE name LIKE @Filter
+            ORDER BY name
+            LIMIT @Limit";
+
         // Batch-load grid_entries for multiple grids in one zone.
         public const string GetGridEntriesBatch = @"
             SELECT gridid AS GridId, number, x, y, z, heading, pause

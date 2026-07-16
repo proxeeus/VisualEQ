@@ -1550,6 +1550,136 @@ namespace VisualEQ
             CharacterModels.Add(sp.Model);
         }
 
+        // ─── Slice 3: place-new-spawn from terrain via NPC picker ────────────────────
+
+        // Scene-space hit point captured when the user Ctrl+double-clicks terrain.
+        // Held so the NPC picker modal (opened via PendingPlacementRequested) can
+        // fetch it on Confirm. Null when no placement is pending.
+        public Vector3? PendingPlacementScenePos { get; private set; }
+
+        // Fires when the user Ctrl+double-clicks terrain (and edit mode is on + DB is
+        // configured). SidebarView subscribes to open the NPC picker modal. The event
+        // carries no payload — the sidebar reads PendingPlacementScenePos on demand.
+        public event Action PendingPlacementRequested;
+
+        // Called by EngineCore.OnMouseDown when the user Ctrl+double-clicks a
+        // terrain hit. Gated on edit mode + DB configured + availableModels ready.
+        // Records the scene hit and lets the sidebar open its picker.
+        public void OnCtrlDoubleClickTerrain(Vector3 sceneHitPos)
+        {
+            if (!EditModeEnabled) return;
+            if (CurrentZoneName == null) return;
+            if (DbFactory == null)
+            {
+                Console.WriteLine("[Controller] Ctrl+double-click ignored — no DB connection (open Settings to configure).");
+                return;
+            }
+            if (_availableModels == null || _availableModels.Count == 0)
+            {
+                Console.WriteLine("[Controller] Ctrl+double-click ignored — availableModels not yet populated.");
+                return;
+            }
+            PendingPlacementScenePos = sceneHitPos;
+            PendingPlacementRequested?.Invoke();
+        }
+
+        // Cleared when the picker modal is dismissed (either confirmed or cancelled).
+        public void ClearPendingPlacement() => PendingPlacementScenePos = null;
+
+        // Places a fresh spawn at `sceneHitPos` for the picked NPC. Builds a new
+        // spawngroup + one spawnentry (100% chance) + spawn2 row, wraps it in a
+        // SpawnInsertAction so the commit path + undo stack treat it identically to
+        // a duplicated spawn. Called by the NPC picker's Confirm button.
+        public void PlaceNewSpawn(Database.Models.NpcType npc, Vector3 sceneHitPos)
+        {
+            if (!EditModeEnabled) return;
+            if (npc == null) return;
+            if (CurrentZoneName == null) return;
+            if (_availableModels == null || _availableModels.Count == 0) return;
+
+            // Scene → DB coord swap (X = east/west, Y = north/south, Z = up).
+            float dbX = sceneHitPos.Y;
+            float dbY = sceneHitPos.X;
+            float dbZ = sceneHitPos.Z;
+
+            var tempId = SpawnManager.NextTempSpawnId();
+
+            // Spawngroup name — no source to clone from, so use "vqp_<npcname>_<hex>"
+            // as a discoverable prefix. UNIQUE-safe within a ~1/65k Guid-suffix window
+            // (same reasoning as DuplicateSelectedSpawn); on collision the commit
+            // rolls back and the user retries.
+            var baseName = (npc.Name ?? "npc").Trim();
+            var suffix = "_new" + Guid.NewGuid().ToString("N").Substring(0, 4);
+            const int maxLen = 30;
+            var prefixMax = maxLen - "vqp_".Length - suffix.Length;
+            if (prefixMax < 1) prefixMax = 1;
+            var prefix = baseName.Length > prefixMax ? baseName.Substring(0, prefixMax) : baseName;
+            var newGroupName = "vqp_" + prefix + suffix;
+
+            var record = new Database.Models.SpawnRecord
+            {
+                Spawn = new Database.Models.Spawn2
+                {
+                    Id             = tempId,
+                    SpawnGroupId   = 0,        // resolved at commit
+                    Zone           = CurrentZoneName,
+                    Version        = 0,        // most spawn2 rows use version 0 in EQEmu classic data
+                    X              = dbX,
+                    Y              = dbY,
+                    Z              = dbZ,
+                    Heading        = 0f,       // face north; user can rotate afterwards
+                    RespawnTime    = 600,      // 10 min — reasonable default per EQEmu convention
+                    Variance       = 0,
+                    PathGrid       = 0,        // no path — user can assign later
+                    Animation      = 0,
+                    SpawnGroupName = newGroupName,
+                },
+                Entries = new System.Collections.Generic.List<Database.Models.SpawnEntryWithNpc>
+                {
+                    new Database.Models.SpawnEntryWithNpc
+                    {
+                        Entry = new Database.Models.SpawnEntry
+                        {
+                            SpawnGroupId = 0,  // resolved at commit
+                            NpcId        = npc.Id,
+                            Chance       = 100,
+                        },
+                        Npc = npc,
+                    }
+                },
+                Waypoints = new System.Collections.Generic.List<Database.Models.GridEntry>(),
+                Grid = null,
+            };
+
+            var insert = new EditSystem.SpawnInsert
+            {
+                TempSpawnId    = tempId,
+                SourceSpawnId  = 0, // no source — placed from picker
+                DisplayName    = npc.Name ?? "?",
+                SpawnGroupName = newGroupName,
+                Zone           = record.Spawn.Zone,
+                Version        = record.Spawn.Version,
+                X              = record.Spawn.X,
+                Y              = record.Spawn.Y,
+                Z              = record.Spawn.Z,
+                Heading        = record.Spawn.Heading,
+                RespawnTime    = record.Spawn.RespawnTime,
+                Variance       = record.Spawn.Variance,
+                PathGrid       = record.Spawn.PathGrid,
+                Animation      = record.Spawn.Animation,
+                Entries        = new System.Collections.Generic.List<EditSystem.SpawnInsertEntry>
+                {
+                    new EditSystem.SpawnInsertEntry { NpcId = npc.Id, Chance = 100 }
+                },
+                CreatedAt      = DateTime.UtcNow,
+            };
+
+            RecordAction(new EditSystem.SpawnInsertAction(record, insert));
+
+            var created = SpawnManager.SpawnPoints.FirstOrDefault(p => p.Record.Spawn.Id == tempId);
+            if (created != null) SpawnManager.Select(created.Model);
+        }
+
         // Duplicates the currently-selected spawn: clones spawngroup + spawnentries +
         // spawn2 into a pending-insert SpawnPoint at the camera's ground-projected
         // position (matches the CreateNewGridAtCamera / CreateZonePoint convention).
