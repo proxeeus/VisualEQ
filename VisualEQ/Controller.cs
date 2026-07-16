@@ -94,6 +94,39 @@ namespace VisualEQ
         int _nextTempGridId = -1;
         public int NextTempGridId() => _nextTempGridId--;
 
+        // Grid Mode — sub-mode of Edit Mode. When active, EngineCore intercepts LMB
+        // double-clicks on collision geometry and routes them to OnGridModeDoubleClick
+        // for waypoint placement. Auto-exits when EditModeEnabled goes false so a stale
+        // Grid Mode never outlives its parent.
+        bool _gridModeActive;
+        public bool GridModeActive => _gridModeActive;
+        public event Action<bool> GridModeChanged;
+
+        public void EnterGridMode()
+        {
+            if (_gridModeActive) return;
+            if (!EditModeEnabled)
+            {
+                Console.WriteLine("[Controller] EnterGridMode ignored — edit mode is off.");
+                return;
+            }
+            _gridModeActive = true;
+            GridModeChanged?.Invoke(true);
+        }
+
+        public void ExitGridMode()
+        {
+            if (!_gridModeActive) return;
+            _gridModeActive = false;
+            GridModeChanged?.Invoke(false);
+        }
+
+        public void ToggleGridMode()
+        {
+            if (_gridModeActive) ExitGridMode();
+            else EnterGridMode();
+        }
+
         // ─── Drag-to-create state ────────────────────────────────────────────────────
         // When active, the mouse pipeline is intercepted before zone-point / waypoint /
         // spawn selectors so left-click-drag on the ground plane draws a preview
@@ -278,6 +311,7 @@ namespace VisualEQ
                 if (Settings.EditModeEnabled == value) return;
                 Settings.EditModeEnabled = value;
                 SettingsManager.Save(Settings);
+                if (!value) ExitGridMode();  // Grid Mode is a sub-mode; can't outlive Edit Mode.
                 EditModeChanged?.Invoke(value);
             }
         }
@@ -1244,6 +1278,62 @@ namespace VisualEQ
             // handle to tune.
             var created = ZonePointManager.ZonePoints.FirstOrDefault(z => z.Row.Id == row.Id);
             if (created != null) ZonePointManager.Select(created);
+        }
+
+        // Grid Mode double-click handler — called by EngineCore when the user double-
+        // clicks a collision surface with Grid Mode active. Target grid resolution:
+        //   1. If SelectedGridId is set → append waypoint there (sidebar-picked grid).
+        //   2. Else if a waypoint is selected in the WaypointEditor → target its grid.
+        //   3. Else → create a new grid + first waypoint at the hit point.
+        // hitPoint is scene-space (x=east, y=north-in-scene, z=up); the DB swap happens
+        // here so downstream code always sees DB coords.
+        public void OnGridModeDoubleClick(Vector3 hitPoint)
+        {
+            if (CurrentZoneName == null || CurrentZoneId == null)
+            {
+                Console.WriteLine("[Controller] Grid Mode double-click ignored — no zone/zoneId.");
+                return;
+            }
+
+            var dbX = hitPoint.Y;
+            var dbY = hitPoint.X;
+            var dbZ = hitPoint.Z;
+
+            var targetGridId = SelectedGridId;
+            if (targetGridId == null)
+            {
+                var wp = Engine.WaypointEditor?.Selected;
+                if (wp.HasValue) targetGridId = wp.Value.GridId;
+            }
+
+            if (targetGridId.HasValue)
+            {
+                // Compute next waypoint number for the target grid (scan both SpawnPoints
+                // and ZoneGrids — matches RenderWaypointAddButton's behaviour).
+                var gridId = targetGridId.Value;
+                int maxNumber = 0;
+                foreach (var sp in SpawnManager.SpawnPoints)
+                    foreach (var w in sp.Record.Waypoints)
+                        if (w.GridId == gridId && w.Number > maxNumber)
+                            maxNumber = w.Number;
+                foreach (var zg in ZoneGrids)
+                    foreach (var w in zg.Waypoints)
+                        if (w.GridId == gridId && w.Number > maxNumber)
+                            maxNumber = w.Number;
+
+                RecordAction(new EditSystem.GridEntryInsertAction(
+                    gridId, CurrentZoneId.Value, maxNumber + 1,
+                    (float)dbX, (float)dbY, (float)dbZ,
+                    heading: 0f, pause: 0, centerpoint: 0));
+                return;
+            }
+
+            // No grid targeted → create a fresh one at the hit point.
+            var tempId = NextTempGridId();
+            RecordAction(new EditSystem.GridInsertAction(
+                tempId, CurrentZoneId.Value,
+                type: 0, type2: 0,
+                seedX: (float)dbX, seedY: (float)dbY, seedZ: (float)dbZ));
         }
 
         // Grid List sidebar entry point — creates a fresh grid with one seed waypoint at

@@ -1802,12 +1802,29 @@ namespace VisualEQ.Views
             if (!ImGui.CollapsingHeader($"Grid List ({total})###{Id}gl", 0))
                 return;
 
-            // Create button — edit mode only, matches the other insert affordances
-            // (waypoint add / delete, zone-point create). Seeds a fresh grid + one
-            // waypoint at the camera XY (ground-snapped Z).
+            // Grid Mode toggle — the primary create/extend flow. When active, double-
+            // clicking any collision surface either appends a waypoint to the selected
+            // grid or creates a new grid + first waypoint at the click. Escape exits.
             if (ctrl.EditModeEnabled)
             {
-                if (ImGui.Button($"+ New Grid at camera###{Id}glNew", new Vector2(220, 24)))
+                var label = ctrl.GridModeActive
+                    ? $"Grid Mode: ON — double-click to place###{Id}glMode"
+                    : $"Grid Mode: OFF — click to enable###{Id}glMode";
+                if (ImGui.Button(label, new Vector2(280, 24)))
+                    ctrl.ToggleGridMode();
+
+                if (ctrl.GridModeActive)
+                {
+                    var targetLabel = ctrl.SelectedGridId.HasValue
+                        ? $"Target: grid {ctrl.SelectedGridId.Value} (append waypoint)"
+                        : "Target: NEW GRID (no grid selected)";
+                    ImGui.Text(targetLabel);
+                    ImGui.Text("Escape to exit. Spawn clicks disabled in Grid Mode.");
+                }
+
+                // Kept as a fallback for cases where the cursor can't reach a good surface
+                // (e.g. camera stuck inside geometry). Grid Mode is the recommended path.
+                if (ImGui.Button($"+ New Grid at camera (fallback)###{Id}glNew", new Vector2(280, 20)))
                     ctrl.CreateNewGridAtCamera();
             }
 
