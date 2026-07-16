@@ -451,10 +451,13 @@ namespace VisualEQ.Engine
 
                 // If the surface is within reasonable distance, snap to it — preserving the
                 // ground-offset we recorded at drag start rather than assuming feet==origin.
+                // Also preserve _wheelZOffset so an in-drag mouse-wheel adjustment survives
+                // the drop (without this, releasing a wheel-adjusted drag reverts to plain
+                // ground snap and the user's Z tweak is silently dropped).
                 if (distance <= SURFACE_CHECK_DISTANCE)
                 {
                     Vector3 newPosition = selectedModel.Position;
-                    newPosition.Z = hit.Value.Item2.Z + _dragGroundOffset;
+                    newPosition.Z = hit.Value.Item2.Z + _dragGroundOffset + _wheelZOffset;
                     selectedModel.Position = newPosition;
                     currentSurfaceHeight = hit.Value.Item2.Z;
                 }

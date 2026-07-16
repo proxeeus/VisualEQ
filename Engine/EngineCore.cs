@@ -587,6 +587,7 @@ namespace VisualEQ.Engine
                     KeyState[e.Key] = true;
                 if (e.Key == Key.Z || e.Key == Key.W) { Controller?.TryUndo(); return; }
                 if (e.Key == Key.Y)                  { Controller?.TryRedo(); return; }
+                if (e.Key == Key.D)                  { Controller?.DuplicateSelectedSpawn(); return; }
                 return; // consume unrecognized Ctrl+* so camera never sees the key
             }
 

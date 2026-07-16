@@ -16,6 +16,7 @@ namespace VisualEQ.EditSystem
             public string Error;
             public int SpawnRowsWritten;
             public int SpawnDeletesWritten;
+            public int SpawnInsertsWritten;
             public int GridRowsWritten;
             public int GridInsertsWritten;
             public int GridEntryInsertsWritten;
@@ -29,6 +30,18 @@ namespace VisualEQ.EditSystem
             // (positive) after a successful INSERT. Consumers (OnCommitSucceeded) apply this
             // to the in-memory ZonePoint list so subsequent edits refer to the persisted row.
             public System.Collections.Generic.Dictionary<int, int> InsertedIdMap;
+
+            // Spawn-insert equivalent: maps (temp spawn2 id) → (real spawn2 id + resolved
+            // spawngroup id) so post-commit the in-memory SpawnPoint's Record.Spawn.Id
+            // and Record.Spawn.SpawnGroupId reflect the persisted rows. Populated by the
+            // pending-insert loop in CommitAsync.
+            public System.Collections.Generic.Dictionary<int, SpawnInsertResult> SpawnInsertedIdMap;
+
+            public struct SpawnInsertResult
+            {
+                public int SpawnId;
+                public int SpawnGroupId;
+            }
         }
 
         public static async Task<Result> CommitAsync(
@@ -76,6 +89,64 @@ namespace VisualEQ.EditSystem
                                     SqlQueries.DeleteSpawn2,
                                     new { Id = kv.Key },
                                     tx);
+                            }
+
+                            // Spawn INSERTs — three steps per pending insert, all inside the
+                            // same tx: spawngroup → each spawnentry → spawn2. The auto-
+                            // increment ids returned by LAST_INSERT_ID() flow through so
+                            // (a) spawnentry rows reference the fresh spawngroup id,
+                            // (b) spawn2 references the fresh spawngroup id, and
+                            // (c) the SpawnInsertedIdMap gives Controller enough to remap
+                            //     the negative temp ids on the in-memory SpawnPoints.
+                            //
+                            // Ordering is BEFORE the UPDATE loop below so any post-duplicate
+                            // move / rotate edits (which would sit in buffer.Spawns keyed
+                            // on the temp id) would UPDATE a non-existent row. That's why
+                            // SpawnMoveAction / SpawnRotateAction mirror into SpawnInserts
+                            // for temp ids instead — they never hit buffer.Spawns.
+                            int spawnInserts = 0;
+                            var spawnInsertedIdMap = new System.Collections.Generic.Dictionary<int, Result.SpawnInsertResult>();
+                            foreach (var kv in buffer.SpawnInserts)
+                            {
+                                var ins = kv.Value;
+
+                                var newGroupId = await connection.ExecuteScalarAsync<int>(
+                                    SqlQueries.InsertSpawnGroup,
+                                    new { Name = ins.SpawnGroupName },
+                                    tx);
+
+                                foreach (var e in ins.Entries)
+                                {
+                                    await connection.ExecuteAsync(
+                                        SqlQueries.InsertSpawnEntry,
+                                        new { SpawnGroupId = newGroupId, NpcId = e.NpcId, Chance = e.Chance },
+                                        tx);
+                                }
+
+                                var newSpawnId = await connection.ExecuteScalarAsync<int>(
+                                    SqlQueries.InsertSpawn2,
+                                    new
+                                    {
+                                        SpawnGroupId = newGroupId,
+                                        Zone         = ins.Zone,
+                                        Version      = ins.Version,
+                                        X            = ins.X,
+                                        Y            = ins.Y,
+                                        Z            = ins.Z,
+                                        Heading      = ins.Heading,
+                                        RespawnTime  = ins.RespawnTime,
+                                        Variance     = ins.Variance,
+                                        PathGrid     = ins.PathGrid,
+                                        Animation    = ins.Animation,
+                                    },
+                                    tx);
+
+                                spawnInsertedIdMap[ins.TempSpawnId] = new Result.SpawnInsertResult
+                                {
+                                    SpawnId      = newSpawnId,
+                                    SpawnGroupId = newGroupId,
+                                };
+                                spawnInserts++;
                             }
 
                             int spawnRows = 0;
@@ -291,6 +362,8 @@ namespace VisualEQ.EditSystem
                                 Success                  = true,
                                 SpawnRowsWritten         = spawnRows,
                                 SpawnDeletesWritten      = spawnDeletes,
+                                SpawnInsertsWritten      = spawnInserts,
+                                SpawnInsertedIdMap       = spawnInsertedIdMap,
                                 GridRowsWritten          = gridRows,
                                 GridInsertsWritten       = gridInserts,
                                 GridEntryInsertsWritten  = gridEntryInserts,

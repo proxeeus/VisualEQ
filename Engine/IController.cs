@@ -40,6 +40,11 @@ namespace VisualEQ.Engine
         // sessions. No-op when nothing is selected.
         void DeleteSelectedSpawn();
 
+        // Wired to Ctrl+D — duplicates the currently-selected spawn (new spawngroup +
+        // cloned spawnentries) at the camera-anchor ground point. Gated on edit mode +
+        // selection existing + availableModels populated. No-op otherwise.
+        void DuplicateSelectedSpawn();
+
         // ─── Drag-to-create pipeline hooks ───────────────────────────────────────────
         // When true, EngineCore intercepts mouse input BEFORE the normal selector chain
         // (zone-point / waypoint / spawn) so left-click-drag can draw a preview + commit

@@ -36,7 +36,7 @@ namespace VisualEQ.EditSystem
                 var json = File.ReadAllText(path);
                 var buffer = JsonSerializer.Deserialize<EditBuffer>(json, JsonOptions);
                 if (buffer == null) return null;
-                if (buffer.SchemaVersion > 7)
+                if (buffer.SchemaVersion > 8)
                 {
                     Console.WriteLine($"[EditBufferManager] Buffer for '{zone}' has newer schema version {buffer.SchemaVersion}; ignoring.");
                     return null;
@@ -54,7 +54,9 @@ namespace VisualEQ.EditSystem
                 //         (pre-v6 buffers never carried pending grid inserts).
                 // v6 → v7: adds SpawnDeletes for pending spawn2 row removals. Defaults
                 //         to empty (pre-v7 buffers never carried spawn deletes).
-                if (buffer.SchemaVersion < 7) buffer.SchemaVersion = 7;
+                // v7 → v8: adds SpawnInserts for pending spawn2 duplicates. Defaults
+                //         to empty (pre-v8 buffers never carried spawn inserts).
+                if (buffer.SchemaVersion < 8) buffer.SchemaVersion = 8;
                 if (buffer.ZonePoints == null) buffer.ZonePoints = new System.Collections.Generic.Dictionary<int, ZonePointEdit>();
                 if (buffer.ZonePointInserts == null) buffer.ZonePointInserts = new System.Collections.Generic.Dictionary<int, ZonePointInsert>();
                 if (buffer.ZonePointDeletes == null) buffer.ZonePointDeletes = new System.Collections.Generic.HashSet<int>();
@@ -63,6 +65,7 @@ namespace VisualEQ.EditSystem
                 if (buffer.GridEntryDeletes == null) buffer.GridEntryDeletes = new System.Collections.Generic.Dictionary<string, GridEntryDelete>();
                 if (buffer.GridInserts == null) buffer.GridInserts = new System.Collections.Generic.Dictionary<int, GridInsert>();
                 if (buffer.SpawnDeletes == null) buffer.SpawnDeletes = new System.Collections.Generic.Dictionary<int, SpawnDelete>();
+                if (buffer.SpawnInserts == null) buffer.SpawnInserts = new System.Collections.Generic.Dictionary<int, SpawnInsert>();
                 return buffer;
             }
             catch (Exception ex)

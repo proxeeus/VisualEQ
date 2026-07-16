@@ -180,6 +180,7 @@ namespace VisualEQ.Views
         private int _commitEditCountSnapshot;
         private int _commitSpawnCountSnapshot;
         private int _commitSpawnDeleteCountSnapshot;
+        private int _commitSpawnInsertCountSnapshot;
         private int _commitGridCountSnapshot;
         private int _commitGridInsertCountSnapshot;
         private int _commitGridDeleteCountSnapshot;
@@ -387,6 +388,7 @@ namespace VisualEQ.Views
             _commitEditCountSnapshot        = buffer.TotalPending;
             _commitSpawnCountSnapshot       = buffer.Spawns.Count;
             _commitSpawnDeleteCountSnapshot = buffer.SpawnDeletes.Count;
+            _commitSpawnInsertCountSnapshot = buffer.SpawnInserts.Count;
             _commitGridCountSnapshot        = buffer.GridEntries.Count;
             _commitGridInsertCountSnapshot  = buffer.GridEntryInserts.Count;
             _commitGridDeleteCountSnapshot  = buffer.GridEntryDeletes.Count;
@@ -439,6 +441,8 @@ namespace VisualEQ.Views
                 ImGui.Text($"  {_commitSpawnCountSnapshot} spawn move(s)");
             if (_commitSpawnDeleteCountSnapshot > 0)
                 ImGui.Text($"  {_commitSpawnDeleteCountSnapshot} spawn delete(s)");
+            if (_commitSpawnInsertCountSnapshot > 0)
+                ImGui.Text($"  {_commitSpawnInsertCountSnapshot} new spawn(s)");
             if (_commitGridCountSnapshot > 0)
                 ImGui.Text($"  {_commitGridCountSnapshot} waypoint edit(s)");
             if (_commitGridInsertCountSnapshot > 0)
@@ -490,6 +494,8 @@ namespace VisualEQ.Views
                 ImGui.Text($"  {r.SpawnRowsWritten} spawn2 row(s) updated");
                 if (r.SpawnDeletesWritten > 0)
                     ImGui.Text($"  {r.SpawnDeletesWritten} spawn2 row(s) deleted");
+                if (r.SpawnInsertsWritten > 0)
+                    ImGui.Text($"  {r.SpawnInsertsWritten} spawn2 row(s) inserted (+ spawngroup + spawnentries)");
                 ImGui.Text($"  {r.GridRowsWritten} grid_entries row(s) updated");
                 if (r.GridEntryInsertsWritten > 0)
                     ImGui.Text($"  {r.GridEntryInsertsWritten} grid_entries row(s) inserted");
@@ -828,6 +834,13 @@ namespace VisualEQ.Views
                         _spDeleteArmedAt    = FrameTime;
                     }
                 }
+
+                // Duplicate — no confirm gate (it's non-destructive; you can Ctrl+Z or
+                // Discard). Ctrl+D hotkey fires the same action. New spawn is created at
+                // the camera-anchor ground point with a cloned spawngroup + spawnentries.
+                ImGui.SameLine();
+                if (ImGui.Button($"Duplicate (Ctrl+D)###{Id}spDup", new Vector2(180, 24)))
+                    _view.Controller.DuplicateSelectedSpawn();
             }
 
             if (_view.Controller.EditModeEnabled)
@@ -1595,6 +1608,10 @@ namespace VisualEQ.Views
                 .OrderByDescending(s => s.DeletedAt)
                 .Take(maxItems)
                 .ToList();
+            var recentSpawnInserts = buffer.SpawnInserts.Values
+                .OrderByDescending(s => s.CreatedAt)
+                .Take(maxItems)
+                .ToList();
             var recentGrids = buffer.GridEntries.Values
                 .OrderByDescending(g => g.LastModifiedAt)
                 .Take(maxItems)
@@ -1612,7 +1629,7 @@ namespace VisualEQ.Views
                 .Take(maxItems)
                 .ToList();
             var hidden = total
-                - recentSpawns.Count - recentSpawnDeletes.Count - recentGrids.Count
+                - recentSpawns.Count - recentSpawnDeletes.Count - recentSpawnInserts.Count - recentGrids.Count
                 - recentGridMeta.Count - recentInserts.Count - recentDeletes.Count;
 
             // Fixed-height list child. Wheel scroll IS handled by the child when the
@@ -1633,6 +1650,13 @@ namespace VisualEQ.Views
                 ImGui.Text($"Spawn deletes ({buffer.SpawnDeletes.Count}):");
                 foreach (var del in recentSpawnDeletes)
                     RenderPendingSpawnDeleteRow(ctrl, del);
+            }
+
+            if (recentSpawnInserts.Count > 0)
+            {
+                ImGui.Text($"Spawn adds ({buffer.SpawnInserts.Count}):");
+                foreach (var ins in recentSpawnInserts)
+                    RenderPendingSpawnInsertRow(ctrl, ins);
             }
 
             if (recentGrids.Count > 0)
@@ -1789,6 +1813,23 @@ namespace VisualEQ.Views
                 // Symmetric with SpawnDeleteAction — Apply un-hides, Revert re-hides. Undo
                 // history stays coherent: Ctrl+Z after this re-deletes, another Ctrl+Z restores.
                 ctrl.RecordAction(new VisualEQ.EditSystem.SpawnRestoreAction(del.SpawnId, del.DisplayName));
+            }
+        }
+
+        void RenderPendingSpawnInsertRow(Controller ctrl, VisualEQ.EditSystem.SpawnInsert ins)
+        {
+            var name = string.IsNullOrEmpty(ins.DisplayName) ? "?" : ins.DisplayName;
+            ImGui.Text($"'{name}' (temp #{ins.TempSpawnId}) [NEW]");
+            ImGui.SameLine();
+            if (ImGui.Button($"Revert###{Id}pcRevSi{ins.TempSpawnId}", new Vector2(70, 22)))
+            {
+                // Find the temp SpawnPoint in the scene and issue a delete against it —
+                // SpawnDeleteAction's pending-insert path drops the SpawnInsert entry and
+                // detaches the node in one shot (mirrors the grid-entry pattern).
+                var sp = ctrl.SpawnManager.SpawnPoints
+                    .FirstOrDefault(p => p.Record.Spawn.Id == ins.TempSpawnId);
+                if (sp != null)
+                    ctrl.RecordAction(new VisualEQ.EditSystem.SpawnDeleteAction(sp, ins));
             }
         }
 
