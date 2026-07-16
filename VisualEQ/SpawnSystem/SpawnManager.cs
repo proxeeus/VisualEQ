@@ -61,6 +61,13 @@ namespace VisualEQ.SpawnSystem
         // DB round-trip. Keyed by spawn2.id. Cleared on zone unload alongside SpawnPoints.
         public Dictionary<int, SpawnPoint> HiddenSpawnPoints { get; } = new Dictionary<int, SpawnPoint>();
 
+        // Negative temp-id counter for pending spawn2 inserts. Real spawn2 ids are always
+        // positive AUTO_INCREMENT so a negative sentinel unambiguously marks a pre-commit
+        // row throughout scene + buffer. Reset by PrepareForLoad so a zone unload also
+        // resets the temp-id sequence.
+        int _nextTempSpawnId = -1;
+        public int NextTempSpawnId() => _nextTempSpawnId--;
+
         public event Action<SpawnPoint> SpawnSelected;
         public event Action<SpawnPoint> SpawnMoved;
 
@@ -74,6 +81,7 @@ namespace VisualEQ.SpawnSystem
         {
             SpawnPoints.Clear();
             HiddenSpawnPoints.Clear();
+            _nextTempSpawnId = -1;
             Selected = null;
             _loadModelled = _loadPlaceholders = _loadSkipped = 0;
             _loadPlaceholderByRace = new Dictionary<int, (int, string, bool, string)>();
@@ -128,6 +136,57 @@ namespace VisualEQ.SpawnSystem
             Dictionary<string, string> availableModels,
             AniModel fallback)
         {
+            var (sp, isPlaceholder, resolved) = BuildAndAdd(record, engine, modelCache, availableModels, fallback);
+            if (sp == null)
+            {
+                _loadSkipped++;
+                return;
+            }
+            if (isPlaceholder)
+            {
+                _loadPlaceholders++;
+                var npc = record.Entries.OrderByDescending(e => e.Entry.Chance).FirstOrDefault()?.Npc;
+                if (npc != null)
+                {
+                    var key = npc.Race;
+                    if (!_loadPlaceholderByRace.TryGetValue(key, out var stat))
+                        stat = (0, npc.Name ?? "?", resolved == null || resolved.Count == 0, string.Join(",", resolved ?? new List<string>()));
+                    _loadPlaceholderByRace[key] = (stat.Count + 1, stat.ExampleName, stat.Unmapped, stat.TriedCodes);
+                }
+            }
+            else
+            {
+                _loadModelled++;
+            }
+        }
+
+        // Public single-record load — used by Controller.DuplicateSelectedSpawn (and any
+        // future add-spawn action) to build a fresh SpawnPoint at runtime with the same
+        // model-resolution pipeline the initial zone load uses. Returns null when even
+        // the fallback isn't available (very rare — only if the zone loaded with no
+        // default character at all). Bypasses the placeholder-telemetry bookkeeping.
+        public SpawnPoint LoadSingle(
+            SpawnRecord record,
+            EngineCore engine,
+            Dictionary<string, AniModel> modelCache,
+            Dictionary<string, string> availableModels,
+            AniModel fallback)
+        {
+            var (sp, _, _) = BuildAndAdd(record, engine, modelCache, availableModels, fallback);
+            return sp;
+        }
+
+        // Shared core of LoadOne / LoadSingle: resolves the model, builds the
+        // AniModelInstance, wraps in a SpawnPoint, and appends to SpawnPoints. Returns
+        // (null, false, null) when even fallback is unavailable. `resolvedCodes` is
+        // returned so LoadOne can log a useful placeholder reason.
+        (SpawnPoint sp, bool isPlaceholder, List<string> resolvedCodes) BuildAndAdd(
+            SpawnRecord record,
+            EngineCore engine,
+            Dictionary<string, AniModel> modelCache,
+            Dictionary<string, string> availableModels,
+            AniModel fallback)
+        {
             var primaryEntry = record.Entries
                 .OrderByDescending(e => e.Entry.Chance)
                 .FirstOrDefault();
@@ -152,10 +211,6 @@ namespace VisualEQ.SpawnSystem
 
                 if (chosenCode != null)
                 {
-                    // Cache per (model code, texture, helm, face) so armor tiers,
-                    // helmet variants, and faces coexist under the same base mesh
-                    // without stomping each other. `#0#0#0` collapses to plain
-                    // `code` so the default combo shares the base cache entry.
                     var textureIdx = npc.Texture;
                     var helmIdx    = npc.HelmTexture;
                     var faceIdx    = npc.Face;
@@ -186,24 +241,9 @@ namespace VisualEQ.SpawnSystem
             {
                 aniModel = fallback;
                 isPlaceholder = true;
-
-                if (npc != null)
-                {
-                    var key = npc.Race;
-                    if (!_loadPlaceholderByRace.TryGetValue(key, out var stat))
-                        stat = (0, npc.Name ?? "?", triedCodes == null || triedCodes.Count == 0, string.Join(",", triedCodes ?? new List<string>()));
-                    _loadPlaceholderByRace[key] = (stat.Count + 1, stat.ExampleName, stat.Unmapped, stat.TriedCodes);
-                }
             }
+            if (aniModel == null) return (null, false, triedCodes);
 
-            if (aniModel == null)
-            {
-                _loadSkipped++;
-                return;
-            }
-
-            // EQ DB stores (x=east, y=north, z=up); engine expects (x=east, y=forward, z=up)
-            // but the axes are transposed relative to the scene — swap X and Y.
             var pos = new Vector3(record.Spawn.Y, record.Spawn.X, record.Spawn.Z);
             var idle = SpawnAnimationCandidates.FirstOrDefault(a => aniModel.AvailableAnimations.Contains(a)) ?? "";
             var sizeScale = (npc != null && npc.Size > 0f) ? npc.Size / MeshAuthoredHeightForRace(npc.Race) : 1f;
@@ -216,8 +256,9 @@ namespace VisualEQ.SpawnSystem
             };
 
             engine.Add(instance);
-            SpawnPoints.Add(new SpawnPoint(record, instance, isPlaceholder));
-            if (isPlaceholder) _loadPlaceholders++; else _loadModelled++;
+            var sp = new SpawnPoint(record, instance, isPlaceholder);
+            SpawnPoints.Add(sp);
+            return (sp, isPlaceholder, triedCodes);
         }
 
         // Groups spawn2 rows sharing the exact same DB (x, y, z) — the EQEmu respawn

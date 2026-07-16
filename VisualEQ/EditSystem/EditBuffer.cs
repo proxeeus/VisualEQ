@@ -25,7 +25,11 @@ namespace VisualEQ.EditSystem
         //        GridEntryDeletes for grid metadata edits and per-waypoint add/delete
         //   v6 — adds GridInserts for whole-grid creation (temp id → real id at commit)
         //   v7 — adds SpawnDeletes for pending spawn2 row removals (delete-key + commit)
-        public int SchemaVersion { get; set; } = 7;
+        //   v8 — adds SpawnInserts for pending spawn2 duplicates. Each carries the cloned
+        //        spawngroup name + spawnentries so commit can INSERT spawngroup → spawnentries
+        //        → spawn2 in one go, then remap the negative TempSpawnId to the real
+        //        AUTO_INCREMENT id on the in-memory SpawnPoint.
+        public int SchemaVersion { get; set; } = 8;
 
         public Dictionary<int, SpawnEdit> Spawns { get; set; } = new Dictionary<int, SpawnEdit>();
 
@@ -34,6 +38,12 @@ namespace VisualEQ.EditSystem
         // so Revert / Discard can re-attach it to the scene without a DB round-trip; a fresh
         // session load re-fetches from DB and hides again by matching this set.
         public Dictionary<int, SpawnDelete> SpawnDeletes { get; set; } = new Dictionary<int, SpawnDelete>();
+
+        // Pending spawn2 row inserts — keyed by their negative temp id (see
+        // SpawnManager.NextTempSpawnId). On commit each becomes a three-step INSERT
+        // (spawngroup → spawnentries → spawn2) and its returned AUTO_INCREMENT spawn2 id
+        // replaces the temp id on the in-memory SpawnPoint via Controller.OnCommitSucceeded.
+        public Dictionary<int, SpawnInsert> SpawnInserts { get; set; } = new Dictionary<int, SpawnInsert>();
         public Dictionary<string, GridEntryEdit> GridEntries { get; set; } = new Dictionary<string, GridEntryEdit>();
         public Dictionary<int, ZonePointEdit> ZonePoints { get; set; } = new Dictionary<int, ZonePointEdit>();
 
@@ -67,13 +77,13 @@ namespace VisualEQ.EditSystem
         public Dictionary<int, NpcEdit> Npcs { get; set; } = new Dictionary<int, NpcEdit>();
 
         public bool IsEmpty =>
-            Spawns.Count == 0 && SpawnDeletes.Count == 0 && GridEntries.Count == 0 &&
+            Spawns.Count == 0 && SpawnDeletes.Count == 0 && SpawnInserts.Count == 0 && GridEntries.Count == 0 &&
             ZonePoints.Count == 0 && ZonePointInserts.Count == 0 && ZonePointDeletes.Count == 0 &&
             Grids.Count == 0 && GridInserts.Count == 0 &&
             GridEntryInserts.Count == 0 && GridEntryDeletes.Count == 0 &&
             Npcs.Count == 0;
         public int TotalPending =>
-            Spawns.Count + SpawnDeletes.Count + GridEntries.Count +
+            Spawns.Count + SpawnDeletes.Count + SpawnInserts.Count + GridEntries.Count +
             ZonePoints.Count + ZonePointInserts.Count + ZonePointDeletes.Count +
             Grids.Count + GridInserts.Count +
             GridEntryInserts.Count + GridEntryDeletes.Count +
@@ -116,6 +126,51 @@ namespace VisualEQ.EditSystem
         public int SpawnId { get; set; }
         public string DisplayName { get; set; }
         public DateTime DeletedAt { get; set; }
+    }
+
+    // Pending spawn2 duplicate. Carries every field the three-step commit INSERT chain
+    // needs: spawngroup metadata (name — UNIQUE in DB, so generated at duplicate time),
+    // per-entry NPC rotation, and the spawn2 row itself. The in-scene SpawnPoint is
+    // built at duplicate time and re-hydrated on session recovery via ApplyPendingBuffer
+    // (which re-runs the same model-resolution pipeline used by the initial zone load).
+    //
+    // TempSpawnId is a negative sentinel from SpawnManager.NextTempSpawnId(); real
+    // spawn2 ids are always positive AUTO_INCREMENT so a negative id unambiguously
+    // marks a pre-commit row throughout scene + buffer.
+    public class SpawnInsert
+    {
+        public int TempSpawnId { get; set; }
+
+        // For sidebar display + revert (which restores the source spawn's DB record shape).
+        public int SourceSpawnId { get; set; }
+        public string DisplayName { get; set; }
+
+        // spawngroup row — cloned from source. Name is generated unique at duplicate time
+        // (spawngroup.name has a UNIQUE constraint); everything else stays default.
+        public string SpawnGroupName { get; set; }
+
+        // spawn2 row fields — DB-space X/Y/Z (X = east/west, Y = north/south, Z = up).
+        public string Zone { get; set; }
+        public short Version { get; set; }
+        public float X { get; set; }
+        public float Y { get; set; }
+        public float Z { get; set; }
+        public float Heading { get; set; }
+        public int RespawnTime { get; set; }
+        public int Variance { get; set; }
+        public int PathGrid { get; set; }
+        public byte Animation { get; set; }
+
+        // NPC rotation — cloned from source's spawnentries. Chances preserved verbatim.
+        public List<SpawnInsertEntry> Entries { get; set; } = new List<SpawnInsertEntry>();
+
+        public DateTime CreatedAt { get; set; }
+    }
+
+    public class SpawnInsertEntry
+    {
+        public int NpcId { get; set; }
+        public int Chance { get; set; }
     }
 
     public class GridEntryEdit

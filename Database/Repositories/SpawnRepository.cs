@@ -169,6 +169,20 @@ namespace VisualEQ.Database.Repositories
             RespawnTime = s.RespawnTime
         };
 
+        // Batch-fetch npc_types by id. Used by session recovery of pending spawn inserts
+        // (Controller.ApplyPendingBuffer) so a small IN-list = 1 query rather than N.
+        // Returns rows in DB order — callers key by Id.
+        public async Task<IEnumerable<NpcType>> GetNpcTypesBatchAsync(IEnumerable<int> npcIds)
+        {
+            var ids = npcIds?.Distinct().ToList() ?? new List<int>();
+            if (ids.Count == 0) return Enumerable.Empty<NpcType>();
+            using (var connection = CreateConnection())
+            {
+                return await connection.QueryAsync<NpcType>(
+                    SqlQueries.GetNpcTypesBatch, new { NpcIds = ids });
+            }
+        }
+
         public async Task<bool> UpdateSpawnLocationAsync(int spawnId, Vector3 position, float heading)
         {
             using (var connection = CreateConnection())

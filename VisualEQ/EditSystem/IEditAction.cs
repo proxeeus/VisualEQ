@@ -67,6 +67,16 @@ namespace VisualEQ.EditSystem
             var buffer = controller.PendingBuffer;
             if (buffer == null) return;
 
+            // Pending-insert rows mirror into buffer.SpawnInserts instead of buffer.Spawns
+            // — the eventual commit is an INSERT, not an UPDATE, so the SpawnEdit UPDATE
+            // path would silently drop the rotation (temp id matches no persisted row).
+            if (buffer.SpawnInserts.TryGetValue(sp.Record.Spawn.Id, out var insert))
+            {
+                insert.Heading = heading;
+                controller.MarkBufferDirty();
+                return;
+            }
+
             if (!buffer.Spawns.TryGetValue(sp.Record.Spawn.Id, out var edit))
             {
                 edit = new SpawnEdit
@@ -155,6 +165,19 @@ namespace VisualEQ.EditSystem
         {
             var buffer = controller.PendingBuffer;
             if (buffer == null) return;
+
+            // Pending-insert rows mirror into buffer.SpawnInserts (same reasoning as
+            // SpawnRotateAction — the commit path INSERTs, so a SpawnEdit UPDATE would
+            // silently drop the move for temp-id rows).
+            if (buffer.SpawnInserts.TryGetValue(sp.Record.Spawn.Id, out var insert))
+            {
+                insert.X       = scenePos.Y;
+                insert.Y       = scenePos.X;
+                insert.Z       = scenePos.Z;
+                insert.Heading = heading;
+                controller.MarkBufferDirty();
+                return;
+            }
 
             if (!buffer.Spawns.TryGetValue(sp.Record.Spawn.Id, out var edit))
             {

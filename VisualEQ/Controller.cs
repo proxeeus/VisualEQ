@@ -25,6 +25,13 @@ namespace VisualEQ
         // Shared model cache so the same AniModel is never loaded twice across spawns.
         readonly Dictionary<string, AniModel> _modelCache = new Dictionary<string, AniModel>();
 
+        // Cached availableModels for the current zone. Populated by every code path that
+        // calls SpawnManager.LoadFromRecords / LoadBatch so post-load spawn creates
+        // (duplicate, session-recovery replay) don't have to re-scan every chr zip.
+        // Empty until the first spawn load succeeds.
+        Dictionary<string, string> _availableModels = new Dictionary<string, string>();
+        internal Dictionary<string, string> AvailableModels => _availableModels;
+
         public AniModel LastModelLoaded;
 
         private ModelSelector modelSelector;
@@ -393,6 +400,66 @@ namespace VisualEQ
                 HideSpawnFromScene(sp);
             }
 
+            // Pending spawn inserts — rebuild each temp SpawnPoint from the SpawnInsert
+            // fields + npc_types lookup so a session-recovered buffer materialises the
+            // same in-scene node the user had before the F10 / restart. Advances
+            // _nextTempSpawnId so a fresh Duplicate() doesn't collide with recovered temps.
+            foreach (var kv in buffer.SpawnInserts)
+            {
+                var ins = kv.Value;
+                if (SpawnManager.SpawnPoints.Any(p => p.Record.Spawn.Id == ins.TempSpawnId)) continue;
+
+                // Reconstruct the SpawnRecord — need NPC rows to know race / size / textures.
+                // Batch-load via SpawnRepository so N inserts = 1 query. If DbFactory is null
+                // (offline recovery), skip: the insert stays in the buffer, will re-Apply next
+                // time the zone loads with a DB connection.
+                if (DbFactory == null) continue;
+
+                var repo = new Database.Repositories.SpawnRepository(DbFactory);
+                var npcIds = ins.Entries.Select(e => e.NpcId).ToList();
+                if (npcIds.Count == 0) continue;
+
+                // Fetching one insert at a time is fine — session recovery typically has
+                // a handful of pending inserts, not thousands. Reuses the batch query
+                // signature which happily accepts a small IN-list.
+                var npcs = repo.GetNpcTypesBatchAsync(npcIds).GetAwaiter().GetResult().ToList();
+                var npcById = npcs.ToDictionary(n => n.Id);
+
+                var entries = ins.Entries
+                    .Where(e => npcById.ContainsKey(e.NpcId))
+                    .Select(e => new Database.Models.SpawnEntryWithNpc
+                    {
+                        Entry = new Database.Models.SpawnEntry { NpcId = e.NpcId, Chance = e.Chance },
+                        Npc   = npcById[e.NpcId],
+                    })
+                    .ToList();
+
+                var record = new Database.Models.SpawnRecord
+                {
+                    Spawn = new Database.Models.Spawn2
+                    {
+                        Id             = ins.TempSpawnId,
+                        SpawnGroupId   = 0,
+                        Zone           = ins.Zone,
+                        Version        = ins.Version,
+                        X              = ins.X,
+                        Y              = ins.Y,
+                        Z              = ins.Z,
+                        Heading        = ins.Heading,
+                        RespawnTime    = ins.RespawnTime,
+                        Variance       = ins.Variance,
+                        PathGrid       = ins.PathGrid,
+                        Animation      = ins.Animation,
+                        SpawnGroupName = ins.SpawnGroupName,
+                    },
+                    Entries   = entries,
+                    Waypoints = new List<Database.Models.GridEntry>(),
+                    Grid      = null,
+                };
+
+                SpawnPendingInsertFromSnapshot(record);
+            }
+
             // Grid entry field edits — mutate every SpawnRecord.Waypoints copy that
             // references this waypoint so rendering picks up the pending state. Also
             // mutate the ZoneGrids parallel copy so orphan grids (unreferenced by any
@@ -610,6 +677,16 @@ namespace VisualEQ
             var pendingDeleteIds = PendingBuffer.SpawnDeletes.Keys.ToList();
             foreach (var id in pendingDeleteIds)
                 RestoreSpawnToScene(id);
+
+            // Pending spawn inserts — detach the temp SpawnPoint from every scene
+            // register. Snapshot the ids first because DetachPendingInsertSpawn mutates
+            // SpawnManager.SpawnPoints.
+            var pendingInsertIds = PendingBuffer.SpawnInserts.Keys.ToList();
+            foreach (var id in pendingInsertIds)
+            {
+                var sp = SpawnManager.SpawnPoints.FirstOrDefault(p => p.Record.Spawn.Id == id);
+                if (sp != null) DetachPendingInsertSpawn(sp);
+            }
 
             // Waypoint revert — GridWaypointMoveAction/GridEntryFieldEditAction mutate
             // sp.Record.Waypoints (and ZoneGrids.Waypoints) in place, so without these
@@ -1062,6 +1139,28 @@ namespace VisualEQ
                 // Deletes were already applied in-memory when the DeleteAction ran; no
                 // scene mutation needed here.
 
+                // Spawn inserts: remap the negative temp spawn2 ids on in-memory
+                // SpawnPoints (and their SpawnRecord.Spawn.Id) to the AUTO_INCREMENT ids
+                // returned by the commit. Also stamps the resolved spawngroup id back on
+                // Spawn.SpawnGroupId so any post-commit UPDATE (a subsequent move) targets
+                // the correct row. Undo entries for post-commit edits stay coherent
+                // because they look up by the (now-real) id.
+                if (result.SpawnInsertedIdMap != null)
+                {
+                    foreach (var kv in result.SpawnInsertedIdMap)
+                    {
+                        var sp = SpawnManager.SpawnPoints.FirstOrDefault(p => p.Record.Spawn.Id == kv.Key);
+                        if (sp == null) continue;
+                        sp.Record.Spawn.Id = kv.Value.SpawnId;
+                        sp.Record.Spawn.SpawnGroupId = kv.Value.SpawnGroupId;
+                        // Update child spawnentry rows' SpawnGroupId too — kept in sync
+                        // so the sidebar's "Spawngroup entries" list reflects the
+                        // real group id post-commit.
+                        foreach (var e in sp.Record.Entries)
+                            e.Entry.SpawnGroupId = kv.Value.SpawnGroupId;
+                    }
+                }
+
                 // Grid inserts get real ids assigned during commit. Simpler than remapping
                 // every ZoneGridRecord/waypoint that referenced a temp id: reload the whole
                 // Grid List from DB. Cheap (small table), keeps the Grid List and any
@@ -1153,8 +1252,10 @@ namespace VisualEQ
             Engine.ClearScene();
             CharacterModels.Clear();
             _modelCache.Clear();
+            _availableModels = new Dictionary<string, string>();
             LastModelLoaded = null;
             SpawnManager.SpawnPoints.Clear();
+            SpawnManager.HiddenSpawnPoints.Clear();
             ZonePointManager.Clear();
             ZoneShortNames.Clear();
             ZoneGrids.Clear();
@@ -1414,7 +1515,16 @@ namespace VisualEQ
             if (sp == null) return;
             // Idempotency: if this id is already in the buffer, don't push a duplicate action.
             if (PendingBuffer != null && PendingBuffer.SpawnDeletes.ContainsKey(sp.Record.Spawn.Id)) return;
-            RecordAction(new EditSystem.SpawnDeleteAction(sp));
+
+            // Pending-insert path: pass the current SpawnInsert entry so Revert can put
+            // it back verbatim. Detected by the negative-id convention (real spawn2 ids
+            // are always positive AUTO_INCREMENT).
+            EditSystem.SpawnInsert insertSnapshot = null;
+            if (sp.Record.Spawn.Id < 0 && PendingBuffer != null)
+            {
+                PendingBuffer.SpawnInserts.TryGetValue(sp.Record.Spawn.Id, out insertSnapshot);
+            }
+            RecordAction(new EditSystem.SpawnDeleteAction(sp, insertSnapshot));
         }
 
         // Detaches a spawn from every scene register (SpawnManager visible list, engine
@@ -1436,6 +1546,160 @@ namespace VisualEQ
         {
             var sp = SpawnManager.Restore(spawnId);
             if (sp == null) return;
+            Engine.Add(sp.Model);
+            CharacterModels.Add(sp.Model);
+        }
+
+        // Duplicates the currently-selected spawn: clones spawngroup + spawnentries +
+        // spawn2 into a pending-insert SpawnPoint at the camera's ground-projected
+        // position (matches the CreateNewGridAtCamera / CreateZonePoint convention).
+        // Gated on edit mode + a selection existing + at least one available model
+        // (otherwise even the fallback can't render). Wired to Ctrl+D + sidebar button.
+        public void DuplicateSelectedSpawn()
+        {
+            if (!EditModeEnabled) return;
+            var src = SpawnManager.Selected;
+            if (src == null) return;
+            if (_availableModels == null || _availableModels.Count == 0)
+            {
+                Console.WriteLine("[Controller] Duplicate skipped — availableModels not yet populated (no zone load?).");
+                return;
+            }
+
+            // Camera-anchor placement with ground snap — same pattern as
+            // CreateNewGridAtCamera. The whole duplicate is dragable afterwards so the
+            // exact position doesn't have to be perfect.
+            var cam = Camera.Position;
+            float dbX = cam.Y;
+            float dbY = cam.X;
+            float dbZ = cam.Z;
+            if (Collider != null)
+            {
+                var probe = new Vector3(cam.X, cam.Y, cam.Z + 5f);
+                var hit = Collider.FindIntersection(probe, new Vector3(0, 0, -1), 0.5f);
+                if (hit.HasValue) dbZ = hit.Value.Item2.Z;
+            }
+
+            // Fresh negative temp id — never collides with real spawn2 ids
+            // (AUTO_INCREMENT is always positive) and never with other temp ids in-session.
+            var tempId = SpawnManager.NextTempSpawnId();
+
+            // spawngroup name has a UNIQUE constraint. Cloning the source's name
+            // verbatim would guarantee a commit failure. Truncate source name + suffix
+            // with 4 hex digits from a fresh Guid (~1-in-65k collision within the same
+            // spawngroup name prefix — accept the retry cost on the extremely rare hit).
+            var sourceGroupName = src.Record.Spawn.SpawnGroupName ?? "spawngroup";
+            var suffix = "_dup" + Guid.NewGuid().ToString("N").Substring(0, 4);
+            const int maxLen = 30;
+            var prefix = sourceGroupName;
+            if (prefix.Length + suffix.Length > maxLen)
+                prefix = prefix.Substring(0, maxLen - suffix.Length);
+            var newGroupName = prefix + suffix;
+
+            // Build the cloned SpawnRecord. Position uses camera anchor; heading + other
+            // fields copied verbatim so the duplicate behaves identically until edited.
+            var cloned = new Database.Models.SpawnRecord
+            {
+                Spawn = new Database.Models.Spawn2
+                {
+                    Id             = tempId,
+                    SpawnGroupId   = 0,  // resolved at commit time
+                    Zone           = src.Record.Spawn.Zone,
+                    Version        = src.Record.Spawn.Version,
+                    X              = dbX,
+                    Y              = dbY,
+                    Z              = dbZ,
+                    Heading        = src.Record.Spawn.Heading,
+                    RespawnTime    = src.Record.Spawn.RespawnTime,
+                    Variance       = src.Record.Spawn.Variance,
+                    PathGrid       = src.Record.Spawn.PathGrid,
+                    Animation      = src.Record.Spawn.Animation,
+                    SpawnGroupName = newGroupName,
+                },
+                Entries = src.Record.Entries
+                    .Select(e => new Database.Models.SpawnEntryWithNpc
+                    {
+                        Entry = new Database.Models.SpawnEntry
+                        {
+                            SpawnGroupId = 0, // resolved at commit time
+                            NpcId        = e.Entry.NpcId,
+                            Chance       = e.Entry.Chance,
+                        },
+                        Npc = e.Npc, // shared — read-only for rendering
+                    })
+                    .ToList(),
+                Waypoints = new System.Collections.Generic.List<Database.Models.GridEntry>(),
+                Grid = null,
+            };
+
+            var insert = new EditSystem.SpawnInsert
+            {
+                TempSpawnId    = tempId,
+                SourceSpawnId  = src.Record.Spawn.Id,
+                DisplayName    = cloned.Entries.OrderByDescending(e => e.Entry.Chance).FirstOrDefault()?.Npc?.Name ?? "?",
+                SpawnGroupName = newGroupName,
+                Zone           = cloned.Spawn.Zone,
+                Version        = cloned.Spawn.Version,
+                X              = cloned.Spawn.X,
+                Y              = cloned.Spawn.Y,
+                Z              = cloned.Spawn.Z,
+                Heading        = cloned.Spawn.Heading,
+                RespawnTime    = cloned.Spawn.RespawnTime,
+                Variance       = cloned.Spawn.Variance,
+                PathGrid       = cloned.Spawn.PathGrid,
+                Animation      = cloned.Spawn.Animation,
+                Entries        = cloned.Entries
+                    .Select(e => new EditSystem.SpawnInsertEntry { NpcId = e.Entry.NpcId, Chance = e.Entry.Chance })
+                    .ToList(),
+                CreatedAt      = DateTime.UtcNow,
+            };
+
+            RecordAction(new EditSystem.SpawnInsertAction(cloned, insert));
+
+            // Auto-select the new spawn so the sidebar focuses on it + drag pipeline
+            // grabs it on the very next left-click.
+            var created = SpawnManager.SpawnPoints.FirstOrDefault(p => p.Record.Spawn.Id == tempId);
+            if (created != null) SpawnManager.Select(created.Model);
+        }
+
+        // Builds the in-scene SpawnPoint for a pending-insert action's snapshot record.
+        // Called by SpawnInsertAction.Apply. Uses the same model-resolution pipeline as
+        // initial zone load (SpawnManager.LoadSingle) so armor/helm/face textures + race
+        // scaling match. Attaches to engine + CharacterModels so the model renders and
+        // is pickable.
+        public void SpawnPendingInsertFromSnapshot(Database.Models.SpawnRecord record)
+        {
+            var sp = SpawnManager.LoadSingle(record, Engine, _modelCache, _availableModels, LastModelLoaded);
+            if (sp == null)
+            {
+                Console.WriteLine($"[Controller] SpawnPendingInsertFromSnapshot: LoadSingle returned null (no model + no fallback) for temp #{record.Spawn.Id}");
+                return;
+            }
+            CharacterModels.Add(sp.Model);
+        }
+
+        // Detaches a pending-insert SpawnPoint from every scene register. Different from
+        // HideSpawnFromScene: no HiddenSpawnPoints stash — the row was never in the DB,
+        // so if the action is later Reverted we re-Apply via ReattachPendingInsertSpawn
+        // (which re-adds the same AniModelInstance).
+        public void DetachPendingInsertSpawn(SpawnPoint sp)
+        {
+            if (sp == null) return;
+            if (SpawnManager.Selected == sp)
+                SpawnManager.Select(null);
+            Engine.Remove(sp.Model);
+            CharacterModels.Remove(sp.Model);
+            SpawnManager.SpawnPoints.Remove(sp);
+        }
+
+        // Inverse of DetachPendingInsertSpawn — re-attach a previously-detached snapshot
+        // node. Used by SpawnDeleteAction.Revert on the pending-insert path.
+        public void ReattachPendingInsertSpawn(SpawnPoint sp)
+        {
+            if (sp == null) return;
+            if (SpawnManager.SpawnPoints.Any(p => p.Record.Spawn.Id == sp.Record.Spawn.Id))
+                return; // already attached — idempotent
+            SpawnManager.SpawnPoints.Add(sp);
             Engine.Add(sp.Model);
             CharacterModels.Add(sp.Model);
         }
@@ -1525,8 +1789,8 @@ namespace VisualEQ
                 var repo = new SpawnRepository(DbFactory);
                 var records = await repo.GetZoneSpawnsFullAsync(zoneName);
 
-                var availableModels = SpawnManager.BuildAvailableModels(zoneName, ConvertedAssetsDir);
-                SpawnManager.LoadFromRecords(records, Engine, _modelCache, availableModels, LastModelLoaded);
+                _availableModels = SpawnManager.BuildAvailableModels(zoneName, ConvertedAssetsDir);
+                SpawnManager.LoadFromRecords(records, Engine, _modelCache, _availableModels, LastModelLoaded);
 
                 // Register spawn instances with the model selector so they are clickable.
                 foreach (var sp in SpawnManager.SpawnPoints)
@@ -1569,6 +1833,7 @@ namespace VisualEQ
             var repo = new SpawnRepository(DbFactory);
             _spawnLoadRecords = repo.GetZoneSpawnsFullAsync(zoneName).GetAwaiter().GetResult().ToList();
             _spawnLoadAvailable = SpawnManager.BuildAvailableModels(zoneName, ConvertedAssetsDir);
+            _availableModels = _spawnLoadAvailable;
             SpawnManager.PrepareForLoad();
             _spawnLoadIndex = 0;
             return true;
@@ -1625,8 +1890,8 @@ namespace VisualEQ
                 var repo = new SpawnRepository(DbFactory);
                 var records = repo.GetZoneSpawnsFullAsync(zoneName).GetAwaiter().GetResult();
 
-                var availableModels = SpawnManager.BuildAvailableModels(zoneName, ConvertedAssetsDir);
-                SpawnManager.LoadFromRecords(records, Engine, _modelCache, availableModels, LastModelLoaded);
+                _availableModels = SpawnManager.BuildAvailableModels(zoneName, ConvertedAssetsDir);
+                SpawnManager.LoadFromRecords(records, Engine, _modelCache, _availableModels, LastModelLoaded);
 
                 foreach (var sp in SpawnManager.SpawnPoints)
                     CharacterModels.Add(sp.Model);

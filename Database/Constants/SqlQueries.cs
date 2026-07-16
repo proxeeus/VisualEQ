@@ -55,6 +55,40 @@ namespace VisualEQ.Database.Constants
         public const string DeleteSpawn2 = @"
             DELETE FROM spawn2 WHERE id = @Id";
 
+        // Duplicate-spawn commit chain (used by EditCommitter for buffer.SpawnInserts).
+        // Every non-required column relies on its DB default (spawn_limit=0, delay,
+        // mindelay, min_expansion=-1, etc.). LAST_INSERT_ID() is session-scoped so it
+        // stays coherent inside a Dapper transaction — must be read AT ONCE via
+        // ExecuteScalar<int> before the next INSERT overwrites it.
+        //
+        // spawngroup.name is UNIQUE — callers must pre-generate a unique name (see
+        // Controller.DuplicateSelectedSpawn — source name + 4-hex Guid suffix, truncated
+        // to varchar(30)). A collision throws inside the transaction → whole commit
+        // rolls back → user retries (< 1-in-65k on random inserts, so acceptable).
+        public const string InsertSpawnGroup = @"
+            INSERT INTO spawngroup (name) VALUES (@Name);
+            SELECT LAST_INSERT_ID();";
+
+        // Minimal spawnentry insert. Composite PK is (spawngroupID, npcID); duplicates
+        // within the same call are impossible because SpawnInsertAction dedupes on the
+        // client side. Other cols (condition_value_filter, min_time/max_time,
+        // min/max_expansion, content_flags*) all default in-DB.
+        public const string InsertSpawnEntry = @"
+            INSERT INTO spawnentry (spawngroupID, npcID, chance)
+            VALUES (@SpawnGroupId, @NpcId, @Chance)";
+
+        // spawn2 row insert. Columns that VisualEQ tracks in the SpawnInsert record are
+        // named explicitly; DB-defaulted columns (path_when_zone_idle, _condition,
+        // cond_value, min/max_expansion, content_flags*) inherit their schema defaults.
+        public const string InsertSpawn2 = @"
+            INSERT INTO spawn2
+                (spawngroupID, zone, version, x, y, z, heading,
+                 respawntime, variance, pathgrid, animation)
+            VALUES
+                (@SpawnGroupId, @Zone, @Version, @X, @Y, @Z, @Heading,
+                 @RespawnTime, @Variance, @PathGrid, @Animation);
+            SELECT LAST_INSERT_ID();";
+
         // Used by the Phase 5 commit path to write waypoint drags back to the DB. Key is
         // (gridid, number, zoneid) — grid_entries has no primary key beyond that composite.
         public const string UpdateGridEntry = @"
