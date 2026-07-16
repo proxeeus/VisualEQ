@@ -186,9 +186,39 @@ namespace VisualEQ.SpawnSystem
             if (isPlaceholder) _loadPlaceholders++; else _loadModelled++;
         }
 
+        // Groups spawn2 rows sharing the exact same DB (x, y, z) — the EQEmu respawn
+        // rotation pattern that causes multiple spawn models to visually stack in
+        // VisualEQ (see project memory: spawn-stacking-not-a-bug). Populates each
+        // stacked SpawnPoint's StackSiblings so the Spawn Info sidebar can offer a
+        // cycler. Runs once at end-of-load; a spawn move edit doesn't invalidate the
+        // stack list (small quirk — accept for now).
+        void ComputeStacks()
+        {
+            var groups = SpawnPoints
+                .GroupBy(sp => (
+                    (long)Math.Round(sp.Record.Spawn.X * 1000f),
+                    (long)Math.Round(sp.Record.Spawn.Y * 1000f),
+                    (long)Math.Round(sp.Record.Spawn.Z * 1000f)))
+                .Where(g => g.Count() > 1)
+                .ToList();
+
+            var stackedSpawnCount = 0;
+            foreach (var g in groups)
+            {
+                var members = g.OrderBy(sp => sp.Record.Spawn.Id).ToList();
+                foreach (var sp in members)
+                    sp.StackSiblings = members;
+                stackedSpawnCount += members.Count;
+            }
+
+            if (groups.Count > 0)
+                Console.WriteLine($"[SpawnManager] {groups.Count} stacked coord(s) covering {stackedSpawnCount} spawn2 row(s)");
+        }
+
         // Emits the summary + placeholder breakdown log. Call once after all batches.
         public void FinishLoad()
         {
+            ComputeStacks();
             Console.WriteLine($"[SpawnManager] {_loadModelled} modelled, {_loadPlaceholders} placeholders, {_loadSkipped} skipped");
 
             if (_loadPlaceholderByRace != null && _loadPlaceholderByRace.Count > 0)

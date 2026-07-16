@@ -803,6 +803,46 @@ namespace VisualEQ.Views
                     ImGui.Text($"  {e.Entry.Chance,3}%: {eNpc?.Name ?? "?"} (race {eNpc?.Race}, lvl {eNpc?.Level})");
                 }
             }
+
+            // Stacked spawn2 rows at the same DB coord — EQEmu respawn-rotation encoding.
+            // In-game only one of these is alive at a time; VisualEQ visualises all of
+            // them so they z-fight into a smear. The cycler lets the user step through
+            // stacked siblings without a 3D click.
+            RenderStackedSpawnsBlock(sp);
+        }
+
+        void RenderStackedSpawnsBlock(SpawnPoint sp)
+        {
+            if (sp.StackSiblings == null || sp.StackSiblings.Count <= 1) return;
+
+            ImGui.Separator();
+            var idx = 0;
+            for (int i = 0; i < sp.StackSiblings.Count; i++)
+                if (sp.StackSiblings[i] == sp) { idx = i; break; }
+
+            ImGui.Text($"Stacked at same coord: {idx + 1} of {sp.StackSiblings.Count} spawn2 rows");
+            ImGui.Text("(server rotates on respawn — only one is alive at a time)");
+
+            var prev = sp.StackSiblings[(idx - 1 + sp.StackSiblings.Count) % sp.StackSiblings.Count];
+            var next = sp.StackSiblings[(idx + 1) % sp.StackSiblings.Count];
+
+            if (ImGui.Button($"< prev in stack###{Id}spStackPrev", new Vector2(140, 22)))
+                _view.Controller.SpawnManager.Select(prev.Model);
+            ImGui.SameLine();
+            if (ImGui.Button($"next in stack >###{Id}spStackNext", new Vector2(140, 22)))
+                _view.Controller.SpawnManager.Select(next.Model);
+
+            ImGui.Text("Stack members:");
+            foreach (var member in sp.StackSiblings)
+            {
+                var memberNpc = member.Record.Entries
+                    .OrderByDescending(e => e.Entry.Chance)
+                    .FirstOrDefault()?.Npc;
+                var mName = memberNpc?.Name ?? "?";
+                var mRace = memberNpc?.Race.ToString() ?? "?";
+                var marker = member == sp ? ">" : " ";
+                ImGui.Text($"{marker} #{member.Record.Spawn.Id} {mName} (race {mRace})");
+            }
         }
 
         // Selected-waypoint inspector. Renders the grid_entries row for the waypoint

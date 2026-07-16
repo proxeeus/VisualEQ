@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Numerics;
 using VisualEQ.Database.Models;
 using VisualEQ.Engine;
@@ -15,6 +16,17 @@ namespace VisualEQ.SpawnSystem
         public Vector3 OriginalPosition { get; }
         public float OriginalHeading { get; }
         public float CurrentHeading { get; private set; }
+
+        // Populated by SpawnManager.ComputeStacks() at load time when this spawn2 row
+        // shares an exact DB (x, y, z) with one or more sibling rows. When set, contains
+        // every stacked SpawnPoint (INCLUDING this one) in stable spawn2.id order.
+        // Null when this spawn isn't part of any stack.
+        //
+        // Stacked spawn2 rows are how EQEmu encodes respawn rotation — only one member
+        // is alive at a time in-game, but VisualEQ visualises all of them, hence the
+        // "skeleton on top of a wood elf" visual in oot. See project memory:
+        // spawn-stacking-not-a-bug.
+        public IReadOnlyList<SpawnPoint> StackSiblings { get; internal set; }
 
         public SpawnPoint(SpawnRecord record, AniModelInstance model, bool isPlaceholder)
         {
