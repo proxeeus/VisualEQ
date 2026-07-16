@@ -24,7 +24,8 @@ namespace VisualEQ.EditSystem
         //   v5 — adds Centerpoint on GridEntryEdit, plus Grids + GridEntryInserts +
         //        GridEntryDeletes for grid metadata edits and per-waypoint add/delete
         //   v6 — adds GridInserts for whole-grid creation (temp id → real id at commit)
-        public int SchemaVersion { get; set; } = 6;
+        //   v7 — adds GridDeletes for whole-grid deletion (with waypoint snapshots for revert)
+        public int SchemaVersion { get; set; } = 7;
 
         public Dictionary<int, SpawnEdit> Spawns { get; set; } = new Dictionary<int, SpawnEdit>();
         public Dictionary<string, GridEntryEdit> GridEntries { get; set; } = new Dictionary<string, GridEntryEdit>();
@@ -56,19 +57,25 @@ namespace VisualEQ.EditSystem
         // for a new grid is a normal GridEntryInsert entry with GridId = temp id.
         public Dictionary<int, GridInsert> GridInserts { get; set; } = new Dictionary<int, GridInsert>();
 
+        // Pending whole-grid deletes for persisted grids only. Key = GridKey(gridId, zoneId).
+        // Full waypoint snapshot lives on the entry so Discard / Revert can restore the
+        // grid + all its entries into scene. Pending-INSERT grids never reach here — a
+        // delete on them drops straight from GridInserts + GridEntryInserts.
+        public Dictionary<string, GridDelete> GridDeletes { get; set; } = new Dictionary<string, GridDelete>();
+
         // Reserved for Phase 5.9+ (npc_types edits).
         public Dictionary<int, NpcEdit> Npcs { get; set; } = new Dictionary<int, NpcEdit>();
 
         public bool IsEmpty =>
             Spawns.Count == 0 && GridEntries.Count == 0 &&
             ZonePoints.Count == 0 && ZonePointInserts.Count == 0 && ZonePointDeletes.Count == 0 &&
-            Grids.Count == 0 && GridInserts.Count == 0 &&
+            Grids.Count == 0 && GridInserts.Count == 0 && GridDeletes.Count == 0 &&
             GridEntryInserts.Count == 0 && GridEntryDeletes.Count == 0 &&
             Npcs.Count == 0;
         public int TotalPending =>
             Spawns.Count + GridEntries.Count +
             ZonePoints.Count + ZonePointInserts.Count + ZonePointDeletes.Count +
-            Grids.Count + GridInserts.Count +
+            Grids.Count + GridInserts.Count + GridDeletes.Count +
             GridEntryInserts.Count + GridEntryDeletes.Count +
             Npcs.Count;
 
@@ -161,6 +168,20 @@ namespace VisualEQ.EditSystem
         public int Type { get; set; }
         public int Type2 { get; set; }
         public DateTime CreatedAt { get; set; }
+    }
+
+    // Pending whole-grid delete for a PERSISTED grid. Metadata + full waypoint snapshot
+    // both live here so Discard/Revert can restore the grid + all its entries with no
+    // DB round-trip. Pending-INSERT grids never reach this path — a delete on them just
+    // drops from GridInserts + GridEntryInserts.
+    public class GridDelete
+    {
+        public int Id { get; set; }
+        public int ZoneId { get; set; }
+        public int Type { get; set; }
+        public int Type2 { get; set; }
+        public List<GridEntryDelete> Waypoints { get; set; } = new List<GridEntryDelete>();
+        public DateTime DeletedAt { get; set; }
     }
 
     // Pending waypoint delete. Snapshot of the removed row so Discard/Revert can restore it.

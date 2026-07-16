@@ -134,6 +134,17 @@ namespace VisualEQ.Database.Constants
             INSERT INTO grid (id, zoneid, type, type2)
             VALUES (@Id, @ZoneId, @Type, @Type2)";
 
+        // Whole-grid delete. Committer runs DeleteAllGridEntriesForGrid FIRST so the
+        // parent grid row can be dropped without leaving FK-orphan grid_entries rows
+        // (EQEmu schema doesn't declare an FK CASCADE on grid_entries.gridid).
+        public const string DeleteAllGridEntriesForGrid = @"
+            DELETE FROM grid_entries
+            WHERE gridid = @GridId AND zoneid = @ZoneId";
+
+        public const string DeleteGrid = @"
+            DELETE FROM grid
+            WHERE id = @Id AND zoneid = @ZoneId";
+
         // Trilogy client's server-side zone-crossing triggers. Columns aliased so Dapper
         // maps deterministically regardless of MySQL's platform-dependent case handling.
         public const string GetTrilogyZonePoints = @"

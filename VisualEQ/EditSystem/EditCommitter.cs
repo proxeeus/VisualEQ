@@ -17,6 +17,7 @@ namespace VisualEQ.EditSystem
             public int SpawnRowsWritten;
             public int GridRowsWritten;
             public int GridInsertsWritten;
+            public int GridDeletesWritten;
             public int GridEntryInsertsWritten;
             public int GridEntryDeletesWritten;
             public int GridMetaRowsWritten;
@@ -51,7 +52,8 @@ namespace VisualEQ.EditSystem
                         buffer.GridEntryInserts.Count > 0 ||
                         buffer.GridEntryDeletes.Count > 0 ||
                         buffer.Grids.Count > 0 ||
-                        buffer.GridInserts.Count > 0)
+                        buffer.GridInserts.Count > 0 ||
+                        buffer.GridDeletes.Count > 0)
                     {
                         zoneId = await connection.QueryFirstOrDefaultAsync<int?>(
                             SqlQueries.GetZoneId, new { ZoneName = zoneName });
@@ -187,6 +189,25 @@ namespace VisualEQ.EditSystem
                                     tx);
                             }
 
+                            // Whole-grid DELETEs — grid_entries FIRST (no FK CASCADE in
+                            // most EQEmu builds), then the parent grid row. GridDeleteAction
+                            // has already purged any redundant per-waypoint / metadata edits
+                            // for the same grid, so we don't need to skip anything here.
+                            int gridDeletes = 0;
+                            foreach (var kv in buffer.GridDeletes)
+                            {
+                                var del = kv.Value;
+                                await connection.ExecuteAsync(
+                                    SqlQueries.DeleteAllGridEntriesForGrid,
+                                    new { GridId = del.Id, ZoneId = del.ZoneId },
+                                    tx);
+                                await connection.ExecuteAsync(
+                                    SqlQueries.DeleteGrid,
+                                    new { Id = del.Id, ZoneId = del.ZoneId },
+                                    tx);
+                                gridDeletes++;
+                            }
+
                             // Zone-point commits: DELETE first (so a delete+re-insert with
                             // the same target coord doesn't briefly duplicate a row), then
                             // INSERT (returns AUTO_INCREMENT ids we map back to the temp
@@ -277,6 +298,7 @@ namespace VisualEQ.EditSystem
                                 SpawnRowsWritten         = spawnRows,
                                 GridRowsWritten          = gridRows,
                                 GridInsertsWritten       = gridInserts,
+                                GridDeletesWritten       = gridDeletes,
                                 GridEntryInsertsWritten  = gridEntryInserts,
                                 GridEntryDeletesWritten  = gridEntryDeletes,
                                 GridMetaRowsWritten      = gridMetaRows,

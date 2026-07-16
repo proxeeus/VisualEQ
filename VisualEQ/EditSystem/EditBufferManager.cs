@@ -52,7 +52,8 @@ namespace VisualEQ.EditSystem
                 //         collections. New collections default to empty.
                 // v5 → v6: adds GridInserts for whole-grid creation. Defaults to empty
                 //         (pre-v6 buffers never carried pending grid inserts).
-                if (buffer.SchemaVersion < 6) buffer.SchemaVersion = 6;
+                // v6 → v7: adds GridDeletes for whole-grid deletion. Defaults to empty.
+                if (buffer.SchemaVersion < 7) buffer.SchemaVersion = 7;
                 if (buffer.ZonePoints == null) buffer.ZonePoints = new System.Collections.Generic.Dictionary<int, ZonePointEdit>();
                 if (buffer.ZonePointInserts == null) buffer.ZonePointInserts = new System.Collections.Generic.Dictionary<int, ZonePointInsert>();
                 if (buffer.ZonePointDeletes == null) buffer.ZonePointDeletes = new System.Collections.Generic.HashSet<int>();
@@ -60,6 +61,7 @@ namespace VisualEQ.EditSystem
                 if (buffer.GridEntryInserts == null) buffer.GridEntryInserts = new System.Collections.Generic.Dictionary<string, GridEntryInsert>();
                 if (buffer.GridEntryDeletes == null) buffer.GridEntryDeletes = new System.Collections.Generic.Dictionary<string, GridEntryDelete>();
                 if (buffer.GridInserts == null) buffer.GridInserts = new System.Collections.Generic.Dictionary<int, GridInsert>();
+                if (buffer.GridDeletes == null) buffer.GridDeletes = new System.Collections.Generic.Dictionary<string, GridDelete>();
                 return buffer;
             }
             catch (Exception ex)

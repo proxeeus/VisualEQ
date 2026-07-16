@@ -259,6 +259,190 @@ namespace VisualEQ.EditSystem
         }
     }
 
+    // Deletes an entire grid — pending-insert grids drop straight from the buffer
+    // (never persisted, no DB touch), persisted grids capture a full metadata +
+    // waypoint snapshot into buffer.GridDeletes for a transactional DELETE at commit.
+    //
+    // On Apply for a persisted grid we purge every other buffer entry targeting the
+    // same gridId (GridEntries / GridEntryInserts / GridEntryDeletes / Grids) — they'd
+    // race the DELETE and fail against a row that no longer exists.
+    public sealed class GridDeleteAction : IEditAction
+    {
+        public int GridId { get; }
+        public int ZoneId { get; }
+        public int Type { get; }
+        public int Type2 { get; }
+        public bool WasPendingInsert { get; }
+        // Full waypoint snapshot so Revert can restore the exact set of grid_entries
+        // rows into the scene. GridEntryDelete already carries every column we need.
+        public List<GridEntryDelete> WaypointSnapshots { get; }
+        public DateTime Timestamp { get; }
+
+        public string Description => $"Deleted grid {GridId} ({WaypointSnapshots.Count} waypoint{(WaypointSnapshots.Count == 1 ? "" : "s")})";
+        public string TargetKey   => $"grid:{GridId}";
+
+        public GridDeleteAction(Database.Models.ZoneGridRecord zg, bool wasPendingInsert)
+        {
+            GridId  = zg.Grid.Id;
+            ZoneId  = zg.Grid.ZoneId;
+            Type    = zg.Grid.Type;
+            Type2   = zg.Grid.Type2;
+            WasPendingInsert = wasPendingInsert;
+            WaypointSnapshots = zg.Waypoints.Select(w => new GridEntryDelete
+            {
+                GridId      = w.GridId,
+                ZoneId      = ZoneId,
+                Number      = w.Number,
+                X           = w.X,
+                Y           = w.Y,
+                Z           = w.Z,
+                Heading     = w.Heading,
+                Pause       = w.Pause,
+                Centerpoint = w.Centerpoint,
+                DeletedAt   = DateTime.UtcNow,
+            }).ToList();
+            Timestamp = DateTime.UtcNow;
+        }
+
+        public void Apply(Controller controller)
+        {
+            // Scene: drop the ZoneGridRecord + any waypoints referencing this grid
+            // from attached SpawnPoints (orphans have none).
+            controller.ZoneGrids.RemoveAll(g => g.Grid != null && g.Grid.Id == GridId);
+            foreach (var sp in controller.SpawnManager.SpawnPoints)
+                sp.Record.Waypoints.RemoveAll(w => w.GridId == GridId);
+
+            // Selection cleanup.
+            if (controller.SelectedGridId == GridId)
+                controller.SelectGrid(null);
+            var wpSel = controller.Engine.WaypointEditor.Selected;
+            if (wpSel.HasValue && wpSel.Value.GridId == GridId)
+                controller.Engine.WaypointEditor.ClearSelection();
+
+            var buffer = controller.PendingBuffer;
+            if (buffer == null) return;
+
+            if (WasPendingInsert)
+            {
+                // Never persisted — pull the pending insert + all its seed/added waypoints
+                // straight out of the buffer. No GridDeletes entry needed.
+                buffer.GridInserts.Remove(GridId);
+                var wpKeys = buffer.GridEntryInserts
+                    .Where(kv => kv.Value.GridId == GridId)
+                    .Select(kv => kv.Key)
+                    .ToList();
+                foreach (var k in wpKeys) buffer.GridEntryInserts.Remove(k);
+            }
+            else
+            {
+                buffer.GridDeletes[EditBuffer.GridKey(GridId, ZoneId)] = new GridDelete
+                {
+                    Id         = GridId,
+                    ZoneId     = ZoneId,
+                    Type       = Type,
+                    Type2      = Type2,
+                    Waypoints  = WaypointSnapshots.Select(w => new GridEntryDelete
+                    {
+                        GridId = w.GridId, ZoneId = w.ZoneId, Number = w.Number,
+                        X = w.X, Y = w.Y, Z = w.Z, Heading = w.Heading,
+                        Pause = w.Pause, Centerpoint = w.Centerpoint,
+                        DeletedAt = DateTime.UtcNow,
+                    }).ToList(),
+                    DeletedAt  = DateTime.UtcNow,
+                };
+                // Purge every other buffer entry that referenced this grid — they'd
+                // hit a nonexistent row at commit time.
+                buffer.Grids.Remove(EditBuffer.GridKey(GridId, ZoneId));
+                var geKeys = buffer.GridEntries
+                    .Where(kv => kv.Value.GridId == GridId)
+                    .Select(kv => kv.Key)
+                    .ToList();
+                foreach (var k in geKeys) buffer.GridEntries.Remove(k);
+                var geiKeys = buffer.GridEntryInserts
+                    .Where(kv => kv.Value.GridId == GridId)
+                    .Select(kv => kv.Key)
+                    .ToList();
+                foreach (var k in geiKeys) buffer.GridEntryInserts.Remove(k);
+                var gedKeys = buffer.GridEntryDeletes
+                    .Where(kv => kv.Value.GridId == GridId)
+                    .Select(kv => kv.Key)
+                    .ToList();
+                foreach (var k in gedKeys) buffer.GridEntryDeletes.Remove(k);
+            }
+            controller.MarkBufferDirty();
+        }
+
+        public void Revert(Controller controller)
+        {
+            // Scene: recreate the ZoneGridRecord + waypoints from snapshot.
+            if (!controller.ZoneGrids.Any(g => g.Grid != null && g.Grid.Id == GridId))
+            {
+                controller.ZoneGrids.Add(new Database.Models.ZoneGridRecord
+                {
+                    Grid = new Grid { Id = GridId, ZoneId = ZoneId, Type = Type, Type2 = Type2 },
+                    Waypoints = WaypointSnapshots.Select(w => new GridEntry
+                    {
+                        GridId = GridId, Number = w.Number,
+                        X = w.X, Y = w.Y, Z = w.Z, Heading = w.Heading,
+                        Pause = w.Pause, Centerpoint = w.Centerpoint,
+                    }).ToList(),
+                    SpawnCount = controller.SpawnManager.SpawnPoints.Count(sp => sp.Record.Spawn.PathGrid == GridId),
+                });
+            }
+            // Reattach waypoints to any SpawnPoint whose PathGrid matches (attached grids only).
+            foreach (var sp in controller.SpawnManager.SpawnPoints)
+            {
+                if (sp.Record.Spawn.PathGrid != GridId) continue;
+                foreach (var w in WaypointSnapshots)
+                {
+                    if (sp.Record.Waypoints.Any(x => x.GridId == GridId && x.Number == w.Number)) continue;
+                    sp.Record.Waypoints.Add(new GridEntry
+                    {
+                        GridId = GridId, Number = w.Number,
+                        X = w.X, Y = w.Y, Z = w.Z, Heading = w.Heading,
+                        Pause = w.Pause, Centerpoint = w.Centerpoint,
+                    });
+                }
+            }
+
+            var buffer = controller.PendingBuffer;
+            if (buffer == null) return;
+
+            if (WasPendingInsert)
+            {
+                buffer.GridInserts[GridId] = new GridInsert
+                {
+                    TempId    = GridId,
+                    ZoneId    = ZoneId,
+                    Type      = Type,
+                    Type2     = Type2,
+                    CreatedAt = DateTime.UtcNow,
+                };
+                foreach (var w in WaypointSnapshots)
+                {
+                    buffer.GridEntryInserts[EditBuffer.GridEntryKey(GridId, w.Number)] = new GridEntryInsert
+                    {
+                        GridId      = GridId,
+                        ZoneId      = ZoneId,
+                        Number      = w.Number,
+                        X           = w.X,
+                        Y           = w.Y,
+                        Z           = w.Z,
+                        Heading     = w.Heading,
+                        Pause       = w.Pause,
+                        Centerpoint = w.Centerpoint,
+                        CreatedAt   = DateTime.UtcNow,
+                    };
+                }
+            }
+            else
+            {
+                buffer.GridDeletes.Remove(EditBuffer.GridKey(GridId, ZoneId));
+            }
+            controller.MarkBufferDirty();
+        }
+    }
+
     // Adds a new waypoint at the end of the grid (Number = max+1). Snapshot fields let
     // Revert restore the exact row that was inserted (position, heading, pause,
     // centerpoint).
@@ -422,6 +606,13 @@ namespace VisualEQ.EditSystem
             {
                 sp.Record.Waypoints.RemoveAll(w => w.GridId == GridId && w.Number == Number);
             }
+            // Orphan / pending-insert grids only live in ZoneGrids — must remove here
+            // too so the polyline updates immediately (matches the fix in
+            // GridEntryInsertAction).
+            foreach (var zg in controller.ZoneGrids)
+            {
+                zg.Waypoints.RemoveAll(w => w.GridId == GridId && w.Number == Number);
+            }
 
             var buffer = controller.PendingBuffer;
             var key = EditBuffer.GridEntryKey(GridId, Number);
@@ -466,6 +657,22 @@ namespace VisualEQ.EditSystem
                 {
                     if (sp.Record.Spawn.PathGrid != GridId) continue;
                     sp.Record.Waypoints.Add(new GridEntry
+                    {
+                        GridId      = GridId,
+                        Number      = Number,
+                        X           = X,
+                        Y           = Y,
+                        Z           = Z,
+                        Heading     = Heading,
+                        Pause       = Pause,
+                        Centerpoint = Centerpoint,
+                    });
+                }
+                foreach (var zg in controller.ZoneGrids)
+                {
+                    if (zg.Grid == null || zg.Grid.Id != GridId) continue;
+                    if (zg.Waypoints.Any(w => w.GridId == GridId && w.Number == Number)) continue;
+                    zg.Waypoints.Add(new GridEntry
                     {
                         GridId      = GridId,
                         Number      = Number,

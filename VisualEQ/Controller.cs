@@ -453,6 +453,17 @@ namespace VisualEQ
                     _nextTempGridId = ins.TempId - 1;
             }
 
+            // Pending whole-grid deletes — enforce the removal against the just-loaded
+            // ZoneGrids so the sidebar reflects the pending delete state. Also strip
+            // matching waypoints from SpawnPoints for attached grids.
+            foreach (var kv in buffer.GridDeletes)
+            {
+                var del = kv.Value;
+                ZoneGrids.RemoveAll(g => g.Grid != null && g.Grid.Id == del.Id && g.Grid.ZoneId == del.ZoneId);
+                foreach (var sp in SpawnManager.SpawnPoints)
+                    sp.Record.Waypoints.RemoveAll(w => w.GridId == del.Id);
+            }
+
             // Pending inserts — add each temp waypoint to every referring spawn's list and
             // to the matching ZoneGrid (orphan grids only reach here via the latter).
             foreach (var kv in buffer.GridEntryInserts)
@@ -710,6 +721,40 @@ namespace VisualEQ
                         Pause       = del.Pause,
                         Centerpoint = del.Centerpoint,
                     });
+                }
+            }
+
+            // Pending whole-grid deletes — re-materialise each snapshot ZoneGridRecord
+            // + its waypoints, and reattach waypoints to any spawn whose PathGrid matches.
+            foreach (var del in PendingBuffer.GridDeletes.Values)
+            {
+                if (!ZoneGrids.Any(g => g.Grid != null && g.Grid.Id == del.Id))
+                {
+                    ZoneGrids.Add(new Database.Models.ZoneGridRecord
+                    {
+                        Grid = new Database.Models.Grid { Id = del.Id, ZoneId = del.ZoneId, Type = del.Type, Type2 = del.Type2 },
+                        Waypoints = del.Waypoints.Select(w => new Database.Models.GridEntry
+                        {
+                            GridId = del.Id, Number = w.Number,
+                            X = w.X, Y = w.Y, Z = w.Z, Heading = w.Heading,
+                            Pause = w.Pause, Centerpoint = w.Centerpoint,
+                        }).ToList(),
+                        SpawnCount = SpawnManager.SpawnPoints.Count(sp => sp.Record.Spawn.PathGrid == del.Id),
+                    });
+                }
+                foreach (var sp in SpawnManager.SpawnPoints)
+                {
+                    if (sp.Record.Spawn.PathGrid != del.Id) continue;
+                    foreach (var w in del.Waypoints)
+                    {
+                        if (sp.Record.Waypoints.Any(x => x.GridId == del.Id && x.Number == w.Number)) continue;
+                        sp.Record.Waypoints.Add(new Database.Models.GridEntry
+                        {
+                            GridId = del.Id, Number = w.Number,
+                            X = w.X, Y = w.Y, Z = w.Z, Heading = w.Heading,
+                            Pause = w.Pause, Centerpoint = w.Centerpoint,
+                        });
+                    }
                 }
             }
 
@@ -1044,11 +1089,11 @@ namespace VisualEQ
                 // Deletes were already applied in-memory when the DeleteAction ran; no
                 // scene mutation needed here.
 
-                // Grid inserts get real ids assigned during commit. Simpler than remapping
-                // every ZoneGridRecord/waypoint that referenced a temp id: reload the whole
-                // Grid List from DB. Cheap (small table), keeps the Grid List and any
-                // subsequent selection coherent. Clear any dangling temp-id selection.
-                if (result.GridInsertsWritten > 0)
+                // Grid inserts get real ids assigned during commit, and grid deletes
+                // wipe rows the sidebar still thinks exist. Simpler than remapping the
+                // in-memory state piecewise: reload the whole Grid List from DB. Cheap
+                // (small table). Clear any dangling temp-id selection.
+                if (result.GridInsertsWritten > 0 || result.GridDeletesWritten > 0)
                 {
                     if (SelectedGridId.HasValue && SelectedGridId.Value < 0)
                     {

@@ -184,6 +184,12 @@ namespace VisualEQ.Views
         private int _commitGridDeleteCountSnapshot;
         private int _commitGridMetaCountSnapshot;
         private int _commitGridWholeInsertsSnapshot;
+        private int _commitGridDeletesSnapshot;
+
+        // Grid delete confirmation state (two-click gate, mirrors _wpDeleteArmedForKey).
+        // Value is the grid id currently armed; -1/null means unarmed.
+        private int? _gridDeleteArmedFor;
+        private float _gridDeleteArmedAt;
 
         // Simple confirm modals — no extra state beyond "is it open?" + a snapshot count
         // so the dialog can display consistent numbers even if the buffer mutates while
@@ -386,6 +392,7 @@ namespace VisualEQ.Views
             _commitGridDeleteCountSnapshot  = buffer.GridEntryDeletes.Count;
             _commitGridMetaCountSnapshot    = buffer.Grids.Count;
             _commitGridWholeInsertsSnapshot = buffer.GridInserts.Count;
+            _commitGridDeletesSnapshot      = buffer.GridDeletes.Count;
             _commitPhase = CommitPhase.Confirm;
             _commitResult = null;
         }
@@ -441,6 +448,8 @@ namespace VisualEQ.Views
                 ImGui.Text($"  {_commitGridMetaCountSnapshot} grid metadata edit(s)");
             if (_commitGridWholeInsertsSnapshot > 0)
                 ImGui.Text($"  {_commitGridWholeInsertsSnapshot} new grid(s)");
+            if (_commitGridDeletesSnapshot > 0)
+                ImGui.Text($"  {_commitGridDeletesSnapshot} grid delete(s)");
             ImGui.Separator();
             ImGui.Text($"Target: {db.Server}/{db.Database}");
             ImGui.Text("Runs as a single transaction — all-or-nothing.");
@@ -489,6 +498,8 @@ namespace VisualEQ.Views
                     ImGui.Text($"  {r.GridMetaRowsWritten} grid row(s) updated");
                 if (r.GridInsertsWritten > 0)
                     ImGui.Text($"  {r.GridInsertsWritten} grid row(s) inserted");
+                if (r.GridDeletesWritten > 0)
+                    ImGui.Text($"  {r.GridDeletesWritten} grid row(s) deleted");
                 ImGui.Text($"  {r.ZonePointRowsWritten} trilogy_zone_points row(s) updated");
                 if (r.ZonePointInsertsWritten > 0)
                     ImGui.Text($"  {r.ZonePointInsertsWritten} trilogy_zone_points row(s) inserted");
@@ -1883,6 +1894,53 @@ namespace VisualEQ.Views
             {
                 if (ImGui.Button($"Clear grid selection###{Id}glClear", new Vector2(200, 22)))
                     ctrl.SelectGrid(null);
+
+                // Delete affordance — edit-mode-gated, two-click arm/confirm (matches
+                // waypoint delete convention). Warning label when the grid has
+                // referring spawn2 rows (their pathgrid FK becomes stale after DELETE;
+                // EQEmu treats missing grid as "no path" = NPC stands still, which is
+                // survivable but worth flagging).
+                if (ctrl.EditModeEnabled)
+                {
+                    var sel = ctrl.ZoneGrids.FirstOrDefault(g => g.Grid.Id == ctrl.SelectedGridId.Value);
+                    if (sel != null)
+                    {
+                        var armed = _gridDeleteArmedFor == sel.Grid.Id
+                                    && (FrameTime - _gridDeleteArmedAt) < DeleteConfirmSeconds;
+                        string label;
+                        if (armed)
+                        {
+                            label = $"Click again within {DeleteConfirmSeconds:F0}s to confirm delete###{Id}glDel";
+                        }
+                        else if (sel.Grid.Id < 0)
+                        {
+                            label = $"Delete grid {sel.Grid.Id} (temp)###{Id}glDel";
+                        }
+                        else if (sel.SpawnCount > 0)
+                        {
+                            label = $"Delete grid {sel.Grid.Id} — {sel.SpawnCount} spawn{(sel.SpawnCount == 1 ? "" : "s")} will lose their path###{Id}glDel";
+                        }
+                        else
+                        {
+                            label = $"Delete grid {sel.Grid.Id}###{Id}glDel";
+                        }
+
+                        if (ImGui.Button(label, new Vector2(360, 22)))
+                        {
+                            if (armed)
+                            {
+                                _gridDeleteArmedFor = null;
+                                ctrl.RecordAction(new VisualEQ.EditSystem.GridDeleteAction(
+                                    sel, wasPendingInsert: sel.Grid.Id < 0));
+                            }
+                            else
+                            {
+                                _gridDeleteArmedFor = sel.Grid.Id;
+                                _gridDeleteArmedAt  = FrameTime;
+                            }
+                        }
+                    }
+                }
             }
         }
 
