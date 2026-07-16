@@ -65,6 +65,24 @@ namespace VisualEQ
         // configured; the inspector falls back to a free-text field in that case.
         public List<string> ZoneShortNames { get; } = new List<string>();
 
+        // Every grid in the current zone — attached AND orphan (no spawn2 references it).
+        // Loaded alongside spawns; SpawnCount is filled after spawn records land so the
+        // sidebar can tag each row A/O. The Grid List sidebar section reads this; when
+        // a grid is picked from that list, SelectedGridId drives UpdatePathGrids to
+        // render THAT grid's polyline instead of the selected spawn's.
+        public List<Database.Models.ZoneGridRecord> ZoneGrids { get; } = new List<Database.Models.ZoneGridRecord>();
+
+        public int? SelectedGridId { get; private set; }
+        public event Action<int?> GridSelectedChanged;
+
+        // Sidebar entry point for grid picks. Passing null clears the selection.
+        public void SelectGrid(int? gridId)
+        {
+            if (SelectedGridId == gridId) return;
+            SelectedGridId = gridId;
+            GridSelectedChanged?.Invoke(gridId);
+        }
+
         // ─── Drag-to-create state ────────────────────────────────────────────────────
         // When active, the mouse pipeline is intercepted before zone-point / waypoint /
         // spawn selectors so left-click-drag on the ground plane draws a preview
@@ -319,13 +337,28 @@ namespace VisualEQ
             }
 
             // Grid entry field edits — mutate every SpawnRecord.Waypoints copy that
-            // references this waypoint so rendering picks up the pending state.
+            // references this waypoint so rendering picks up the pending state. Also
+            // mutate the ZoneGrids parallel copy so orphan grids (unreferenced by any
+            // spawn2 row) reflect pending edits when picked via the Grid List sidebar.
             foreach (var kv in buffer.GridEntries)
             {
                 var e = kv.Value;
                 foreach (var sp in SpawnManager.SpawnPoints)
                 {
                     foreach (var wp in sp.Record.Waypoints)
+                    {
+                        if (wp.GridId != e.GridId || wp.Number != e.Number) continue;
+                        wp.X          = e.CurrentX;
+                        wp.Y          = e.CurrentY;
+                        wp.Z          = e.CurrentZ;
+                        wp.Heading    = e.CurrentHeading;
+                        wp.Pause      = e.CurrentPause;
+                        wp.Centerpoint = e.CurrentCenterpoint;
+                    }
+                }
+                foreach (var zg in ZoneGrids)
+                {
+                    foreach (var wp in zg.Waypoints)
                     {
                         if (wp.GridId != e.GridId || wp.Number != e.Number) continue;
                         wp.X          = e.CurrentX;
@@ -349,9 +382,16 @@ namespace VisualEQ
                     g.Type  = e.CurrentType;
                     g.Type2 = e.CurrentType2;
                 }
+                foreach (var zg in ZoneGrids)
+                {
+                    if (zg.Grid == null || zg.Grid.Id != e.Id || zg.Grid.ZoneId != e.ZoneId) continue;
+                    zg.Grid.Type  = e.CurrentType;
+                    zg.Grid.Type2 = e.CurrentType2;
+                }
             }
 
-            // Pending inserts — add each temp waypoint to every referring spawn's list.
+            // Pending inserts — add each temp waypoint to every referring spawn's list and
+            // to the matching ZoneGrid (orphan grids only reach here via the latter).
             foreach (var kv in buffer.GridEntryInserts)
             {
                 var ins = kv.Value;
@@ -372,15 +412,38 @@ namespace VisualEQ
                         Centerpoint = ins.Centerpoint,
                     });
                 }
+                foreach (var zg in ZoneGrids)
+                {
+                    if (zg.Grid == null || zg.Grid.Id != ins.GridId) continue;
+                    if (zg.Waypoints.Any(w => w.GridId == ins.GridId && w.Number == ins.Number))
+                        continue;
+                    zg.Waypoints.Add(new Database.Models.GridEntry
+                    {
+                        GridId      = ins.GridId,
+                        Number      = ins.Number,
+                        X           = ins.X,
+                        Y           = ins.Y,
+                        Z           = ins.Z,
+                        Heading     = ins.Heading,
+                        Pause       = ins.Pause,
+                        Centerpoint = ins.Centerpoint,
+                    });
+                }
             }
 
-            // Pending deletes — remove the row from every referring spawn's list.
+            // Pending deletes — remove the row from every referring spawn's list AND from
+            // ZoneGrids so orphan-grid deletes render correctly.
             foreach (var kv in buffer.GridEntryDeletes)
             {
                 var del = kv.Value;
                 foreach (var sp in SpawnManager.SpawnPoints)
                 {
                     sp.Record.Waypoints.RemoveAll(w =>
+                        w.GridId == del.GridId && w.Number == del.Number);
+                }
+                foreach (var zg in ZoneGrids)
+                {
+                    zg.Waypoints.RemoveAll(w =>
                         w.GridId == del.GridId && w.Number == del.Number);
                 }
             }
@@ -468,13 +531,26 @@ namespace VisualEQ
                 if (zp.IsDirty) zp.Revert();
 
             // Waypoint revert — GridWaypointMoveAction/GridEntryFieldEditAction mutate
-            // sp.Record.Waypoints in place, so without this loop the polyline stays at
-            // the moved position after Discard.
+            // sp.Record.Waypoints (and ZoneGrids.Waypoints) in place, so without these
+            // loops the polyline stays at the moved position after Discard.
             foreach (var edit in PendingBuffer.GridEntries.Values)
             {
                 foreach (var sp in SpawnManager.SpawnPoints)
                 {
                     foreach (var wp in sp.Record.Waypoints)
+                    {
+                        if (wp.GridId != edit.GridId || wp.Number != edit.Number) continue;
+                        wp.X          = edit.OriginalX;
+                        wp.Y          = edit.OriginalY;
+                        wp.Z          = edit.OriginalZ;
+                        wp.Heading    = edit.OriginalHeading;
+                        wp.Pause      = edit.OriginalPause;
+                        wp.Centerpoint = edit.OriginalCenterpoint;
+                    }
+                }
+                foreach (var zg in ZoneGrids)
+                {
+                    foreach (var wp in zg.Waypoints)
                     {
                         if (wp.GridId != edit.GridId || wp.Number != edit.Number) continue;
                         wp.X          = edit.OriginalX;
@@ -497,15 +573,26 @@ namespace VisualEQ
                     g.Type  = edit.OriginalType;
                     g.Type2 = edit.OriginalType2;
                 }
+                foreach (var zg in ZoneGrids)
+                {
+                    if (zg.Grid == null || zg.Grid.Id != edit.Id || zg.Grid.ZoneId != edit.ZoneId) continue;
+                    zg.Grid.Type  = edit.OriginalType;
+                    zg.Grid.Type2 = edit.OriginalType2;
+                }
             }
 
-            // Pending inserts — pop the temp waypoints out of every spawn's list so the
-            // polyline collapses back to the DB-known state.
+            // Pending inserts — pop the temp waypoints out of every spawn's list AND every
+            // ZoneGrid so the polyline collapses back to the DB-known state.
             foreach (var ins in PendingBuffer.GridEntryInserts.Values)
             {
                 foreach (var sp in SpawnManager.SpawnPoints)
                 {
                     sp.Record.Waypoints.RemoveAll(w =>
+                        w.GridId == ins.GridId && w.Number == ins.Number);
+                }
+                foreach (var zg in ZoneGrids)
+                {
+                    zg.Waypoints.RemoveAll(w =>
                         w.GridId == ins.GridId && w.Number == ins.Number);
                 }
             }
@@ -520,6 +607,23 @@ namespace VisualEQ
                     if (sp.Record.Waypoints.Any(w => w.GridId == del.GridId && w.Number == del.Number))
                         continue;
                     sp.Record.Waypoints.Add(new Database.Models.GridEntry
+                    {
+                        GridId      = del.GridId,
+                        Number      = del.Number,
+                        X           = del.X,
+                        Y           = del.Y,
+                        Z           = del.Z,
+                        Heading     = del.Heading,
+                        Pause       = del.Pause,
+                        Centerpoint = del.Centerpoint,
+                    });
+                }
+                foreach (var zg in ZoneGrids)
+                {
+                    if (zg.Grid == null || zg.Grid.Id != del.GridId) continue;
+                    if (zg.Waypoints.Any(w => w.GridId == del.GridId && w.Number == del.Number))
+                        continue;
+                    zg.Waypoints.Add(new Database.Models.GridEntry
                     {
                         GridId      = del.GridId,
                         Number      = del.Number,
@@ -939,6 +1043,12 @@ namespace VisualEQ
             SpawnManager.SpawnPoints.Clear();
             ZonePointManager.Clear();
             ZoneShortNames.Clear();
+            ZoneGrids.Clear();
+            if (SelectedGridId != null)
+            {
+                SelectedGridId = null;
+                GridSelectedChanged?.Invoke(null);
+            }
             CurrentZoneName = null;
             ZoneChanged?.Invoke(null);
         }
@@ -1180,6 +1290,7 @@ namespace VisualEQ
                 foreach (var sp in SpawnManager.SpawnPoints)
                     CharacterModels.Add(sp.Model);
 
+                LoadZoneGridsSync(zoneName);
                 LoadZonePointsSync(zoneName);
             }
             catch (Exception ex)
@@ -1243,8 +1354,10 @@ namespace VisualEQ
             _spawnLoadAvailable = null;
             _spawnLoadIndex = 0;
 
-            // Zone points are a small table (dozens of rows per zone); load synchronously
-            // right after spawns so the menu flow's Done phase sees the full scene.
+            // Grid + zone-point tables are small (grid: dozens per zone, zone_point: dozens);
+            // load synchronously right after spawns so the menu flow's Done phase sees the
+            // full scene.
+            LoadZoneGridsSync(CurrentZoneName);
             LoadZonePointsSync(CurrentZoneName);
         }
 
@@ -1275,10 +1388,38 @@ namespace VisualEQ
 
                 foreach (var sp in SpawnManager.SpawnPoints)
                     CharacterModels.Add(sp.Model);
+
+                LoadZoneGridsSync(zoneName);
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[Controller] Spawn load error: {ex}");
+            }
+        }
+
+        // Loads every grid (with waypoints) for the zone — attached AND orphan. Runs after
+        // spawns land so we can fill in each record's SpawnCount from SpawnManager.SpawnPoints
+        // without a second DB round trip. No GL work; safe on any thread. Silently no-ops
+        // when there's no DB connection.
+        public void LoadZoneGridsSync(string zoneName)
+        {
+            if (DbFactory == null) return;
+
+            try
+            {
+                var repo = new SpawnRepository(DbFactory);
+                var records = repo.GetZoneGridsAsync(zoneName).GetAwaiter().GetResult().ToList();
+
+                ZoneGrids.Clear();
+                foreach (var g in records)
+                {
+                    g.SpawnCount = SpawnManager.SpawnPoints.Count(sp => sp.Record.Spawn.PathGrid == g.Grid.Id);
+                    ZoneGrids.Add(g);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Controller] Zone grid load error: {ex}");
             }
         }
 
@@ -1352,26 +1493,47 @@ namespace VisualEQ
             Engine.SetSpawnMarkerLines(lines);
         }
 
-        // Builds path grid line list for the selected spawn only. Empty when nothing is
-        // selected, the selected spawn has no grid, or the user has disabled path grids.
-        // Also pushes the current waypoint set into WaypointEditor so clicks near a
-        // crosshair can grab the waypoint before the spawn selection.
+        // Builds path grid line list for the current grid source. Priority: sidebar-picked
+        // grid (SelectedGridId, from the Grid List section, may be orphan → magenta) →
+        // selected spawn's grid (amber) → empty. Also pushes the current waypoint set into
+        // WaypointEditor so clicks near a crosshair can grab the waypoint before the spawn
+        // selection.
         void UpdatePathGrids()
         {
             var lines = new List<(Vector3 A, Vector3 B, Vector4 Color)>();
             var candidates = new List<Engine.WaypointEditor.Handle>();
 
-            var sp = SpawnManager.Selected;
-            if (sp != null && Settings.ShowPathGrids && sp.Record.Waypoints.Count > 0)
+            List<Database.Models.GridEntry> sourceWaypoints = null;
+            var baseColor = new Vector4(1f, 0.85f, 0.2f, 1f); // amber (attached)
+            if (Settings.ShowPathGrids)
             {
-                var amber      = new Vector4(1f, 0.85f, 0.2f, 1f);
+                if (SelectedGridId.HasValue)
+                {
+                    var zg = ZoneGrids.FirstOrDefault(g => g.Grid.Id == SelectedGridId.Value);
+                    if (zg != null && zg.Waypoints.Count > 0)
+                    {
+                        sourceWaypoints = zg.Waypoints;
+                        if (zg.SpawnCount == 0)
+                            baseColor = new Vector4(0.9f, 0.3f, 0.9f, 1f); // magenta (orphan)
+                    }
+                }
+                else
+                {
+                    var sp = SpawnManager.Selected;
+                    if (sp != null && sp.Record.Waypoints.Count > 0)
+                        sourceWaypoints = sp.Record.Waypoints;
+                }
+            }
+
+            if (sourceWaypoints != null)
+            {
                 var green      = new Vector4(0.3f, 1f, 0.3f, 1f);
                 var brightGreen= new Vector4(0.5f, 1f, 0.5f, 1f);
                 var selectedHandle = Engine.WaypointEditor.Selected;
                 var wpEditor   = Engine.WaypointEditor;
                 var isDragging = wpEditor.IsDragging;
 
-                var waypoints = sp.Record.Waypoints.OrderBy(w => w.Number).ToList();
+                var waypoints = sourceWaypoints.OrderBy(w => w.Number).ToList();
 
                 Vector3 ToScene(Database.Models.GridEntry g) => new Vector3(g.Y, g.X, g.Z);
 
@@ -1390,7 +1552,7 @@ namespace VisualEQ
                             selectedHandle.Value.Number == waypoints[i + 1].Number)
                             b = selectedHandle.Value.ScenePos;
                     }
-                    lines.Add((a, b, amber));
+                    lines.Add((a, b, baseColor));
                 }
 
                 const float armLength = 5f;
@@ -1411,7 +1573,7 @@ namespace VisualEQ
                     float arm;
                     if (isSelected && isDragging) { color = brightGreen; arm = draggingArmLength; }
                     else if (isSelected)          { color = green;       arm = selectedArmLength; }
-                    else                          { color = amber;       arm = armLength; }
+                    else                          { color = baseColor;   arm = armLength; }
 
                     lines.Add((scenePos - new Vector3(arm, 0, 0), scenePos + new Vector3(arm, 0, 0), color));
                     lines.Add((scenePos - new Vector3(0, arm, 0), scenePos + new Vector3(0, arm, 0), color));

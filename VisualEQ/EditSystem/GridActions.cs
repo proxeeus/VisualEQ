@@ -391,6 +391,12 @@ namespace VisualEQ.EditSystem
                 foreach (var wp in sp.Record.Waypoints)
                     if (wp.GridId == gridId && wp.Number == number)
                         return wp;
+            // Fallback to the zone-wide grid list so orphan grids (no spawn2 references
+            // them) resolve for the Waypoint Info panel.
+            foreach (var zg in controller.ZoneGrids)
+                foreach (var wp in zg.Waypoints)
+                    if (wp.GridId == gridId && wp.Number == number)
+                        return wp;
             return null;
         }
 
@@ -400,6 +406,11 @@ namespace VisualEQ.EditSystem
             {
                 var g = sp.Record.Grid;
                 if (g != null && g.Id == gridId && g.ZoneId == zoneId) return g;
+            }
+            foreach (var zg in controller.ZoneGrids)
+            {
+                if (zg.Grid != null && zg.Grid.Id == gridId && zg.Grid.ZoneId == zoneId)
+                    return zg.Grid;
             }
             return null;
         }
@@ -420,6 +431,12 @@ namespace VisualEQ.EditSystem
                 foreach (var wp in sp.Record.Waypoints)
                     if (wp.GridId == gridId && wp.Number == number)
                         mutate(wp);
+            // Zone-wide copies (independent GridEntry instances loaded by a separate query)
+            // must also be updated so orphan-grid selections reflect the edit in real time.
+            foreach (var zg in controller.ZoneGrids)
+                foreach (var wp in zg.Waypoints)
+                    if (wp.GridId == gridId && wp.Number == number)
+                        mutate(wp);
         }
 
         public static void MutateEveryGrid(Controller controller, int gridId, int zoneId, Action<Grid> mutate)
@@ -428,6 +445,11 @@ namespace VisualEQ.EditSystem
             {
                 var g = sp.Record.Grid;
                 if (g != null && g.Id == gridId && g.ZoneId == zoneId) mutate(g);
+            }
+            foreach (var zg in controller.ZoneGrids)
+            {
+                if (zg.Grid != null && zg.Grid.Id == gridId && zg.Grid.ZoneId == zoneId)
+                    mutate(zg.Grid);
             }
         }
 

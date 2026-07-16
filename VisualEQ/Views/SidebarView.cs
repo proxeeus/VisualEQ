@@ -132,11 +132,12 @@ namespace VisualEQ.Views
         public const string SectionSpawnInfo    = "spawn_info";
         public const string SectionWaypointInfo = "waypoint_info";
         public const string SectionSpawnList    = "spawn_list";
+        public const string SectionGridList     = "grid_list";
         public const string SectionZonePoints   = "zone_points";
         public const string SectionTeleport     = "teleport";
         public const string SectionModelEditor  = "model_editor";
 
-        static readonly string[] DefaultOrder = { SectionStatus, SectionPending, SectionSpawnInfo, SectionWaypointInfo, SectionSpawnList, SectionZonePoints, SectionModelEditor, SectionTeleport };
+        static readonly string[] DefaultOrder = { SectionStatus, SectionPending, SectionSpawnInfo, SectionWaypointInfo, SectionSpawnList, SectionGridList, SectionZonePoints, SectionModelEditor, SectionTeleport };
 
         private readonly SidebarView _view;
 
@@ -166,6 +167,10 @@ namespace VisualEQ.Views
 
         // Spawn list filter — persists across frames (widget lives for the whole session).
         private readonly byte[] _spawnListFilter = new byte[128];
+
+        // Grid list filter — mirrors the spawn-list pattern. Substring match against the
+        // grid id (short enough that 64 bytes is generous).
+        private readonly byte[] _gridListFilter = new byte[64];
 
         // Commit-to-DB dialog state. Modal draws over the whole screen when != None.
         private enum CommitPhase { None, Confirm, Running, Result }
@@ -629,6 +634,7 @@ namespace VisualEQ.Views
                 case SectionSpawnInfo:    RenderSpawnInfoSection(index); break;
                 case SectionWaypointInfo: RenderWaypointInfoSection(index); break;
                 case SectionSpawnList:    RenderSpawnListSection(index); break;
+                case SectionGridList:     RenderGridListSection(index); break;
                 case SectionZonePoints:   RenderZonePointsSection(index); break;
                 case SectionTeleport:     RenderTeleportSection(index); break;
                 case SectionModelEditor:  RenderModelEditorSection(index); break;
@@ -827,10 +833,17 @@ namespace VisualEQ.Views
             }
 
             // Which grid does this waypoint belong to? Look up via any spawn referencing
-            // it — zoneId comes from the grid row itself.
+            // it — zoneId comes from the grid row itself. Orphan grids don't have any
+            // referencing spawn, so fall back to the zone-wide list before giving up.
             var parentGrid = ctrl.SpawnManager.SpawnPoints
                 .Select(sp => sp.Record.Grid)
                 .FirstOrDefault(g => g != null && g.Id == gridId);
+            if (parentGrid == null)
+            {
+                parentGrid = ctrl.ZoneGrids
+                    .Select(zg => zg.Grid)
+                    .FirstOrDefault(g => g != null && g.Id == gridId);
+            }
             int zoneId = parentGrid?.ZoneId ?? 0;
 
             var editable = ctrl.EditModeEnabled;
@@ -1149,6 +1162,12 @@ namespace VisualEQ.Views
                 int maxNumber = 0;
                 foreach (var sp in ctrl.SpawnManager.SpawnPoints)
                     foreach (var wp in sp.Record.Waypoints)
+                        if (wp.GridId == gridId && wp.Number > maxNumber)
+                            maxNumber = wp.Number;
+                // Orphan grids only live in ZoneGrids — scan there too so the new number
+                // doesn't collide with an existing waypoint the SpawnPoints scan missed.
+                foreach (var zg in ctrl.ZoneGrids)
+                    foreach (var wp in zg.Waypoints)
                         if (wp.GridId == gridId && wp.Number > maxNumber)
                             maxNumber = wp.Number;
                 int newNumber = maxNumber + 1;
@@ -1722,6 +1741,63 @@ namespace VisualEQ.Views
         {
             _view.Controller.SpawnManager.Select(sp.Model);
             _view.Controller.FrameSelection();
+        }
+
+        // Grid List — every grid in the current zone, attached AND orphan. Clicking a row
+        // sets Controller.SelectedGridId which drives UpdatePathGrids to render that grid's
+        // polyline (magenta for orphan, amber for attached). Clicking the currently-selected
+        // row again deselects. Independent of spawn selection — the polyline for the picked
+        // grid overrides the selected-spawn's polyline until deselected.
+        void RenderGridListSection(int index)
+        {
+            RenderReorderHandles(index, "gl");
+            var ctrl = _view.Controller;
+            var total = ctrl.ZoneGrids.Count;
+            if (!ImGui.CollapsingHeader($"Grid List ({total})###{Id}gl", 0))
+                return;
+
+            if (total == 0)
+            {
+                ImGui.Text("No grids loaded for this zone.");
+                return;
+            }
+
+            ImGui.Text("Filter (id substring):");
+            ImGui.InputText($"###{Id}glF", _gridListFilter, (uint)_gridListFilter.Length, InputTextFlags.Default, null);
+            var filter = ReadBuffer(_gridListFilter).Trim();
+
+            var matches = ctrl.ZoneGrids
+                .Where(zg => filter.Length == 0 || zg.Grid.Id.ToString().IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0)
+                // Attached first (SpawnCount > 0), then orphan; within each group sort by id.
+                .OrderByDescending(zg => zg.SpawnCount > 0)
+                .ThenBy(zg => zg.Grid.Id)
+                .ToList();
+
+            var attachedCount = ctrl.ZoneGrids.Count(zg => zg.SpawnCount > 0);
+            var orphanCount   = total - attachedCount;
+            ImGui.Text($"{matches.Count} of {total} — {attachedCount} attached, {orphanCount} orphan");
+
+            ImGui.BeginChild($"###{Id}glList", new Vector2(0, 220), true, WindowFlags.Default);
+            foreach (var zg in matches)
+            {
+                var isAttached = zg.SpawnCount > 0;
+                var prefix = isAttached ? "[A]" : "[O]";
+                var attachedSuffix = isAttached ? $" — {zg.SpawnCount} spawn{(zg.SpawnCount == 1 ? "" : "s")}" : "";
+                var label = $"{prefix} Grid {zg.Grid.Id} — {zg.Waypoints.Count} wp{(zg.Waypoints.Count == 1 ? "" : "s")}{attachedSuffix}###{Id}gl{zg.Grid.Id}";
+                var isSelected = ctrl.SelectedGridId == zg.Grid.Id;
+                if (ImGui.Selectable(label, isSelected))
+                {
+                    // Second click on the currently-selected row deselects.
+                    ctrl.SelectGrid(isSelected ? (int?)null : zg.Grid.Id);
+                }
+            }
+            ImGui.EndChild();
+
+            if (ctrl.SelectedGridId.HasValue)
+            {
+                if (ImGui.Button($"Clear grid selection###{Id}glClear", new Vector2(200, 22)))
+                    ctrl.SelectGrid(null);
+            }
         }
 
         static string PrimaryName(SpawnPoint sp) =>
