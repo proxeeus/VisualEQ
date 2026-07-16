@@ -208,27 +208,48 @@ namespace VisualEQ.Engine
                         return;
                     }
 
-                    // Grid Mode double-click → place waypoint. First click still falls
-                    // through to the selector chain below (so user can click a waypoint
-                    // to change target grid) but we suppress ModelSelector's empty-ground
-                    // deselect so SelectedGridId survives across click pairs.
-                    var isDoubleClick = Controller != null && Controller.GridModeActive
-                        && (FrameTime - _lastLmbDownTime) < GridModeDoubleClickSec
+                    // Double-click detection — timing window (0.4s + 6px). First click of
+                    // a pair still falls through to the selector chain below (so the
+                    // user can click a waypoint / spawn to change context) — same
+                    // pattern as Grid Mode.
+                    var isDoubleClickTiming =
+                        (FrameTime - _lastLmbDownTime) < GridModeDoubleClickSec
                         && Math.Abs(e.X - _lastLmbDownX) < GridModeDoubleClickPx
                         && Math.Abs(e.Y - _lastLmbDownY) < GridModeDoubleClickPx;
                     _lastLmbDownTime = FrameTime;
                     _lastLmbDownX    = e.X;
                     _lastLmbDownY    = e.Y;
 
-                    if (isDoubleClick && Collider != null)
+                    if (isDoubleClickTiming && Controller != null && Collider != null)
                     {
-                        var rayOrigin = Camera.Position + new Vector3(0, 0, FpsCamera.CameraHeight);
-                        var rayDir    = ScreenToWorldRay(e.X, e.Y);
-                        var hit       = Collider.FindIntersection(rayOrigin, rayDir, 0.5f);
-                        if (hit.HasValue)
+                        var ctrlDown = KeyState.ContainsKey(Key.ControlLeft) || KeyState.ContainsKey(Key.ControlRight);
+
+                        // Ctrl+double-click on terrain (outside Grid Mode) opens the
+                        // NPC picker at the hit point. Ctrl+drag still works for
+                        // freeze-Z drag because drag detection kicks in on the SECOND
+                        // MouseDown's movement, not on the click itself.
+                        if (ctrlDown && !Controller.GridModeActive)
                         {
-                            Controller.OnGridModeDoubleClick(hit.Value.Item2);
-                            return;
+                            var rayOrigin = Camera.Position + new Vector3(0, 0, FpsCamera.CameraHeight);
+                            var rayDir    = ScreenToWorldRay(e.X, e.Y);
+                            var hit       = Collider.FindIntersection(rayOrigin, rayDir, 0.5f);
+                            if (hit.HasValue)
+                            {
+                                Controller.OnCtrlDoubleClickTerrain(hit.Value.Item2);
+                                return;
+                            }
+                        }
+                        // Grid Mode double-click → place waypoint.
+                        else if (Controller.GridModeActive)
+                        {
+                            var rayOrigin = Camera.Position + new Vector3(0, 0, FpsCamera.CameraHeight);
+                            var rayDir    = ScreenToWorldRay(e.X, e.Y);
+                            var hit       = Collider.FindIntersection(rayOrigin, rayDir, 0.5f);
+                            if (hit.HasValue)
+                            {
+                                Controller.OnGridModeDoubleClick(hit.Value.Item2);
+                                return;
+                            }
                         }
                     }
 

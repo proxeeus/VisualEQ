@@ -183,6 +183,21 @@ namespace VisualEQ.Database.Repositories
             }
         }
 
+        // Substring search over npc_types.name for the terrain-placement NPC picker.
+        // Wraps the caller's raw filter in SQL wildcards; empty filter matches every
+        // row and the LIMIT still caps the load. Trims to `limit` rows so a laggy
+        // typist doesn't chew memory scrolling ten-thousand-row npc_types tables.
+        public async Task<IEnumerable<NpcType>> SearchNpcTypesAsync(string nameFilter, int limit)
+        {
+            var like = string.IsNullOrEmpty(nameFilter) ? "%" : $"%{nameFilter}%";
+            var cappedLimit = System.Math.Max(1, System.Math.Min(limit, 500));
+            using (var connection = CreateConnection())
+            {
+                return await connection.QueryAsync<NpcType>(
+                    SqlQueries.SearchNpcTypes, new { Filter = like, Limit = cappedLimit });
+            }
+        }
+
         public async Task<bool> UpdateSpawnLocationAsync(int spawnId, Vector3 position, float heading)
         {
             using (var connection = CreateConnection())

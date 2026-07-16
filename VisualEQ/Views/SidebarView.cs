@@ -38,6 +38,12 @@ namespace VisualEQ.Views
         // and consumed by SidebarWidget's render.
         internal bool ShowF10Warning;
 
+        // Trigger for the NPC picker (Slice 3 — Ctrl+double-click terrain placement).
+        // Set when Controller.PendingPlacementRequested fires; widget consumes on next
+        // render + resets. Widget reads Controller.PendingPlacementScenePos to find
+        // where the click landed.
+        internal bool ShowNpcPicker;
+
         public SidebarView(Controller controller) : base(controller)
         {
             controller.ModelSelector.OnSelectionChanged += OnModelSelectionChanged;
@@ -45,6 +51,7 @@ namespace VisualEQ.Views
             controller.SpawnManager.SpawnSelected += sp => SelectedSpawn = sp;
             controller.ZoneChanged += OnZoneChanged;
             controller.UnsavedChangesOnClearRequested += () => ShowF10Warning = true;
+            controller.PendingPlacementRequested += () => ShowNpcPicker = true;
         }
 
         public override void Setup(Gui gui)
@@ -231,6 +238,20 @@ namespace VisualEQ.Views
         private int _spDeleteArmedForId;
         private float _spDeleteArmedAt;
 
+        // NPC picker modal (Slice 3). Opened by ShowNpcPicker flag (set by Controller
+        // event via SidebarView). Fetch runs on background Task; results ranked by
+        // whatever SqlQueries.SearchNpcTypes returns (ORDER BY name). Filter refetches
+        // fire when the byte-buffer text changes.
+        private bool _npcPickerActive;
+        private System.Numerics.Vector3 _npcPickerScenePos;
+        private readonly byte[] _npcPickerFilterBuf = new byte[64];
+        private string _npcPickerLastQueried;
+        private System.Threading.Tasks.Task<System.Collections.Generic.List<VisualEQ.Database.Models.NpcType>> _npcPickerFetchTask;
+        private System.Collections.Generic.List<VisualEQ.Database.Models.NpcType> _npcPickerResults =
+            new System.Collections.Generic.List<VisualEQ.Database.Models.NpcType>();
+        private int _npcPickerSelectedIdx = -1;
+        private string _npcPickerError;
+
         // Waypoint inspector state — parallel to _zpActiveEdit* but keyed on (gridId, number)
         // instead of a single row id.
         private int? _wpActiveEditGridId;
@@ -326,13 +347,28 @@ namespace VisualEQ.Views
             // drag delta. Renders as its own small ImGui window with no chrome.
             RenderCoordinateHud(gui);
 
-            // Modal precedence: commit dialog first, then discard confirm, then F10 warning.
+            // Modal precedence: commit dialog first, then discard confirm, then F10 warning,
+            // then NPC picker. Only one shows at a time; NPC picker sits last so the more
+            // important buffer-lifecycle modals always win when the user Ctrl+double-clicks
+            // during e.g. a commit prompt.
             if (_commitPhase != CommitPhase.None)
                 RenderCommitDialog(gui);
             else if (_discardConfirmActive)
                 RenderDiscardConfirmDialog(gui);
             else if (_view.ShowF10Warning)
                 RenderF10WarningDialog(gui);
+            else
+            {
+                // Latch the sidebar-view request → widget-owned state on first render
+                // so subsequent frames stay in the modal until user confirms/cancels.
+                if (_view.ShowNpcPicker && !_npcPickerActive)
+                {
+                    BeginNpcPicker(_view.Controller.PendingPlacementScenePos ?? System.Numerics.Vector3.Zero);
+                    _view.ShowNpcPicker = false;
+                }
+                if (_npcPickerActive)
+                    RenderNpcPickerDialog(gui);
+            }
         }
 
         // Small always-visible overlay showing camera + selection state. Positioned in the
@@ -603,6 +639,146 @@ namespace VisualEQ.Views
             ImGui.SameLine();
             if (ImGui.Button($"Cancel###{Id}f10X", sz))
                 _view.ShowF10Warning = false;
+
+            ImGui.EndWindow();
+        }
+
+        // ─── NPC picker modal (Slice 3) ──────────────────────────────────────────────
+
+        void BeginNpcPicker(System.Numerics.Vector3 sceneHitPos)
+        {
+            _npcPickerActive       = true;
+            _npcPickerScenePos     = sceneHitPos;
+            System.Array.Clear(_npcPickerFilterBuf, 0, _npcPickerFilterBuf.Length);
+            _npcPickerLastQueried  = null;   // force initial fetch (empty filter → up to 500 rows)
+            _npcPickerResults.Clear();
+            _npcPickerSelectedIdx  = -1;
+            _npcPickerError        = null;
+            _npcPickerFetchTask    = null;
+        }
+
+        void EndNpcPicker()
+        {
+            _npcPickerActive = false;
+            _view.Controller.ClearPendingPlacement();
+        }
+
+        void RenderNpcPickerDialog(Gui gui)
+        {
+            const float dlgW = 520f;
+            const float dlgH = 460f;
+            var pos = new Vector2((gui.Dimensions.X - dlgW) / 2, (gui.Dimensions.Y - dlgH) / 2);
+
+            ImGui.SetNextWindowPos(pos, Condition.Always, Vector2.Zero);
+            ImGui.SetNextWindowSize(new Vector2(dlgW, dlgH), Condition.Always);
+
+            const WindowFlags flags = WindowFlags.NoTitleBar | WindowFlags.NoMove
+                                    | WindowFlags.NoResize   | WindowFlags.NoCollapse
+                                    | WindowFlags.NoSavedSettings;
+
+            ImGui.BeginWindow($"###{Id}NpcPickerDlg", flags);
+
+            // Scene → DB coord swap for the readout so the numbers match sidebar / DB.
+            var dbX = _npcPickerScenePos.Y;
+            var dbY = _npcPickerScenePos.X;
+            var dbZ = _npcPickerScenePos.Z;
+            ImGui.Text($"Place new spawn at X={dbX:F1}  Y={dbY:F1}  Z={dbZ:F1}");
+            ImGui.Separator();
+
+            ImGui.Text("Filter (name substring):");
+            ImGui.InputText($"###{Id}npcF", _npcPickerFilterBuf, (uint)_npcPickerFilterBuf.Length, InputTextFlags.Default, null);
+            var filter = ReadBuffer(_npcPickerFilterBuf).Trim();
+
+            // Reap any in-flight fetch first, so we can display fresh results this frame.
+            if (_npcPickerFetchTask != null && _npcPickerFetchTask.IsCompleted)
+            {
+                if (_npcPickerFetchTask.IsFaulted)
+                {
+                    _npcPickerError = _npcPickerFetchTask.Exception?.GetBaseException().Message ?? "unknown error";
+                    _npcPickerResults.Clear();
+                }
+                else
+                {
+                    _npcPickerError = null;
+                    _npcPickerResults = _npcPickerFetchTask.Result ?? new System.Collections.Generic.List<VisualEQ.Database.Models.NpcType>();
+                    // Reset selection when list changes (previous idx would point at wrong NPC).
+                    _npcPickerSelectedIdx = _npcPickerResults.Count > 0 ? 0 : -1;
+                }
+                _npcPickerFetchTask = null;
+            }
+
+            // Fire a fresh query if the filter changed since the last one we sent (and
+            // there's nothing in flight — one query at a time keeps this simple).
+            if (_npcPickerFetchTask == null && filter != _npcPickerLastQueried)
+            {
+                _npcPickerLastQueried = filter;
+                var factory = _view.Controller.DbFactory;
+                if (factory == null)
+                {
+                    _npcPickerError = "No database connection is configured.";
+                    _npcPickerResults.Clear();
+                }
+                else
+                {
+                    var repo = new VisualEQ.Database.Repositories.SpawnRepository(factory);
+                    // Cap at 200 so a paginated NPC picker isn't needed yet (users will
+                    // narrow via filter). Enough to browse a zone's likely candidates.
+                    _npcPickerFetchTask = System.Threading.Tasks.Task.Run(async () =>
+                        (await repo.SearchNpcTypesAsync(filter, 200)).ToList());
+                }
+            }
+
+            ImGui.Separator();
+
+            if (_npcPickerError != null)
+            {
+                ImGui.Text($"Error: {_npcPickerError}", new Vector4(0.95f, 0.35f, 0.25f, 1f));
+            }
+            else if (_npcPickerFetchTask != null)
+            {
+                ImGui.Text("Searching…");
+            }
+            else
+            {
+                ImGui.Text($"{_npcPickerResults.Count} match(es)");
+            }
+
+            // Result list. Each row is a Selectable so click-to-select works; double-
+            // click confirms (fired via the button — Selectable doesn't expose
+            // double-click here in ImGui.NET 0.4.6).
+            ImGui.BeginChild($"###{Id}npcList", new Vector2(0, 300), true, WindowFlags.Default);
+            for (int i = 0; i < _npcPickerResults.Count; i++)
+            {
+                var n = _npcPickerResults[i];
+                var raceName = SpawnInfoLookups.RaceName(n.Race);
+                var label = $"{n.Name ?? "?"}  [L{n.Level}]  {raceName}  (id {n.Id})###{Id}npcRow{i}";
+                if (ImGui.Selectable(label, i == _npcPickerSelectedIdx))
+                    _npcPickerSelectedIdx = i;
+            }
+            ImGui.EndChild();
+
+            ImGui.Separator();
+
+            var confirmSize = new Vector2(140, 28);
+            var confirmEnabled = _npcPickerSelectedIdx >= 0 && _npcPickerSelectedIdx < _npcPickerResults.Count;
+            if (confirmEnabled)
+            {
+                if (ImGui.Button($"Place spawn###{Id}npcOk", confirmSize))
+                {
+                    var picked = _npcPickerResults[_npcPickerSelectedIdx];
+                    _view.Controller.PlaceNewSpawn(picked, _npcPickerScenePos);
+                    EndNpcPicker();
+                }
+            }
+            else
+            {
+                // Grayed-out no-op button. Cheaper than InvisibleButton + rect for the
+                // handful of frames the dialog spends without a selection.
+                ImGui.Text("(pick an NPC to enable Place)");
+            }
+            ImGui.SameLine();
+            if (ImGui.Button($"Cancel###{Id}npcX", confirmSize))
+                EndNpcPicker();
 
             ImGui.EndWindow();
         }
