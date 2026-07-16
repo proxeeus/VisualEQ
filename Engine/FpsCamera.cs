@@ -25,10 +25,31 @@ namespace VisualEQ.Engine
 
         public const float CameraHeight = 5.5f;
 
+        // Fly-to-cursor animation state. When _flying is true, Update() interpolates
+        // Position from _flyFrom → _flyTo over _flyDuration seconds with an ease-out
+        // cubic and suppresses gravity so physics doesn't fight the lerp mid-flight.
+        bool _flying;
+        Vector3 _flyFrom;
+        Vector3 _flyTo;
+        float _flyStartTime;
+        float _flyDuration;
+
         public FpsCamera(Vector3 pos)
         {
             Position = pos;
             Pitch = Yaw = 0;
+        }
+
+        // Smoothly moves the camera to `target` over `duration` seconds. Any in-progress
+        // flight is overridden. Callers pass the world-space landing spot; adding altitude
+        // offset is the caller's responsibility.
+        public void FlyTo(Vector3 target, float duration = 0.25f)
+        {
+            _flyFrom      = Position;
+            _flyTo        = target;
+            _flyStartTime = FrameTime;
+            _flyDuration  = Math.Max(0.01f, duration);
+            _flying       = true;
         }
 
         public void Move(Vector3 _movement)
@@ -99,6 +120,29 @@ namespace VisualEQ.Engine
 
         public void Update(float timestep)
         {
+            if (_flying)
+            {
+                var t = (FrameTime - _flyStartTime) / _flyDuration;
+                if (t >= 1f)
+                {
+                    Position = _flyTo;
+                    _flying = false;
+                    FallingVelocity = 0;
+                }
+                else
+                {
+                    // Ease-out cubic — decelerates into the landing so the stop doesn't jar.
+                    var oneMinusT = 1f - t;
+                    var eased = 1f - oneMinusT * oneMinusT * oneMinusT;
+                    Position = Vector3.Lerp(_flyFrom, _flyTo, eased);
+                }
+
+                var flyEye = Position + new Vector3(0, 0, CameraHeight);
+                var flyAt  = Vector3.Normalize(Vector3.Transform(Forward, LookRotation));
+                Matrix = Matrix4x4.CreateLookAt(flyEye, flyEye + flyAt, Up);
+                return;
+            }
+
             if (PhysicsEnabled)
                 NoProfile("Gravity", () =>
                 {

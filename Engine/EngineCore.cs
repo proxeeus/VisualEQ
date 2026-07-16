@@ -455,6 +455,27 @@ namespace VisualEQ.Engine
             return new Vector3(xy.X, xy.Y, z);
         }
 
+        // Casts a ray from the current mouse cursor into the scene and, if it hits a
+        // collider triangle, tells the camera to fly there. Landing altitude offset is
+        // small (12 units above the hit) so ground-level physics doesn't fight the
+        // arrival for long, but you're not underground either. No-op when the cursor is
+        // over sky, over the GUI, or when there's no collider (pre-zone-load).
+        void FlyToCursor()
+        {
+            if (Collider == null) return;
+            if (Gui.MouseWanted) return;
+
+            var (mx, my) = Gui.MousePosition;
+            var rayOrigin = Camera.Position + new Vector3(0, 0, FpsCamera.CameraHeight);
+            var rayDir    = ScreenToWorldRay(mx, my);
+
+            var hit = Collider.FindIntersection(rayOrigin, rayDir, 0.5f);
+            if (!hit.HasValue) return;
+
+            var target = hit.Value.Item2 + new Vector3(0, 0, 12f);
+            Camera.FlyTo(target);
+        }
+
         // Screen → world ray. Same math as ZonePointEditor/WaypointEditor use internally.
         Vector3 ScreenToWorldRay(int mouseX, int mouseY)
         {
@@ -538,8 +559,10 @@ namespace VisualEQ.Engine
                     Console.WriteLine($"[Engine] Back-face culling {(_cullEnabled ? "ON" : "OFF")}");
                     break;
                 case Key.Space:
-                    if (Camera.OnGround)
-                        Camera.FallingVelocity = -50;
+                    // Fly-to-cursor: raycast from the mouse into the scene, warp the camera
+                    // to hover above the hit point. Replaces the vestigial jump behavior —
+                    // useful nav for big zones (oot, sf, feerrott) where WASD is too slow.
+                    FlyToCursor();
                     break;
                 case Key.P:
                     PhysicsEnabled = !PhysicsEnabled;
