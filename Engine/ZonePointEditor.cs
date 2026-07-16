@@ -189,30 +189,27 @@ namespace VisualEQ.Engine
             var rayOrigin = Camera.Position + new Vector3(0, 0, FpsCamera.CameraHeight);
             var rayDir    = ScreenToWorldRay(mouseX, mouseY);
 
-            Handle? best = null;
-            float bestScreenDist2 = float.MaxValue;
+            // Pure screen-space handle picker: pixel distance to mouse is the primary
+            // rank, camera distance is the tiebreak. Previous version filtered on a
+            // distance-scaled world sphere first — same class of bug as ModelSelector
+            // where a distant handle inside a huge world radius could beat a nearby
+            // handle. Handles are small on-screen dots regardless of world scale so
+            // the pixel radius is what actually matches user intent.
+            //
+            // Two passes to preserve the historical "incoming pads take priority over
+            // owned handles that happen to sit on top of them" rule — if any incoming
+            // pad is within the pixel radius, it wins outright; otherwise fall through
+            // to owned handles. Without this, user clicks on an incoming pad landing
+            // inside an owned box would flip-flop to the box's center handle.
+            const float PixelHitRadius   = 18f;
+            const float PixelHitRadiusSq = PixelHitRadius * PixelHitRadius;
+            const float PixelTieEpsilonSq = 4f;
 
-            foreach (var h in _candidates)
-            {
-                var to = h.ScenePos - rayOrigin;
-                var proj = Vector3.Dot(to, rayDir);
-                if (proj < 0) continue;
-
-                var worldRadius = BaseRadiusFor(h.Kind, h.IsIncoming) + proj * 0.005f;
-                var closestPoint = rayOrigin + rayDir * proj;
-                var d2 = Vector3.DistanceSquared(closestPoint, h.ScenePos);
-                if (d2 >= worldRadius * worldRadius) continue;
-
-                // Passed the ray-sphere filter. Project to screen and measure pixel
-                // distance to cursor — that determines the winner.
-                if (!TryProjectToScreen(h.ScenePos, out var screenPos)) continue;
-                var screenDist2 = (screenPos - mouse).LengthSquared();
-                if (screenDist2 < bestScreenDist2)
-                {
-                    best = h;
-                    bestScreenDist2 = screenDist2;
-                }
-            }
+            Handle? best = PickBestHandle(_candidates.Where(h => h.IsIncoming),
+                mouse, rayOrigin, PixelHitRadiusSq, PixelTieEpsilonSq);
+            if (!best.HasValue)
+                best = PickBestHandle(_candidates.Where(h => !h.IsIncoming),
+                    mouse, rayOrigin, PixelHitRadiusSq, PixelTieEpsilonSq);
 
             if (best.HasValue)
             {
@@ -272,18 +269,36 @@ namespace VisualEQ.Engine
             return tmax >= 0;
         }
 
-        // Per-kind base world-space hit radius. Incoming pads get the largest so they
-        // stay easy to click even overlapping owned handles. All are additionally
-        // scaled by camera-space depth so far-away handles don't require pixel-perfect
-        // aim (scale factor kept small so nearby handles stay precise).
-        static float BaseRadiusFor(HandleKind kind, bool isIncoming)
+        // Screen-space pixel-distance ranker, shared by the incoming-pass + owned-pass
+        // in TrySelect. Returns the best hit within `pixelHitRadiusSq` or null.
+        Handle? PickBestHandle(
+            System.Collections.Generic.IEnumerable<Handle> candidates,
+            Vector2 mouse, Vector3 rayOrigin,
+            float pixelHitRadiusSq, float pixelTieEpsilonSq)
         {
-            if (isIncoming) return 20f;
-            switch (kind)
+            Handle? best = null;
+            float bestScreenDist2 = pixelHitRadiusSq;
+            float bestCameraDist2 = float.MaxValue;
+
+            foreach (var h in candidates)
             {
-                case HandleKind.Center: return 14f;
-                default:                return 10f;   // corners, faces, plane end-caps
+                if (!TryProjectToScreen(h.ScenePos, out var screenPos)) continue;
+
+                var screenDist2 = (screenPos - mouse).LengthSquared();
+                if (screenDist2 > pixelHitRadiusSq) continue;
+
+                var camDist2 = Vector3.DistanceSquared(h.ScenePos, rayOrigin);
+
+                var delta = screenDist2 - bestScreenDist2;
+                if (delta < -pixelTieEpsilonSq ||
+                    (System.Math.Abs(delta) < pixelTieEpsilonSq && camDist2 < bestCameraDist2))
+                {
+                    best = h;
+                    bestScreenDist2 = screenDist2;
+                    bestCameraDist2 = camDist2;
+                }
             }
+            return best;
         }
 
         // Projects a world position to screen pixel coords. Returns false if the point

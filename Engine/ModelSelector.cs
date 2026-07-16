@@ -93,55 +93,88 @@ namespace VisualEQ.Engine
         // True once the drag has actually engaged (past the threshold).
         public bool IsDragging => isDragging;
 
-        // Try to select a model at the current mouse position
+        // Screen-space model picker. For every model we project its torso point to
+        // pixel coords, measure the pixel distance to the mouse, and pick the model
+        // whose projection is closest. Camera distance is a tiebreaker so overlapping
+        // spawns (EQEmu respawn-rotation stacks) resolve to the front one.
+        //
+        // Replaces the old world-space sphere test whose 15+ unit radius scaled with
+        // distance — that meant distant models occupied huge world volumes and could
+        // steal clicks from nearby models whose "feet" happened to sit far from the
+        // pierced ray point. Screen-space matches the user's mental model ("I clicked
+        // that pixel") and behaves consistently across scale + distance.
         public bool TrySelect(int mouseX, int mouseY)
         {
-            // Convert screen coordinates to ray in world space
-            Vector3 rayOrigin = Camera.Position + new Vector3(0, 0, FpsCamera.CameraHeight);
-            Vector3 rayDirection = ScreenToWorldRay(mouseX, mouseY);
+            if (models.Count == 0)
+            {
+                if (selectedModel != null) SelectModel(null);
+                return false;
+            }
 
-            // Find closest model along ray
-            AniModelInstance closestModel = null;
-            float closestDistance = float.MaxValue;
+            // Generous enough that clicks on the arms / weapons of a humanoid still
+            // hit, tight enough that distant background models can't steal a click.
+            // Kept as a fixed value in pixels — not scaled with distance — precisely
+            // because the point of screen-space is "same tolerance regardless of how
+            // far the model is." Tune from actual use before making it adaptive.
+            const float PixelHitRadius   = 25f;
+            const float PixelHitRadiusSq = PixelHitRadius * PixelHitRadius;
+
+            // ~2 px tolerance around "same pixel" so tiebreak kicks in for genuinely
+            // overlapping projections (stacked spawns) without ping-ponging on
+            // sub-pixel noise between adjacent-but-separated models.
+            const float PixelTieEpsilonSq = 4f;
+
+            var vp    = FpsCamera.Matrix * ProjectionMat;
+            var eye   = Camera.Position + new Vector3(0, 0, FpsCamera.CameraHeight);
+
+            AniModelInstance bestModel = null;
+            float bestPixelDistSq = PixelHitRadiusSq;
+            float bestCameraDistSq = float.MaxValue;
 
             foreach (var model in models)
             {
-                Vector3 modelPos = model.Position;
+                // Aim at torso height, not feet. Model.Position is the spawn2 XYZ
+                // (ground-level). +3 world units × instance Scale approximates the
+                // torso for humanoids; giants (Scale > 1) get proportionally taller
+                // aim-point, dwarves / halflings (Scale < 1) get proportionally shorter.
+                var worldTorso = model.Position + new Vector3(0, 0, 3f * model.Scale);
 
-                Vector3 toModel = modelPos - rayOrigin;
-                float projectionLength = Vector3.Dot(toModel, rayDirection);
+                // Project world → clip → NDC → pixel. Reject behind-camera and any
+                // point whose W is degenerate (numerical instability protection).
+                var clip = Vector4.Transform(new Vector4(worldTorso, 1f), vp);
+                if (clip.W <= 0.001f) continue;
 
-                // Model is behind camera
-                if (projectionLength < 0) continue;
+                var ndcX = clip.X / clip.W;
+                var ndcY = clip.Y / clip.W;
+                var screenX = (ndcX * 0.5f + 0.5f) * engine.Width;
+                var screenY = (1f - (ndcY * 0.5f + 0.5f)) * engine.Height;
 
-                // Selection radius scales gently with view distance so distant models don't
-                // require pixel-perfect clicks. Base 15 (was 10) is more forgiving for
-                // typical humanoid sizes (~7 units tall + 2 wide).
-                float selectionRadius = 15f + projectionLength * 0.008f;
+                var dx = screenX - mouseX;
+                var dy = screenY - mouseY;
+                var pixelDistSq = dx * dx + dy * dy;
 
-                Vector3 closestPoint = rayOrigin + rayDirection * projectionLength;
-                float distanceSquared = Vector3.DistanceSquared(closestPoint, modelPos);
+                if (pixelDistSq > PixelHitRadiusSq) continue;
 
-                // Check if point is within selection radius and closer than previous hits
-                if (distanceSquared < selectionRadius * selectionRadius && projectionLength < closestDistance)
+                var camDistSq = Vector3.DistanceSquared(worldTorso, eye);
+
+                // Primary: closer pixel. Tie (within epsilon): closer camera distance.
+                var pixelDelta = pixelDistSq - bestPixelDistSq;
+                if (pixelDelta < -PixelTieEpsilonSq ||
+                    (System.Math.Abs(pixelDelta) < PixelTieEpsilonSq && camDistSq < bestCameraDistSq))
                 {
-                    closestModel = model;
-                    closestDistance = projectionLength;
+                    bestModel = model;
+                    bestPixelDistSq = pixelDistSq;
+                    bestCameraDistSq = camDistSq;
                 }
             }
 
-            // Select the closest model if found
-            if (closestModel != null)
+            if (bestModel != null)
             {
-                SelectModel(closestModel);
+                SelectModel(bestModel);
                 return true;
             }
 
-            // No model found
-            if (selectedModel != null)
-            {
-                SelectModel(null);
-            }
+            if (selectedModel != null) SelectModel(null);
             return false;
         }
 

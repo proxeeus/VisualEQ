@@ -99,41 +99,59 @@ namespace VisualEQ.Engine
         // Ray-cast against candidate waypoints. Selects the closest hit; returns true if
         // anything was hit (so EngineCore.OnMouseDown can decide whether ModelSelector
         // should also run).
+        // Screen-space waypoint picker. Mirrors ModelSelector.TrySelect — see the
+        // rationale there. Waypoints are small crosshair markers so the pixel radius
+        // is tighter than the model picker's; the camera-distance tiebreak still
+        // resolves overlapping waypoints (rare but possible when two grids share a
+        // node).
         public bool TrySelect(int mouseX, int mouseY)
         {
             if (_candidates.Count == 0) return false;
 
-            var rayOrigin = Camera.Position + new Vector3(0, 0, FpsCamera.CameraHeight);
-            var rayDir = ScreenToWorldRay(mouseX, mouseY);
+            const float PixelHitRadius   = 18f;
+            const float PixelHitRadiusSq = PixelHitRadius * PixelHitRadius;
+            const float PixelTieEpsilonSq = 4f;
 
-            Handle? closest = null;
-            float bestProj = float.MaxValue;
+            var vp  = FpsCamera.Matrix * ProjectionMat;
+            var eye = Camera.Position + new Vector3(0, 0, FpsCamera.CameraHeight);
+
+            Handle? best = null;
+            float bestPixelDistSq = PixelHitRadiusSq;
+            float bestCameraDistSq = float.MaxValue;
 
             foreach (var wp in _candidates)
             {
-                var toWp = wp.ScenePos - rayOrigin;
-                var proj = Vector3.Dot(toWp, rayDir);
-                if (proj < 0) continue;
+                var clip = Vector4.Transform(new Vector4(wp.ScenePos, 1f), vp);
+                if (clip.W <= 0.001f) continue;
 
-                // Same distance-scaled radius formula as ModelSelector so waypoints and
-                // spawns feel consistent to click, plus a smaller floor since waypoints are
-                // small anyway.
-                var radius = 12f + proj * 0.008f;
+                var ndcX = clip.X / clip.W;
+                var ndcY = clip.Y / clip.W;
+                var screenX = (ndcX * 0.5f + 0.5f) * _engine.Width;
+                var screenY = (1f - (ndcY * 0.5f + 0.5f)) * _engine.Height;
 
-                var closestPoint = rayOrigin + rayDir * proj;
-                var d2 = Vector3.DistanceSquared(closestPoint, wp.ScenePos);
-                if (d2 < radius * radius && proj < bestProj)
+                var dx = screenX - mouseX;
+                var dy = screenY - mouseY;
+                var pixelDistSq = dx * dx + dy * dy;
+
+                if (pixelDistSq > PixelHitRadiusSq) continue;
+
+                var camDistSq = Vector3.DistanceSquared(wp.ScenePos, eye);
+
+                var pixelDelta = pixelDistSq - bestPixelDistSq;
+                if (pixelDelta < -PixelTieEpsilonSq ||
+                    (System.Math.Abs(pixelDelta) < PixelTieEpsilonSq && camDistSq < bestCameraDistSq))
                 {
-                    closest = wp;
-                    bestProj = proj;
+                    best = wp;
+                    bestPixelDistSq = pixelDistSq;
+                    bestCameraDistSq = camDistSq;
                 }
             }
 
-            if (closest.HasValue)
+            if (best.HasValue)
             {
-                _selected = closest;
-                _currentPosition = closest.Value.ScenePos;
-                OnSelectionChanged?.Invoke(closest);
+                _selected = best;
+                _currentPosition = best.Value.ScenePos;
+                OnSelectionChanged?.Invoke(best);
                 return true;
             }
             return false;
