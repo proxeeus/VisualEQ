@@ -79,7 +79,10 @@ void main() {
 
             GL.Enable(EnableCap.Blend);
             GL.BlendFunc(BlendingFactorSrc.SrcAlpha, BlendingFactorDest.OneMinusSrcAlpha);
-            GL.LineWidth(2f);
+            // Bumped from 2 → 3 for legibility on bright textured floors (cshome marble,
+            // freporte cobblestone). Anything higher gets clamped by many GL 4.1 drivers
+            // to 1 in Core Profile — 3 renders reliably on Mac Metal / Parallels.
+            GL.LineWidth(3f);
 
             _vao.Bind(() => GL.DrawArrays(PrimitiveType.Lines, 0, _lineCount * 2));
 

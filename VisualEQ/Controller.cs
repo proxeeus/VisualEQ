@@ -1753,9 +1753,16 @@ namespace VisualEQ
                     lines.Add((a, b, baseColor));
                 }
 
-                const float armLength = 5f;
-                const float selectedArmLength = 9f;
+                // Waypoint markers were getting lost on bright surfaces (cshome marble
+                // floor, freporte cobblestone). Two changes: (1) bumped arm length so
+                // the ground-plane cross has more presence; (2) the vertical arm is now
+                // an upward pole only, so the marker protrudes into the air above the
+                // floor instead of half-burying itself.
+                const float armLength = 8f;
+                const float selectedArmLength = 12f;
                 const float draggingArmLength = 20f;
+                const float PoleMultiplier = 2.5f;   // vertical pole = arm × this
+                const float FloorLift = 0.5f;        // lift X/Y arms this much above WP to avoid z-fighting with the floor
                 foreach (var wp in waypoints)
                 {
                     var isSelected = selectedHandle.HasValue
@@ -1773,9 +1780,13 @@ namespace VisualEQ
                     else if (isSelected)          { color = green;       arm = selectedArmLength; }
                     else                          { color = baseColor;   arm = armLength; }
 
-                    lines.Add((scenePos - new Vector3(arm, 0, 0), scenePos + new Vector3(arm, 0, 0), color));
-                    lines.Add((scenePos - new Vector3(0, arm, 0), scenePos + new Vector3(0, arm, 0), color));
-                    lines.Add((scenePos - new Vector3(0, 0, arm), scenePos + new Vector3(0, 0, arm), color));
+                    var xyLevel = scenePos + new Vector3(0, 0, FloorLift);
+                    lines.Add((xyLevel - new Vector3(arm, 0, 0), xyLevel + new Vector3(arm, 0, 0), color));
+                    lines.Add((xyLevel - new Vector3(0, arm, 0), xyLevel + new Vector3(0, arm, 0), color));
+                    // Upward pole only (previously ±arm on Z, but the negative half was
+                    // buried in the floor). Now every waypoint has a visible vertical
+                    // beacon even on flat, brightly-lit surfaces.
+                    lines.Add((scenePos, scenePos + new Vector3(0, 0, arm * PoleMultiplier), color));
 
                     // Heading arrow — points in the direction the NPC will face at this
                     // waypoint. Same 0-511 convention as spawn2.heading (grid_entries.heading
