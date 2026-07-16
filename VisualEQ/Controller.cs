@@ -1566,19 +1566,33 @@ namespace VisualEQ
                 return;
             }
 
-            // Camera-anchor placement with ground snap — same pattern as
-            // CreateNewGridAtCamera. The whole duplicate is dragable afterwards so the
-            // exact position doesn't have to be perfect.
-            var cam = Camera.Position;
-            float dbX = cam.Y;
-            float dbY = cam.X;
-            float dbZ = cam.Z;
-            if (Collider != null)
+            // Near-source placement — 5 units offset from the source in the horizontal
+            // direction of the camera (so the duplicate is always inside the camera's
+            // line of sight to the source). Keeps the source's Z, which is a known-good
+            // ground level. Reasoning: camera-anchor placement was cumbersome (WASD-only
+            // navigation), and a downward-probe from camera Z lands inside geometry in
+            // small zones like cshome.
+            var srcScene = src.Model.Position;
+            var camScene = Camera.Position;
+            var dx = camScene.X - srcScene.X;
+            var dy = camScene.Y - srcScene.Y;
+            var lenSq = dx * dx + dy * dy;
+            Vector3 sceneOffset;
+            if (lenSq > 0.001f)
             {
-                var probe = new Vector3(cam.X, cam.Y, cam.Z + 5f);
-                var hit = Collider.FindIntersection(probe, new Vector3(0, 0, -1), 0.5f);
-                if (hit.HasValue) dbZ = hit.Value.Item2.Z;
+                var invLen = 1f / System.MathF.Sqrt(lenSq);
+                sceneOffset = new Vector3(dx * invLen * 5f, dy * invLen * 5f, 0f);
             }
+            else
+            {
+                sceneOffset = new Vector3(5f, 0f, 0f); // camera directly above source
+            }
+            var newScene = srcScene + sceneOffset;
+
+            // Scene → DB coord swap (X = east/west, Y = north/south, Z = up).
+            float dbX = newScene.Y;
+            float dbY = newScene.X;
+            float dbZ = newScene.Z;
 
             // Fresh negative temp id — never collides with real spawn2 ids
             // (AUTO_INCREMENT is always positive) and never with other temp ids in-session.
