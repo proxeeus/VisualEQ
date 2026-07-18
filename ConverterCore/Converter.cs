@@ -95,11 +95,43 @@ namespace VisualEQ.ConverterCore
                 {
                     if (wld.Filename == name + ".wld") continue;
 
-                    foreach (var (_objname, objmesh) in wld.GetFragments<Fragment36>())
+                    // Walk Fragment14 (ACTORDEFs), not raw Fragment36s. Fragment15 instances
+                    // reference actors by name — for static Fragment2D actors (BALLISTAE,
+                    // CBTENT101, ...) that used to map 1:1 to a Fragment36 name, but Kunark+
+                    // introduced skeletal-static actors (TREE102, WARDPINE101, ...) where a
+                    // single ACTORDEF composes a Fragment11 skeleton with several bone-
+                    // attached Fragment36 branch/trunk meshes. The old converter, keyed by
+                    // Fragment36 name (TR102BR10, TR102TNK1, ...), never matched the
+                    // TREE102_ACTORDEF the instance pointed at — so every Kunark tree was
+                    // silently skipped. LANTERN resolves this the same way via Actor.cs +
+                    // ObjectInstance.cs (see reference-lantern-extractor memory).
+                    foreach (var (actorName, actor) in wld.GetFragments<Fragment14>())
                     {
-                        var objname = _objname.Replace("_DMSPRITEDEF", "");
-                        CreateMeshAndSkin(wld, zip, objMap[objname] = new OESObject(objname), new[] { new MeshPiece(objmesh) });
-                        zone.Add(objMap[objname]);
+                        var objname = actorName;
+                        if (objname.EndsWith("_ACTORDEF"))
+                            objname = objname.Substring(0, objname.Length - "_ACTORDEF".Length);
+                        if (string.IsNullOrEmpty(objname) || objMap.ContainsKey(objname)) continue;
+
+                        var pieces = new List<MeshPiece>();
+                        foreach (var r in actor.References)
+                        {
+                            if (r.Value is Fragment2D f2d)
+                            {
+                                var mesh36 = f2d.Reference.Value;
+                                if (mesh36?.TextureListReference.Value != null)
+                                    pieces.Add(new MeshPiece(mesh36));
+                            }
+                            else if (r.Value is Fragment11 f11)
+                            {
+                                pieces.AddRange(BakeSkeletalObjectPieces(f11));
+                            }
+                        }
+                        if (pieces.Count == 0) continue;
+
+                        var obj = new OESObject(objname);
+                        CreateMeshAndSkin(wld, zip, obj, pieces);
+                        objMap[objname] = obj;
+                        zone.Add(obj);
                     }
                 }
 
@@ -840,6 +872,101 @@ namespace VisualEQ.ConverterCore
                 case OESRegion.KindLava:  return "lava";
                 case OESRegion.KindSlime: return "slime";
                 default: return "other";
+            }
+        }
+
+        // Skeletal-static zone actors (Kunark trees, Warslik pines, cabilis pillars):
+        // Fragment14 → Fragment11 → Fragment10 with N bone-attached Fragment36 meshes
+        // sharing one skeleton. There's no animation — we bake the bind pose (frame 0
+        // of every Fragment13 piece track) into the mesh vertices and hand the caller
+        // a set of MeshPieces ready to feed into the existing static-object pipeline.
+        // Mirrors GenerateAnimatedMeshes' bone-matrix walk but uses only frame 0 and
+        // pre-transforms verts in place instead of emitting animation buffers.
+        IEnumerable<MeshPiece> BakeSkeletalObjectPieces(Fragment11 f11)
+        {
+            var f10 = f11?.Reference.Value;
+            if (f10 == null) yield break;
+
+            var boneMats = new Dictionary<uint, Matrix4x4>();
+            void Walk(uint idx, Matrix4x4 parent)
+            {
+                if (idx >= f10.Tracks.Length) return;
+                var track = f10.Tracks[idx];
+                var frames = track.PieceTrack?.Value?.Reference.Value?.Frames;
+                var rot = Quaternion.Identity;
+                var trans = Vector3.Zero;
+                if (frames != null && frames.Length > 0)
+                {
+                    rot = frames[0].Rotation;
+                    trans = frames[0].Shift;
+                }
+                // Match GenerateAnimatedMeshes' order: translate first, then rotate,
+                // then apply parent transform. Row-vector convention (System.Numerics)
+                // applies these left-to-right when computing v * M, which reproduces the
+                // classic-client "local translate → local rotate → parent" chain.
+                var mat = Matrix4x4.CreateTranslation(trans) * parent;
+                mat = Matrix4x4.CreateFromQuaternion(rot) * mat;
+                boneMats[idx] = mat;
+                foreach (var ch in track.Children) Walk((uint)ch, mat);
+            }
+            Walk(0, Matrix4x4.Identity);
+
+            for (var mi = 0; mi < f10.Meshes.Length; mi++)
+            {
+                var f36 = f10.Meshes[mi]?.Value?.Reference.Value;
+                if (f36 == null || f36.TextureListReference.Value == null) continue;
+
+                var piece = new MeshPiece(f36);
+
+                // Bone assignment has two paths in classic Trilogy WLDs:
+                //
+                //   1. VertBones populated → per-range weighted like character models. Each
+                //      (count, boneIdx) binds a contiguous vertex range to one bone. We use
+                //      LANTERN's formula `bone_matrix * raw_vertex + center` — the parser
+                //      baked `center` into `piece.Vertices` at read time, so we subtract it,
+                //      apply the bone matrix, then add it back.
+                //
+                //   2. VertBones empty → the mesh is attached wholly to Tracks[mi]'s bone.
+                //      Fragment10 built its Meshes list from `tracks.Select(x => x.Item4)`
+                //      (see Read10), so Meshes[i] is Tracks[i].Mesh and the implied bone is
+                //      bone i. Every Kunark tree/rock/pillar hits this path.
+                //
+                // For path 2 we deliberately DROP mesh.Center. Kunark tree trunks have a
+                // large-negative Center.Z (e.g. TREE102 trunk Center Z = -39.3) that with
+                // LANTERN's `bone*raw + center` plants the trunk 39 units underground and
+                // matches nothing on the ground. Dropping the center gives Z = raw + bone
+                // (trunk from 0 upward, branches lifted by their bone's Z translation) —
+                // which is what the classic client actually renders. Data trumps the OBJ-
+                // exporter formula: LANTERN's export writes centers back for tooling
+                // compatibility, but in-game rendering does not.
+                if (f36.VertBones.Length > 0)
+                {
+                    var offset = 0U;
+                    foreach (var (count, boneIdx) in f36.VertBones)
+                    {
+                        if (!boneMats.TryGetValue(boneIdx, out var mat)) mat = Matrix4x4.Identity;
+                        for (var j = 0U; j < count; j++)
+                        {
+                            var vi = (int)(offset + j);
+                            var raw = piece.Vertices[vi] - f36.Center;
+                            piece.Vertices[vi] = Vector3.Transform(raw, mat) + f36.Center;
+                            piece.Normals[vi]  = Vector3.TransformNormal(piece.Normals[vi], mat);
+                        }
+                        offset += count;
+                    }
+                }
+                else
+                {
+                    if (!boneMats.TryGetValue((uint)mi, out var mat)) mat = Matrix4x4.Identity;
+                    for (var vi = 0; vi < piece.Vertices.Count; vi++)
+                    {
+                        var raw = piece.Vertices[vi] - f36.Center;
+                        piece.Vertices[vi] = Vector3.Transform(raw, mat);
+                        piece.Normals[vi]  = Vector3.TransformNormal(piece.Normals[vi], mat);
+                    }
+                }
+
+                yield return piece;
             }
         }
 
