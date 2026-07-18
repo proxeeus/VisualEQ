@@ -187,6 +187,11 @@ namespace VisualEQ.LegacyFileReader
     public class Fragment36
     {
         public Reference<Fragment31> TextureListReference;
+        // Raw center offset from the WLD header. Already folded into `Vertices` by the
+        // parser (see Read36). Exposed separately because skeletal-static actors need to
+        // undo the fold before applying a bone matrix — the classic-client formula is
+        // `bone_matrix * raw_vertex + center`, and `bone * (raw + center)` double-shifts.
+        public Vector3 Center;
         public Vector3[] Vertices, Normals;
         public Vector2[] TexCoords;
         public (bool Collidable, uint A, uint B, uint C)[] Polygons;
@@ -577,6 +582,7 @@ namespace VisualEQ.LegacyFileReader
             return new Fragment36
             {
                 TextureListReference = texRef,
+                Center = center,
                 Vertices = vertices,
                 Normals = normals,
                 TexCoords = texcoords,
