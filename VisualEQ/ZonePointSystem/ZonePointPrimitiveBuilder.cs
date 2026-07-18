@@ -365,10 +365,11 @@ namespace VisualEQ.ZonePointSystem
                 tris.Add(new Tri(padCenter, padVerts[i], next, fill));
             }
 
-            // Heading arrow. zp.Row.Heading is stored on the EQEmu-global 0-511 scale
-            // (matches grid_entries.heading, zone_points.target_heading, and the client's
-            // /loc output). HeadingToRotation expects the same scale — no conversion.
-            var rot           = VisualEQ.SpawnSystem.SpawnManager.HeadingToRotation(zp.Row.Heading);
+            // Heading arrow. trilogy_zone_points.heading is on the 0-255 wire scale;
+            // the server does heading * 2 at fire time (trilogy_client.cpp:1919) to get
+            // its 0-512 internal value. HeadingToRotation expects 0-512, so match the
+            // server: ×2 to convert wire → server.
+            var rot           = VisualEQ.SpawnSystem.SpawnManager.HeadingToRotation(zp.Row.Heading * 2f);
             var forward       = Vector3.Normalize(Vector3.Transform(new Vector3(0, 1, 0), rot));
             var arrowStart    = padCenter;
             var arrowEnd      = arrowStart + forward * arrowLength;
