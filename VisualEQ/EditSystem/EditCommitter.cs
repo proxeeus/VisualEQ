@@ -305,6 +305,15 @@ namespace VisualEQ.EditSystem
                             {
                                 var ins = kv.Value;
                                 var toZoneId = await ResolveToZoneIdAsync(ins.TargetZone);
+                                // Normalize plane-crossing MinVert/MaxVert at the DB boundary.
+                                // The server-side crossing check (trilogy_client.cpp:2005) does
+                                // `y >= MinVert && y <= MaxVert` with the raw values — no sort.
+                                // If a plane end-cap drag swapped them, the check is impossible
+                                // for any Y and the plane silently never fires. Sort here so
+                                // no matter how the editor state got there, the DB row is
+                                // always in the canonical MinVert <= MaxVert order. Left = 0/0
+                                // untouched (server treats as unbounded).
+                                var (insMinVert, insMaxVert) = SortPlaneBounds(ins.UseNewZoning, ins.MinVert, ins.MaxVert);
                                 var newId = await connection.ExecuteScalarAsync<int>(
                                     SqlQueries.InsertTrilogyZonePoint,
                                     new
@@ -315,7 +324,7 @@ namespace VisualEQ.EditSystem
                                         TargetX      = ins.TargetX, TargetY = ins.TargetY, TargetZ = ins.TargetZ,
                                         Zrange       = ins.Zrange, MaxZDiff = ins.MaxZDiff,
                                         UseNewZoning = ins.UseNewZoning,
-                                        MinVert      = ins.MinVert, MaxVert = ins.MaxVert, CenterPoint = ins.CenterPoint,
+                                        MinVert      = insMinVert, MaxVert = insMaxVert, CenterPoint = ins.CenterPoint,
                                         KeepX        = ins.KeepX, KeepY = ins.KeepY, KeepZ = ins.KeepZ,
                                         ToZoneId     = toZoneId,
                                     },
@@ -329,6 +338,11 @@ namespace VisualEQ.EditSystem
                             {
                                 var edit = kv.Value;
                                 var toZoneId = await ResolveToZoneIdAsync(edit.CurrentTargetZone);
+                                // Same MinVert/MaxVert normalization as the insert path — see
+                                // the SortPlaneBounds comment above. An end-cap drag that ends
+                                // with MinVert > MaxVert would otherwise persist to the DB and
+                                // silently break server-side crossing detection.
+                                var (editMinVert, editMaxVert) = SortPlaneBounds(edit.CurrentUseNewZoning, edit.CurrentMinVert, edit.CurrentMaxVert);
                                 zonePointRows += await connection.ExecuteAsync(
                                     SqlQueries.UpdateTrilogyZonePoint,
                                     new
@@ -345,8 +359,8 @@ namespace VisualEQ.EditSystem
                                         Zrange       = edit.CurrentZrange,
                                         MaxZDiff     = edit.CurrentMaxZDiff,
                                         UseNewZoning = edit.CurrentUseNewZoning,
-                                        MinVert      = edit.CurrentMinVert,
-                                        MaxVert      = edit.CurrentMaxVert,
+                                        MinVert      = editMinVert,
+                                        MaxVert      = editMaxVert,
                                         CenterPoint  = edit.CurrentCenterPoint,
                                         KeepX        = edit.CurrentKeepX,
                                         KeepY        = edit.CurrentKeepY,
@@ -388,6 +402,20 @@ namespace VisualEQ.EditSystem
             {
                 return new Result { Success = false, Error = ex.Message };
             }
+        }
+
+        // Sort MinVert/MaxVert so the DB row stores them in the canonical
+        // MinVert <= MaxVert order that the server's plane-crossing check
+        // (trilogy_client.cpp:2005, 2010, 2059, 2064) reads. Only touch plane
+        // modes (1 = X-plane, 2 = Y-plane); box mode ignores these columns.
+        // 0/0 stays 0/0 — the server treats it as "unbounded" and swapping
+        // wouldn't change semantics but would tag the row as "edited" in
+        // diffs, so leave the sentinel alone.
+        static (float min, float max) SortPlaneBounds(byte useNewZoning, float minVert, float maxVert)
+        {
+            if (useNewZoning != 1 && useNewZoning != 2) return (minVert, maxVert);
+            if (minVert == 0f && maxVert == 0f) return (minVert, maxVert);
+            return (System.MathF.Min(minVert, maxVert), System.MathF.Max(minVert, maxVert));
         }
     }
 }
