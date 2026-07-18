@@ -2412,7 +2412,8 @@ namespace VisualEQ.Views
                 VisualEQ.EditSystem.ZonePointFieldEditAction.Field.TargetZ,
                 () => zp.Row.TargetZ, v => zp.Row.TargetZ = v, editable);
             RenderFloatField(zp, VisualEQ.EditSystem.ZonePointFieldEditAction.Field.Heading,
-                "heading (0–255)", () => zp.Row.Heading, v => zp.Row.Heading = v, editable);
+                "heading (0–511, matches client /loc + grid_entries convention)",
+                () => zp.Row.Heading, v => zp.Row.Heading = v, editable);
             ImGui.Text("Check 'wild' on an axis to preserve the player's coord across zones.");
 
             // ─── Keep flags ──────────────────────────────────────────────────────────
@@ -2453,7 +2454,7 @@ namespace VisualEQ.Views
             ImGui.Text($"  ({zp.Row.X:F1}, {zp.Row.Y:F1}, {zp.Row.Z:F1})");
 
             ImGui.Separator();
-            ImGui.Text("Landing heading (0–255)");
+            ImGui.Text("Landing heading (0–511, matches client /loc)");
             RenderIncomingHeadingSlider(zp, editable);
             ImGui.Text("Angle the arriving character faces on entry.");
 
@@ -2494,7 +2495,7 @@ namespace VisualEQ.Views
                 _zpIncHeadingRowId  = zp.Row.Id;
             }
 
-            var changed = ImGui.SliderFloat($"###{Id}zpIncHead", ref _zpIncHeadingBuffer, 0f, 255f, "%.0f", 1f);
+            var changed = ImGui.SliderFloat($"###{Id}zpIncHead", ref _zpIncHeadingBuffer, 0f, 511f, "%.0f", 1f);
             var sliderActive = ImGui.IsAnyItemActive();
 
             if (changed)

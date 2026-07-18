@@ -365,11 +365,10 @@ namespace VisualEQ.ZonePointSystem
                 tris.Add(new Tri(padCenter, padVerts[i], next, fill));
             }
 
-            // Heading arrow. Trilogy heading 0-255 → scale up to the 0-512 quaternion
-            // convention so the arrow's "0 = default forward" matches spawn model rotation
-            // (users navigate spawns by heading in the sidebar; this stays consistent).
-            var scaledHeading = zp.Row.Heading * (512f / 255f);
-            var rot           = VisualEQ.SpawnSystem.SpawnManager.HeadingToRotation(scaledHeading);
+            // Heading arrow. zp.Row.Heading is stored on the EQEmu-global 0-511 scale
+            // (matches grid_entries.heading, zone_points.target_heading, and the client's
+            // /loc output). HeadingToRotation expects the same scale — no conversion.
+            var rot           = VisualEQ.SpawnSystem.SpawnManager.HeadingToRotation(zp.Row.Heading);
             var forward       = Vector3.Normalize(Vector3.Transform(new Vector3(0, 1, 0), rot));
             var arrowStart    = padCenter;
             var arrowEnd      = arrowStart + forward * arrowLength;
