@@ -123,9 +123,12 @@ namespace VisualEQ.Views
 
         internal void TeleportToOrc()
         {
-            const float ORC_X = -153f, ORC_Y = 149f, ORC_Z = 80f;
-            Camera.Position = new Vector3(ORC_X, ORC_Y, ORC_Z);
-            StatusMessage = $"Teleported to ORC at ({ORC_X}, {ORC_Y}, {ORC_Z})";
+            // Constants are named in scene-space (matching how they're passed to the
+            // Camera). Camera.Position is scene-space — see CLAUDE.md §8.
+            const float ORC_SCENE_X = -153f, ORC_SCENE_Y = 149f, ORC_SCENE_Z = 80f;
+            Camera.Position = new Vector3(ORC_SCENE_X, ORC_SCENE_Y, ORC_SCENE_Z);
+            // Report in DB coords so it matches the client's /loc.
+            StatusMessage = $"Teleported to ORC at (X={ORC_SCENE_Y}, Y={ORC_SCENE_X}, Z={ORC_SCENE_Z})";
             MessageTimer = 3f;
         }
     }
@@ -389,7 +392,10 @@ namespace VisualEQ.Views
             ImGui.BeginWindow($"###{Id}Hud", flags);
 
             var cam = Camera.Position;
-            ImGui.Text($"Cam: X={cam.X:F0}  Y={cam.Y:F0}  Z={cam.Z:F0}");
+            // Camera.Position is scene-space (X/Y swapped from DB per CLAUDE.md §8).
+            // Un-swap so the labels match DB coord axes and cross-reference 1:1 with
+            // the EQ client's /loc output and the trilogy_zone_points x/y/z columns.
+            ImGui.Text($"Cam: X={cam.Y:F0}  Y={cam.X:F0}  Z={cam.Z:F0}");
 
             var sp = _view.SelectedSpawn;
             if (sp != null)
@@ -893,7 +899,9 @@ namespace VisualEQ.Views
 
             var ctrl = _view.Controller;
             ImGui.Text($"Zone: {ctrl.CurrentZoneName ?? "(none)"}");
-            ImGui.Text($"Position: {Camera.Position}");
+            // Camera.Position is scene-space (X/Y swapped). Un-swap for DB / /loc parity.
+            var pos = Camera.Position;
+            ImGui.Text($"Position: X={pos.Y:F1}  Y={pos.X:F1}  Z={pos.Z:F1}");
             ImGui.Text($"FPS: {ctrl.Engine.FPS:F0}");
             ImGui.Text(ctrl.DbFactory != null
                 ? $"DB: Connected ({ctrl.Settings.Database.Server}/{ctrl.Settings.Database.Database})"
@@ -911,7 +919,9 @@ namespace VisualEQ.Views
             if (ImGui.Button($"Teleport to ORC###{Id}tOrc", new Vector2(180, 30)))
                 _view.TeleportToOrc();
 
-            ImGui.Text($"Current position:\n{Camera.Position}");
+            // Camera.Position is scene-space (X/Y swapped). Un-swap for DB / /loc parity.
+            var tpPos = Camera.Position;
+            ImGui.Text($"Current position:\nX={tpPos.Y:F1}  Y={tpPos.X:F1}  Z={tpPos.Z:F1}");
             if (_view.StatusMessage != "")
                 ImGui.Text(_view.StatusMessage);
         }
