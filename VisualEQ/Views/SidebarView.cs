@@ -2411,9 +2411,20 @@ namespace VisualEQ.Views
             RenderCoordFieldWithWildcard(zp, "target_z",
                 VisualEQ.EditSystem.ZonePointFieldEditAction.Field.TargetZ,
                 () => zp.Row.TargetZ, v => zp.Row.TargetZ = v, editable);
+            // trilogy_zone_points.heading is on the 0-255 wire scale — the server does
+            // heading * 2 at fire time (trilogy_client.cpp:1919) to get its 0-512 internal
+            // value that the client then displays via /loc. Edit in the /loc scale
+            // (0-511) so what the user types matches what they see in game; the setter
+            // halves it before writing to the row.
+            //
+            // (Note: `zone_points.target_heading` on the traditional EQEmu path IS 0-511
+            //  direct after the 2022_09_03 migration, and grid_entries.heading is 0-511
+            //  direct too — but trilogy_zone_points was NOT part of that migration.)
             RenderFloatField(zp, VisualEQ.EditSystem.ZonePointFieldEditAction.Field.Heading,
-                "heading (0–511, matches client /loc + grid_entries convention)",
-                () => zp.Row.Heading, v => zp.Row.Heading = v, editable);
+                "heading (0–511, matches client /loc)",
+                () => zp.Row.Heading * 2f,
+                v => zp.Row.Heading = ClampWireHeading(v * 0.5f),
+                editable);
             ImGui.Text("Check 'wild' on an axis to preserve the player's coord across zones.");
 
             // ─── Keep flags ──────────────────────────────────────────────────────────
@@ -2476,17 +2487,15 @@ namespace VisualEQ.Views
         {
             if (!editable)
             {
-                ImGui.Text($"  heading = {zp.Row.Heading:F0}");
+                // Display in /loc scale (row.Heading * 2). DB storage stays 0-255 wire.
+                ImGui.Text($"  heading = {zp.Row.Heading * 2f:F0}  (client /loc scale)");
                 return;
             }
 
-            // Resync the buffer with the row when:
-            //   • selection changed (different row id), OR
-            //   • slider isn't being held (user is not mid-drag), OR
-            //   • the row's live value has drifted from the buffer (undo/redo/discard/
-            //     external revert while the slider was believed active by a stale flag).
-            // Third condition is a belt-and-suspenders catch that guarantees the slider
-            // always reflects Row.Heading when the user isn't touching it.
+            // Buffer stays in the DB / wire scale (0-255) so the recorded action carries
+            // the exact value that Apply writes to zp.Row.Heading. Slider display is
+            // 0-511 (server / /loc scale) via ×2 on read, ÷2 on write. See the comment
+            // above the owned-heading RenderFloatField site for why this table isn't 0-511.
             var isSameRow = _zpIncHeadingRowId == zp.Row.Id;
             var drifted   = System.MathF.Abs(_zpIncHeadingBuffer - zp.Row.Heading) > 0.5f;
             if (!isSameRow || !_zpIncHeadingSliderWasActive || drifted)
@@ -2495,12 +2504,13 @@ namespace VisualEQ.Views
                 _zpIncHeadingRowId  = zp.Row.Id;
             }
 
-            var changed = ImGui.SliderFloat($"###{Id}zpIncHead", ref _zpIncHeadingBuffer, 0f, 511f, "%.0f", 1f);
+            var displayVal = _zpIncHeadingBuffer * 2f;
+            var changed = ImGui.SliderFloat($"###{Id}zpIncHead", ref displayVal, 0f, 511f, "%.0f", 1f);
             var sliderActive = ImGui.IsAnyItemActive();
 
             if (changed)
             {
-                // Live-update the row so the arrow re-renders in-scene as the user drags.
+                _zpIncHeadingBuffer = ClampWireHeading(displayVal * 0.5f);
                 zp.Row.Heading = _zpIncHeadingBuffer;
             }
 
@@ -2527,6 +2537,17 @@ namespace VisualEQ.Views
                 }
             }
             _zpIncHeadingSliderWasActive = sliderActive;
+        }
+
+        // Clamp a wire-scale heading (0-255) to its valid range. Matches
+        // #fixzoneheading (gm_commands/fixzoneheading.cpp:170-173) so a value the user
+        // typed in /loc scale (e.g. 511) reduces to a legal wire value after the ÷2
+        // conversion and doesn't produce out-of-range garbage at server × 2 fire time.
+        static float ClampWireHeading(float wire)
+        {
+            if (wire < 0f)   return 0f;
+            if (wire > 255f) return 255f;
+            return wire;
         }
 
         // ─── Field render helpers ────────────────────────────────────────────────────
