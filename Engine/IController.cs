@@ -12,6 +12,11 @@ namespace VisualEQ.Engine
         object ModelSelector { get; }
         IReadOnlyList<AniModelInstance> GetCharacterModels();
 
+        // Short-name of the currently-loaded zone (e.g. "gfaydark"), or null when the
+        // menu is showing / a zone hasn't been loaded yet. Consumed by EngineCore for
+        // the window title bar.
+        string CurrentZoneName { get; }
+
         // Called by EngineCore when the user hits the "return to menu" hotkey (F10).
         // Implementations may prompt the user if there are unsaved changes; use this rather
         // than ClearCurrentZone from the hotkey path so the prompt can appear.
