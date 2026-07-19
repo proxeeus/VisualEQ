@@ -24,6 +24,12 @@ namespace VisualEQ.Engine
         // back. Toggle with F9 for regression testing (if a specific mesh's winding
         // is wrong, hitting F9 turns culling off session-wide so we can compare).
         bool _cullEnabled = true;
+        // Foliage-hide toggle (F8). Skips draw calls for any Model whose IsFoliage
+        // flag was set by the Loader (tree/pine/palm objects). Kunark zones drown
+        // the editor view in trees; hiding them makes NPC/pathgrid editing usable.
+        // Persists across zone swaps — F10 clears Models but not this preference,
+        // so if you turn foliage off it stays off for the next zone too.
+        bool _hideFoliage;
 
         public readonly Gui Gui;
 
@@ -37,6 +43,12 @@ namespace VisualEQ.Engine
         public readonly List<LiquidRegion> Regions = new List<LiquidRegion>();
 
         public double FPS => FrameTimes.Count == 0 ? 0 : 1 / (FrameTimes.Sum() / FrameTimes.Count);
+
+        // Read-only accessors for the F1 HelpView diagnostics footer. Kept as
+        // properties (not raw fields) so future changes to storage don't ripple.
+        public bool DeferredLightingOn => DeferredEnabled;
+        public bool BackfaceCullingOn => _cullEnabled;
+        public bool FoliageHidden => _hideFoliage;
 
         Matrix4x4 ProjectionView;
 
@@ -621,6 +633,13 @@ namespace VisualEQ.Engine
                     _cullEnabled = !_cullEnabled;
                     Console.WriteLine($"[Engine] Back-face culling {(_cullEnabled ? "ON" : "OFF")}");
                     break;
+                case Key.F8:
+                    _hideFoliage = !_hideFoliage;
+                    Console.WriteLine($"[Engine] Foliage {(_hideFoliage ? "HIDDEN" : "VISIBLE")}");
+                    break;
+                case Key.F1:
+                    Controller?.ToggleHelp();
+                    break;
                 case Key.Space:
                     // Fly-to-cursor: raycast from the mouse into the scene, warp the camera
                     // to hover above the hit point. Replaces the vestigial jump behavior —
@@ -819,7 +838,7 @@ namespace VisualEQ.Engine
                     else GL.Disable(EnableCap.CullFace);
                     GL.Disable(EnableCap.Blend);
                     GL.Enable(EnableCap.DepthTest);
-                    Models.ForEach(model => model.Draw(ProjectionView, forward: false));
+                    Models.ForEach(model => { if (!_hideFoliage || !model.IsFoliage) model.Draw(ProjectionView, forward: false); });
                     AniModels.ForEach(model => model.Draw(ProjectionView, forward: false));
                     if (diag)
                         Console.WriteLine($"[DIAG] GL error after deferred-pass draw={GL.GetError()}");
@@ -834,7 +853,7 @@ namespace VisualEQ.Engine
                 GL.Enable(EnableCap.DepthTest);
                 GL.ActiveTexture(TextureUnit.Texture0);
                 GL.DepthMask(false);
-                Models.ForEach(model => model.Draw(ProjectionView, forward: true));
+                Models.ForEach(model => { if (!_hideFoliage || !model.IsFoliage) model.Draw(ProjectionView, forward: true); });
                 AniModels.ForEach(model => model.Draw(ProjectionView, forward: true));
                 GL.DepthMask(true);
                 if (diag)

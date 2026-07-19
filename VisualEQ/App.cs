@@ -94,6 +94,13 @@ namespace VisualEQ
                 // into a pinned left panel with collapsible sections.
                 controller.AddView(new MainMenuView(controller));
                 controller.AddView(new SidebarView(controller));
+                // F1 cheat sheet. Registered here (not by Controller) so the
+                // reference lives on Controller.HelpView for the F1 hotkey to
+                // reach. Widget self-gates on Visible so registering it always
+                // is safe — one branch per frame when hidden.
+                var helpView = new HelpView(controller);
+                controller.AddView(helpView);
+                controller.HelpView = helpView;
 
                 controller.Start();
             }

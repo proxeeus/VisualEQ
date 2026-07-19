@@ -4,6 +4,8 @@
 appsettings.Development.json
 appsettings.Production.json
 **/database.config.json
+# ImGui auto-writes window layout to imgui.ini on shutdown; per-machine state.
+imgui.ini
 
 # publish-release.ps1 output directories (release/ is already covered by [Rr]elease/ below)
 publish/

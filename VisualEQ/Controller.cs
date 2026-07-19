@@ -332,6 +332,11 @@ namespace VisualEQ
             EditModeEnabled = !EditModeEnabled;
         }
 
+        // Registered by App at startup; F1 flips this window's visibility. No-op if
+        // App skipped registering (headless test runs or a variant with no help view).
+        public HelpView HelpView;
+        public void ToggleHelp() => HelpView?.Toggle();
+
         // ─── Pending edit buffer ───────────────────────────────────────────────────────
 
         // The in-memory buffer for the currently-loaded zone. Non-null while a zone is loaded.

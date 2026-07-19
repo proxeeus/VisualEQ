@@ -38,11 +38,13 @@ namespace VisualEQ
                     });
                     foreach (var (obj, instances) in objInstances)
                     {
-                        engine.Add(FromMeshes(
+                        var model = FromMeshes(
                             FromSkin(obj.Find<OESSkin>().First(), zip),
                             instances.ToArray(),
                             obj.Find<OESStaticMesh>()
-                        ));
+                        );
+                        model.IsFoliage = IsFoliageName(obj.Name);
+                        engine.Add(model);
                     }
 
                     zone.Find<OESLight>().ForEach(light => engine.AddLight(light.Position, light.Radius, light.Attenuation, light.Color));
@@ -61,6 +63,25 @@ namespace VisualEQ
                         WriteLine($"[Loader] Loaded {regionCount} region(s) for {zone.Name}");
                 }
             }
+        }
+
+        // Classic-EQ tree/pine/palm ACTORDEF naming conventions. Kunark uses
+        // TREE###/TREEPINE###/WARDPINE###/SWAMPTREE###/TREEDEAD###. Faydark and
+        // Everfrost use PINETREE###/PALM/PINE###. Prefixes only — no strict digit
+        // check — so PALMLEAF, TREEBUSH, etc. get tagged too. Rocks/pillars/props
+        // stay visible (WARROCK, STALAG, KUPEDAST, ...).
+        static readonly string[] FoliagePrefixes =
+        {
+            "TREE", "TREEDEAD", "TREEPINE", "PINETREE", "PINE",
+            "WARDPINE", "SWAMPTREE", "PALM", "BUSH",
+        };
+        static bool IsFoliageName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            foreach (var prefix in FoliagePrefixes)
+                if (name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
         }
 
         static Model FromMeshes(IReadOnlyList<Material> mats, Matrix4x4[] instances, IEnumerable<OESStaticMesh> meshes)
