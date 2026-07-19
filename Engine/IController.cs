@@ -23,6 +23,9 @@ namespace VisualEQ.Engine
         // Called by EngineCore when the user hits the edit-mode toggle hotkey (E).
         void ToggleEditMode();
 
+        // Wired to F1 — shows/hides the on-screen cheat sheet.
+        void ToggleHelp();
+
         // Undo/redo — called by EngineCore for Ctrl+Z / Ctrl+Y hotkeys. Return true if
         // there was history to consume (for future UI feedback like a toast).
         bool TryUndo();

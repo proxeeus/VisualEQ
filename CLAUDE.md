@@ -206,3 +206,7 @@ Foundation for the eventual NPC editor. Every `npc_types` field that affects the
 - Avoid new dependencies without a strong reason — the whole stack (OpenTK 1.x, ImGui.NET 0.4.6, Dapper, MySqlConnector, StyleCop, LangVersion 7.3) is stable and any bump is a rabbit hole.
 - Prefer editing existing files; keep new files inside the appropriate subsystem folder (`SpawnSystem/`, `Views/`, `Database/*`, `Engine/`).
 - Always assume a "pull request-first" approach.
+
+## 12. Misc
+
+- Always keep the F1 Cheat Sheet info up to date when relevant fixes/features are added.
