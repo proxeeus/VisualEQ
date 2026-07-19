@@ -103,6 +103,8 @@ namespace VisualEQ
                 controller.HelpView = helpView;
 
                 controller.Start();
+                // Unreachable in practice: EngineCore.OnClosing / OnUnload calls
+                // Process.Kill before Run() returns. Kept as a defensive fallthrough.
             }
             catch (Exception ex)
             {

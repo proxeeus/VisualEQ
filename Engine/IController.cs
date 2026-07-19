@@ -88,5 +88,10 @@ namespace VisualEQ.Engine
         // Wired to Escape — exits Grid Mode without placing anything. Runs before the
         // other Escape cancels (creation drag, waypoint drag, etc.).
         void ExitGridMode();
+
+        // Called by EngineCore.OnUnload — GL context is still current when this fires,
+        // so implementations can synchronously release GL resources and flush any
+        // debounced persistent state (edit buffer) before the window tears down.
+        void Shutdown();
     }
 }

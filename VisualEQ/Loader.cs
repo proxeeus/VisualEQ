@@ -321,6 +321,20 @@ namespace VisualEQ
             }
         }
 
+        // Shutdown drop. Called from Controller.Shutdown before Process.Kill so the OS
+        // reclaim path doesn't have to walk these dictionaries. Deliberately does NOT
+        // call GL.Delete* on the cached buffers/textures — Parallels/ARM64 GL emulation
+        // makes each GL.Delete call expensive, and TerminateProcess reclaims the GL
+        // context (and everything behind it) instantly regardless.
+        internal static void ClearAllCaches()
+        {
+            lock (_oesRootCacheLock)
+            {
+                _meshGeometryCache.Clear();
+                _oesRootCache.Clear();
+            }
+        }
+
         internal static AniModel LoadCharacter(string path, string name, HashSet<string> animationWhitelist = null, bool singleFrame = false, int textureIndex = 0, int helmTextureIndex = 0, int faceIndex = 0)
         {
             var root = GetOrLoadRoot(path);

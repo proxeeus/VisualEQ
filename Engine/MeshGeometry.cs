@@ -35,5 +35,19 @@ namespace VisualEQ.Engine
                 return (kv.Key, ((IReadOnlyList<Vao>)vaos, (IReadOnlyList<Buffer<float>>)buffers));
             }).ToDictionary(x => x.Item1, x => x.Item2);
         }
+
+        // Releases every GL object owned by this geometry. Must run on the GL thread —
+        // Buffer/Vao.Destroy() call GL.DeleteBuffer / DeleteVertexArray directly. Called
+        // from Loader.ClearAllCaches at shutdown so the finalizer thread doesn't have to
+        // process thousands of Buffer/Vao finalizers on a stale context.
+        public void Destroy()
+        {
+            IndexBuffer.Destroy();
+            foreach (var (vaos, buffers) in Animations.Values)
+            {
+                foreach (var vao in vaos) vao.Destroy();
+                foreach (var buf in buffers) buf.Destroy();
+            }
+        }
     }
 }
