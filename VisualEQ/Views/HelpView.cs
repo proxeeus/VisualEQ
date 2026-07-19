@@ -86,6 +86,8 @@ namespace VisualEQ.Views
             Row("Right-drag",   "Rotate camera (cursor hidden)");
             Row("Left-click",   "Select model (spawn / zone point / waypoint)");
             Row("Left-drag",    "Move selection along ground / surface");
+            Row("Ctrl+drag",    "Move without Z snap (keep current altitude)");
+            Row("Alt+drag",     "Move on camera-perpendicular plane");
             Row("Wheel + drag", "Push / pull selection along drag ray");
             Row("Dbl-click",    "In grid mode: place waypoint on terrain");
 
