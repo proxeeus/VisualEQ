@@ -99,6 +99,10 @@ namespace VisualEQ.Views
         // Two-click confirmation state for the destructive "delete decoded globals" action.
         private bool _deleteGlobalsPending;
 
+        // Same pattern for per-zone deletes — null when nothing is pending, otherwise the
+        // short-name of the zone whose row is currently showing Confirm/Cancel buttons.
+        private string _deletePendingZone;
+
         public MainMenuWidget(Controller controller)
         {
             _controller = controller;
@@ -163,6 +167,28 @@ namespace VisualEQ.Views
             ImGui.BeginChild($"zonelist###{Id}zl", new Vector2(0, 260), true, WindowFlags.Default);
             foreach (var entry in _zones)
             {
+                if (_deletePendingZone == entry.Name)
+                {
+                    ImGui.Text($"Delete {entry.Name}?");
+                    ImGui.SameLine();
+                    if (ImGui.Button($"Confirm###{Id}zdc_{entry.Name}", new Vector2(90, 22)))
+                        DeleteZone(entry.Name);
+                    ImGui.SameLine();
+                    if (ImGui.Button($"Cancel###{Id}zdx_{entry.Name}", new Vector2(90, 22)))
+                        _deletePendingZone = null;
+                    continue;
+                }
+
+                // Small delete button leads the row; the Selectable takes the rest of the
+                // width. Selectable comes first in ImGui without a size, so we intentionally
+                // put the button first — SameLine after Selectable would overflow because
+                // Selectable(label) spans the full column width by default.
+                if (ImGui.SmallButton($"X###{Id}zd_{entry.Name}"))
+                {
+                    _deletePendingZone = entry.Name;
+                    continue;
+                }
+                ImGui.SameLine();
                 var label = $"{entry.Name}   ({entry.LastModified:yyyy-MM-dd HH:mm})";
                 if (ImGui.Selectable(label))
                     BeginLoad(entry.Name);
@@ -171,6 +197,40 @@ namespace VisualEQ.Views
 
             if (ImGui.Button($"Refresh###{Id}zr", new Vector2(100, 26)))
                 _lastScan = DateTime.MinValue;
+        }
+
+        // Removes {name}_oes.zip and (if present) {name}_chr_oes.zip from the assets dir.
+        // Any pending edit buffer for the zone is left alone — the user may want to re-decode
+        // later and pick their edits back up. Rescan + status line surface the result.
+        void DeleteZone(string name)
+        {
+            var deletedFiles = new List<string>();
+            var errors = new List<string>();
+            foreach (var suffix in new[] { "_oes.zip", "_chr_oes.zip" })
+            {
+                var path = Path.Combine(ConvertedZoneDir, $"{name}{suffix}");
+                if (!File.Exists(path)) continue;
+                try { File.Delete(path); deletedFiles.Add(Path.GetFileName(path)); }
+                catch (Exception ex)
+                {
+                    errors.Add($"{Path.GetFileName(path)}: {ex.Message}");
+                    Console.WriteLine($"[DeleteZone] '{path}' failed: {ex.Message}");
+                }
+            }
+
+            _deletePendingZone = null;
+            _lastScan = DateTime.MinValue;
+
+            if (errors.Count > 0)
+            {
+                _status = $"Delete failed: {string.Join("; ", errors)}";
+                _statusOk = false;
+            }
+            else if (deletedFiles.Count > 0)
+            {
+                _status = $"Deleted {string.Join(", ", deletedFiles)}.";
+                _statusOk = true;
+            }
         }
 
         void RenderDecodeSection()
