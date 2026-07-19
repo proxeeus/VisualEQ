@@ -10,7 +10,7 @@ using System.Text;
 
 namespace VisualEQ.LegacyFileReader
 {
-    public class S3D : IEnumerable<string>
+    public class S3D : IEnumerable<string>, IDisposable
     {
         public readonly string Filename;
         readonly Stream Fp;
@@ -84,5 +84,14 @@ namespace VisualEQ.LegacyFileReader
         public bool Contains(string fn) => Files.ContainsKey(fn.ToLower());
 
         public IEnumerable<(string, byte[])> GetAllFiles() => Files.Keys.Select(fn => (fn, this[fn]));
+
+        // Closes the underlying file handle. The Converter previously leaked one file per
+        // S3D per decode — for a Velious zone (3-5 S3Ds) that's a modest handle leak, but
+        // it accumulates across a session and adds to the memory pressure that has been
+        // implicated in second-decode crashes on Parallels-VM installs.
+        public void Dispose()
+        {
+            Br?.Dispose();
+        }
     }
 }
