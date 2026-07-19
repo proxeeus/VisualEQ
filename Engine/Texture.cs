@@ -7,6 +7,7 @@ namespace VisualEQ.Engine
     {
         readonly int Id;
         readonly bool Transparent;
+        bool Destroyed;
 
         readonly string Name;
 
@@ -46,7 +47,16 @@ namespace VisualEQ.Engine
                 GL.GenerateMipmap(GenerateMipmapTarget.Texture2D);
         }
 
-        ~Texture() => GL.DeleteTexture(Id);
+        ~Texture() => Destroy();
+
+        // Idempotent GL cleanup. Callable from the GL thread at shutdown so the finalizer
+        // thread (which has no current GL context) doesn't have to touch the driver.
+        public void Destroy()
+        {
+            if (Destroyed) return;
+            Destroyed = true;
+            GL.DeleteTexture(Id);
+        }
 
         public void Use() => GL.BindTexture(TextureTarget.Texture2D, Id);
 

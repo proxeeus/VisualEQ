@@ -1275,6 +1275,39 @@ namespace VisualEQ
             ZoneChanged?.Invoke(null);
         }
 
+        // App-exit hook. Called from EngineCore.OnUnload while the GL context is still
+        // current. Two responsibilities:
+        //  1. Flush any pending edit buffer immediately (bypass the 500 ms debounce) so
+        //     an Alt-F4 within a debounce window doesn't drop the last few edits.
+        //  2. Drain the session-lifetime GL caches synchronously — otherwise thousands
+        //     of Buffer/Vao/Texture finalizers pile up on the finalizer thread at
+        //     process teardown with no current GL context, which is where the multi-
+        //     second exit stall (worst on Parallels/ARM64) was coming from.
+        public void Shutdown()
+        {
+            try
+            {
+                if (_bufferDirty && PendingBuffer != null && !PendingBuffer.IsEmpty)
+                    EditBufferManager.SaveForZone(PendingBuffer);
+                _bufferDirty = false;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Controller.Shutdown] buffer flush failed: {ex.Message}");
+            }
+
+            _modelCache.Clear();
+
+            try
+            {
+                Loader.ClearAllCaches();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Controller.Shutdown] loader cache clear failed: {ex.Message}");
+            }
+        }
+
         // Loads a zone by name after the engine has already started. Clears any previously
         // loaded zone, loads geometry + default characters + spawns, and repositions the camera.
         // Fully synchronous — Mesh/AnimatedMesh constructors upload buffers to GL immediately,

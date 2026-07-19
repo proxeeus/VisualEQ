@@ -465,6 +465,24 @@ namespace VisualEQ.Engine
             Run();
         }
 
+        // Fires after Run() returns but BEFORE the OpenTK context is destroyed. This is
+        // our only chance to release GL resources from the render thread with a current
+        // context. Without this, ~Buffer/~Vao/~Texture finalizers pile up on the finalizer
+        // thread post-exit, each calling GL.Delete* with no current context — which is
+        // what made "close after a long Kunark editing session" take several seconds.
+        protected override void OnUnload(EventArgs e)
+        {
+            try
+            {
+                Controller?.Shutdown();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[EngineCore.OnUnload] shutdown failed: {ex.Message}");
+            }
+            base.OnUnload(e);
+        }
+
         // Rebuilds the collision octree from the currently-loaded static, collidable meshes.
         // Call after loading (or swapping) a zone.
         public void RebuildCollision()
