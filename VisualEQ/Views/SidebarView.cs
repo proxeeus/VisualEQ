@@ -2411,18 +2411,20 @@ namespace VisualEQ.Views
             RenderCoordFieldWithWildcard(zp, "target_z",
                 VisualEQ.EditSystem.ZonePointFieldEditAction.Field.TargetZ,
                 () => zp.Row.TargetZ, v => zp.Row.TargetZ = v, editable);
-            // Owned heading. Uses a dedicated slider (not RenderFloatField) so the
-            // recorded action carries WIRE-scale values that Apply writes back to
-            // zp.Row.Heading verbatim. RenderFloatField's transition capture stores the
-            // reader's display value, and Apply would then push /loc-scale numbers
-            // straight into a wire-scale field — that broke undo/redo before this
-            // dedicated widget was added.
-            //
             // trilogy_zone_points.heading is on the 0-255 wire scale — the server does
-            // heading * 2 at fire time (trilogy_client.cpp:1919) to produce its 0-512
-            // internal value which the client then displays via /loc. Edit in /loc
-            // scale so what the user types matches what they see in game.
-            RenderOwnedHeadingSlider(zp, editable);
+            // heading * 2 at fire time (trilogy_client.cpp:1919) to get its 0-512 internal
+            // value that the client then displays via /loc. Edit in the /loc scale
+            // (0-511) so what the user types matches what they see in game; the setter
+            // halves it before writing to the row.
+            //
+            // (Note: `zone_points.target_heading` on the traditional EQEmu path IS 0-511
+            //  direct after the 2022_09_03 migration, and grid_entries.heading is 0-511
+            //  direct too — but trilogy_zone_points was NOT part of that migration.)
+            RenderFloatField(zp, VisualEQ.EditSystem.ZonePointFieldEditAction.Field.Heading,
+                "heading (0–511, matches client /loc)",
+                () => zp.Row.Heading * 2f,
+                v => zp.Row.Heading = ClampWireHeading(v * 0.5f),
+                editable);
             ImGui.Text("Check 'wild' on an axis to preserve the player's coord across zones.");
 
             // ─── Keep flags ──────────────────────────────────────────────────────────
@@ -2546,63 +2548,6 @@ namespace VisualEQ.Views
             if (wire < 0f)   return 0f;
             if (wire > 255f) return 255f;
             return wire;
-        }
-
-        // Owned zone-point heading — same /loc-scale display + wire-scale storage as
-        // the incoming slider (RenderIncomingHeadingSlider). Buffer holds wire, display
-        // is buffer * 2, actions record wire values so Apply/Revert write back to
-        // zp.Row.Heading verbatim.
-        private float _zpOwnedHeadingBuffer;
-        private float _zpOwnedHeadingBeforeEdit;
-        private int?  _zpOwnedHeadingRowId;
-        private bool  _zpOwnedHeadingSliderWasActive;
-
-        void RenderOwnedHeadingSlider(VisualEQ.ZonePointSystem.ZonePoint zp, bool editable)
-        {
-            if (!editable)
-            {
-                ImGui.Text($"  heading (0-511) = {zp.Row.Heading * 2f:F0}   (DB wire = {zp.Row.Heading:F0})");
-                return;
-            }
-
-            var isSameRow = _zpOwnedHeadingRowId == zp.Row.Id;
-            var drifted   = System.MathF.Abs(_zpOwnedHeadingBuffer - zp.Row.Heading) > 0.5f;
-            if (!isSameRow || !_zpOwnedHeadingSliderWasActive || drifted)
-            {
-                _zpOwnedHeadingBuffer = zp.Row.Heading;
-                _zpOwnedHeadingRowId  = zp.Row.Id;
-            }
-
-            ImGui.Text("heading (0-511, matches client /loc)");
-            var displayVal = _zpOwnedHeadingBuffer * 2f;
-            var changed = ImGui.SliderFloat($"###{Id}zpOwnHead", ref displayVal, 0f, 511f, "%.0f", 1f);
-            var sliderActive = ImGui.IsAnyItemActive();
-
-            if (changed)
-            {
-                _zpOwnedHeadingBuffer = ClampWireHeading(displayVal * 0.5f);
-                zp.Row.Heading = _zpOwnedHeadingBuffer;
-            }
-
-            if (!_zpOwnedHeadingSliderWasActive && sliderActive)
-                _zpOwnedHeadingBeforeEdit = zp.Row.Heading;
-
-            if (_zpOwnedHeadingSliderWasActive && !sliderActive)
-            {
-                if (System.MathF.Abs(_zpOwnedHeadingBeforeEdit - _zpOwnedHeadingBuffer) > 0.5f)
-                {
-                    _view.Controller.RecordAction(
-                        new VisualEQ.EditSystem.ZonePointFieldEditAction(
-                            zp,
-                            VisualEQ.EditSystem.ZonePointFieldEditAction.Field.Heading,
-                            _zpOwnedHeadingBeforeEdit, _zpOwnedHeadingBuffer));
-                }
-                else
-                {
-                    zp.Row.Heading = _zpOwnedHeadingBeforeEdit;
-                }
-            }
-            _zpOwnedHeadingSliderWasActive = sliderActive;
         }
 
         // ─── Field render helpers ────────────────────────────────────────────────────
