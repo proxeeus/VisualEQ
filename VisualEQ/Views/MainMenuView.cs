@@ -246,8 +246,12 @@ namespace VisualEQ.Views
 
             if (_decodeTask != null)
             {
-                ImGui.Text($"Decoding {_decodeLabel}…");
-                ImGui.Text("(This can take 10–60 seconds. Check the console window for progress.)");
+                ImGui.Text($"Decoding {_decodeLabel}...");
+                // ImGui.NET 0.4.6's default font is Proggy Clean (ASCII only). Non-ASCII
+                // glyphs (en dash '–', em dash '—', ellipsis '…') render as
+                // '?' or truncate the string at the byte where the missing glyph starts —
+                // "10-60" here previously used an en dash and got cut off at "10".
+                ImGui.Text("(This can take 10 to 60 seconds. Check the console window for progress.)");
                 return;
             }
 
