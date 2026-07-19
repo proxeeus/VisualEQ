@@ -47,6 +47,13 @@ namespace VisualEQ
         // time.
         List<string> _cachedZoneShortNames;
 
+        // Zone-geometry LRU: tracks which snapshots currently hold zone Models/lights/
+        // regions/collider (Slice 2). Ordered oldest-first; on cache-full, the head gets
+        // its geometry nulled out (pose + row data survive). Cap chosen to fit ~6 zones
+        // resident on modest RAM — Kunark zones can top 100 MB apiece.
+        readonly List<string> _geometryLru = new List<string>();
+        const int MaxGeometryZones = 6;
+
         sealed class ZoneSnapshot
         {
             // Always populated.
@@ -64,7 +71,18 @@ namespace VisualEQ
             public List<Database.Models.TrilogyZonePoint> ZonePointsIncoming;
             public Dictionary<string, List<Database.Models.TrilogyZonePoint>> PeerZoneRows;
 
-            public bool HasRowData => SpawnRecords != null;
+            // Zone geometry cache (Slice 2). Populated on first capture and re-used across
+            // F10 → re-visit. Nulled out on LRU eviction. Same Mesh instances the Loader
+            // built the first time — their Vao/Buffer GL handles stay valid on the device
+            // across ClearScene since we never call GL.Delete* on them.
+            public List<Engine.Model> StaticGeometry;
+            public List<Engine.PointLight> Lights;
+            public List<Engine.LiquidRegion> Regions;
+            public CollisionManager.CollisionHelper Collider;
+            public (Vector3 Min, Vector3 Max)? ZoneBounds;
+
+            public bool HasRowData  => SpawnRecords != null;
+            public bool HasGeometry => StaticGeometry != null;
         }
 
         public AniModel LastModelLoaded;
@@ -1247,8 +1265,24 @@ namespace VisualEQ
         public void LoadZone(string name)
         {
             CurrentZoneName = name;
-            Loader.LoadZoneFile(System.IO.Path.Combine(ConvertedAssetsDir, $"{name}_oes.zip"), Engine);
-            Engine.RebuildCollision();
+
+            // Slice 2 cache hit: reuse the previously-built Model instances + collision
+            // octree instead of re-parsing the OES and rebuilding either. The Mesh objects'
+            // Vao/Buffer GL handles are still valid on the device (ClearScene only clears
+            // the C# reference lists, no GL.Delete* runs).
+            if (_zoneSnapshots.TryGetValue(name, out var snap) && snap.HasGeometry)
+            {
+                Engine.RestoreScene(snap.StaticGeometry, snap.Lights, snap.Regions,
+                                    snap.Collider, snap.ZoneBounds);
+                MarkGeometryRecent(name);
+                Console.WriteLine($"[Controller] Zone geometry cache hit for '{name}' — skipped OES parse + collision rebuild.");
+            }
+            else
+            {
+                Loader.LoadZoneFile(System.IO.Path.Combine(ConvertedAssetsDir, $"{name}_oes.zip"), Engine);
+                Engine.RebuildCollision();
+            }
+
             // Start with a fresh buffer — the state-machine phase CheckRecovery may replace
             // it with one loaded from disk after prompting the user.
             PendingBuffer = new EditBuffer { Zone = name, CreatedAt = DateTime.UtcNow };
@@ -1318,16 +1352,18 @@ namespace VisualEQ
         }
 
         // Captures the current zone's state into _zoneSnapshots so a re-visit can skip DB
-        // work + restore the camera pose. Camera pose is always captured; rows only when
-        // PendingBuffer is empty (guards against caching mutated-relative-to-DB rows).
+        // + OES parse work + restore the camera pose. Camera pose is always captured; rows
+        // only when PendingBuffer is empty (guards against caching mutated-relative-to-DB
+        // rows). Geometry is captured once per zone and re-used across subsequent visits
+        // (zone Models never mutate at runtime).
         void CaptureZoneSnapshot(string zoneName)
         {
-            var snap = new ZoneSnapshot
-            {
-                CameraPosition = Camera.Position,
-                CameraPitch    = Camera.Pitch,
-                CameraYaw      = Camera.Yaw,
-            };
+            _zoneSnapshots.TryGetValue(zoneName, out var existing);
+            var snap = existing ?? new ZoneSnapshot();
+
+            snap.CameraPosition = Camera.Position;
+            snap.CameraPitch    = Camera.Pitch;
+            snap.CameraYaw      = Camera.Yaw;
 
             var bufferEmpty = PendingBuffer == null || PendingBuffer.IsEmpty;
             if (bufferEmpty)
@@ -1348,7 +1384,56 @@ namespace VisualEQ
                     ZonePointManager.PeerZoneRows, StringComparer.OrdinalIgnoreCase);
             }
 
+            // Capture zone geometry once (subsequent captures don't re-record — Model
+            // instances are stable across the session). Empty Models list means nothing
+            // was loaded (edge case, e.g. an aborted geometry load) — skip in that case.
+            if (!snap.HasGeometry && Engine.StaticModels.Count > 0)
+            {
+                snap.StaticGeometry = Engine.StaticModels.ToList();
+                snap.Lights         = Engine.PointLights.ToList();
+                snap.Regions        = Engine.Regions.ToList();
+                snap.Collider       = Collider;
+                snap.ZoneBounds     = Engine.ZoneBounds;
+                MarkGeometryRecent(zoneName);
+                EvictLruGeometryIfNeeded();
+            }
+            else if (snap.HasGeometry)
+            {
+                // Bump recency so re-visited zones drift toward the tail of the LRU list.
+                MarkGeometryRecent(zoneName);
+            }
+
             _zoneSnapshots[zoneName] = snap;
+        }
+
+        void MarkGeometryRecent(string zoneName)
+        {
+            _geometryLru.Remove(zoneName);
+            _geometryLru.Add(zoneName);
+        }
+
+        // When the geometry LRU exceeds cap, drop the geometry fields on the oldest entries
+        // (pose + row data survive so the next visit still skips DB and restores viewpoint —
+        // just re-parses the OES + rebuilds the octree). Deliberately does NOT call
+        // GL.Delete* on the evicted Meshes; the Vao/Buffer wrappers become unreachable and
+        // will finalize eventually. Sessions that cycle through >6 zones will leak some GPU
+        // memory over their lifetime — acceptable tradeoff for a simple cache.
+        void EvictLruGeometryIfNeeded()
+        {
+            while (_geometryLru.Count > MaxGeometryZones)
+            {
+                var victim = _geometryLru[0];
+                _geometryLru.RemoveAt(0);
+                if (_zoneSnapshots.TryGetValue(victim, out var s))
+                {
+                    s.StaticGeometry = null;
+                    s.Lights         = null;
+                    s.Regions        = null;
+                    s.Collider       = null;
+                    s.ZoneBounds     = null;
+                    Console.WriteLine($"[Controller] Geometry cache full — evicted '{victim}' (pose + row data retained).");
+                }
+            }
         }
 
         // Restores the camera pose from a prior snapshot for zoneName. Returns true iff
@@ -1360,6 +1445,19 @@ namespace VisualEQ
             if (!_zoneSnapshots.TryGetValue(zoneName, out var snap)) return false;
             Camera.SetPose(snap.CameraPosition, snap.CameraPitch, snap.CameraYaw);
             return true;
+        }
+
+        // Drops the entire cached snapshot for zoneName (pose + rows + geometry). Called
+        // by MainMenuView after a successful decode so that a subsequent load re-parses
+        // the freshly-written OES instead of restoring the stale Model instances.
+        public void InvalidateZoneSnapshot(string zoneName)
+        {
+            if (string.IsNullOrEmpty(zoneName)) return;
+            if (_zoneSnapshots.Remove(zoneName))
+            {
+                _geometryLru.Remove(zoneName);
+                Console.WriteLine($"[Controller] Zone snapshot invalidated for '{zoneName}'.");
+            }
         }
 
         // App-exit hook. Called from EngineCore.OnUnload while the GL context is still
@@ -1385,6 +1483,7 @@ namespace VisualEQ
 
             _modelCache.Clear();
             _zoneSnapshots.Clear();
+            _geometryLru.Clear();
             _cachedZoneShortNames = null;
 
             try
