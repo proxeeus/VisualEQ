@@ -26,7 +26,13 @@ namespace VisualEQ.LegacyFileReader
 
             var offset = Br.ReadUInt32();
             var magic = Br.ReadUInt32();
-            Debug.Assert(magic == 0x20534650);
+            // Was Debug.Assert(magic == 0x20534650). Debug.Assert tears the process down
+            // (no CLR exception hook, both console + game windows close instantly, no
+            // entry in crash.log) — awful UX and impossible to recover from. Throw a real
+            // exception so the caller's try/catch can report the failure gracefully.
+            if (magic != 0x20534650)
+                throw new InvalidDataException(
+                    $"S3D/PFS header magic mismatch in '{fn}': got 0x{magic:X8}, expected 0x20534650 ('PFS ').");
 
             fp.Position = offset;
             var chunks = Enumerable.Range(0, Br.ReadInt32()).Select(
@@ -42,7 +48,16 @@ namespace VisualEQ.LegacyFileReader
                 using (var dbr = new BinaryReader(dms))
                 {
                     var fileCount = dbr.ReadUInt32();
-                    Debug.Assert(fileCount == chunks.Count);
+                    // Was Debug.Assert(fileCount == chunks.Count). Same reason as the
+                    // magic check above — this trips on Velious character S3Ds
+                    // (velketor_chr, greatdivide_chr, ...) whose directory chunk declares
+                    // fewer files than the header's non-directory chunk count. Debug.Assert
+                    // hard-killed the process on any decode of an affected zone; a real
+                    // exception lets the caller show a status-line failure and keep running.
+                    if (fileCount != chunks.Count)
+                        throw new InvalidDataException(
+                            $"S3D/PFS directory declares {fileCount} files but the header has {chunks.Count} non-directory chunks in '{fn}'. " +
+                            "The archive may be malformed, or the reader may need to tolerate extra chunks.");
                     for (var i = 0; i < fileCount; ++i)
                     {
                         var str = Encoding.ASCII.GetString(dbr.ReadBytes(dbr.ReadInt32())).TrimEnd('\0');
