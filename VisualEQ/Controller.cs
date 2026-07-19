@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -38,8 +39,14 @@ namespace VisualEQ
         // been mutated relative to DB, so re-feeding them would leak edits across the
         // re-load). Camera pose is always cached — it's independent of edit state. Key is
         // zone shortname (case-insensitive). Session-lifetime; cleared on Shutdown.
-        readonly Dictionary<string, ZoneSnapshot> _zoneSnapshots =
-            new Dictionary<string, ZoneSnapshot>(StringComparer.OrdinalIgnoreCase);
+        //
+        // ConcurrentDictionary (not plain Dictionary) so Slice 3's background prefetch can
+        // safely publish snapshots for connected zones while the main thread reads. Also
+        // requires build-then-swap semantics in CaptureZoneSnapshot so readers never see
+        // a half-populated snap (mutating a snap in place after it's in the dict would
+        // race with concurrent readers).
+        readonly ConcurrentDictionary<string, ZoneSnapshot> _zoneSnapshots =
+            new ConcurrentDictionary<string, ZoneSnapshot>(StringComparer.OrdinalIgnoreCase);
 
         // Session-wide cache of every zone shortname in the DB — global to the DB, not per
         // zone. Populated on the first LoadZonePointsSync that has DbFactory != null and
@@ -56,10 +63,16 @@ namespace VisualEQ
 
         sealed class ZoneSnapshot
         {
-            // Always populated.
+            // Always populated — unless PrefetchedPoseIsPlaceholder is true, in which case
+            // these are default(0) and the main thread should skip the restore.
             public Vector3 CameraPosition;
             public float CameraPitch;
             public float CameraYaw;
+
+            // True when the snap was published by the background prefetch — the row data
+            // is real but the pose fields are placeholders. TryRestoreCameraForZone honors
+            // this flag so a prefetched zone doesn't teleport the camera to origin.
+            public bool PrefetchedPoseIsPlaceholder;
 
             // Populated only when the buffer was empty at ClearCurrentZone time. Null
             // otherwise (forces a DB re-fetch on re-visit).
@@ -1356,14 +1369,21 @@ namespace VisualEQ
         // only when PendingBuffer is empty (guards against caching mutated-relative-to-DB
         // rows). Geometry is captured once per zone and re-used across subsequent visits
         // (zone Models never mutate at runtime).
+        //
+        // Build-then-swap: constructs a fully-populated new ZoneSnapshot before publishing
+        // to the concurrent dict, so background prefetch readers never observe a half-
+        // populated snap. Geometry from any existing snap is carried over by reference —
+        // cheap (single List<Model> reference copy) and preserves the LRU-tracked
+        // GL-resident objects.
         void CaptureZoneSnapshot(string zoneName)
         {
             _zoneSnapshots.TryGetValue(zoneName, out var existing);
-            var snap = existing ?? new ZoneSnapshot();
-
-            snap.CameraPosition = Camera.Position;
-            snap.CameraPitch    = Camera.Pitch;
-            snap.CameraYaw      = Camera.Yaw;
+            var snap = new ZoneSnapshot
+            {
+                CameraPosition = Camera.Position,
+                CameraPitch    = Camera.Pitch,
+                CameraYaw      = Camera.Yaw,
+            };
 
             var bufferEmpty = PendingBuffer == null || PendingBuffer.IsEmpty;
             if (bufferEmpty)
@@ -1383,11 +1403,35 @@ namespace VisualEQ
                 snap.PeerZoneRows       = new Dictionary<string, List<Database.Models.TrilogyZonePoint>>(
                     ZonePointManager.PeerZoneRows, StringComparer.OrdinalIgnoreCase);
             }
+            else if (existing != null && existing.HasRowData)
+            {
+                // Buffer's dirty so we don't want to cache freshly-mutated rows — but keep
+                // the pre-existing row cache (from a prior clean capture or a prefetch) so
+                // re-visits still skip DB. The Slice 1 story ("dirty buffer forces DB
+                // re-fetch") is preserved because a first-capture-while-dirty leaves
+                // SpawnRecords null; we only carry rows forward if we already had them.
+                snap.SpawnRecords       = existing.SpawnRecords;
+                snap.AvailableModels    = existing.AvailableModels;
+                snap.ZoneGrids          = existing.ZoneGrids;
+                snap.CurrentZoneId      = existing.CurrentZoneId;
+                snap.ZonePointsOutgoing = existing.ZonePointsOutgoing;
+                snap.ZonePointsIncoming = existing.ZonePointsIncoming;
+                snap.PeerZoneRows       = existing.PeerZoneRows;
+            }
 
-            // Capture zone geometry once (subsequent captures don't re-record — Model
-            // instances are stable across the session). Empty Models list means nothing
-            // was loaded (edge case, e.g. an aborted geometry load) — skip in that case.
-            if (!snap.HasGeometry && Engine.StaticModels.Count > 0)
+            // Geometry: carry over the existing (LRU-tracked) reference if we've got one;
+            // otherwise capture fresh from the engine. Empty Models list means nothing was
+            // loaded (edge case, e.g. an aborted geometry load) — leave geometry null then.
+            if (existing != null && existing.HasGeometry)
+            {
+                snap.StaticGeometry = existing.StaticGeometry;
+                snap.Lights         = existing.Lights;
+                snap.Regions        = existing.Regions;
+                snap.Collider       = existing.Collider;
+                snap.ZoneBounds     = existing.ZoneBounds;
+                MarkGeometryRecent(zoneName);
+            }
+            else if (Engine.StaticModels.Count > 0)
             {
                 snap.StaticGeometry = Engine.StaticModels.ToList();
                 snap.Lights         = Engine.PointLights.ToList();
@@ -1396,11 +1440,6 @@ namespace VisualEQ
                 snap.ZoneBounds     = Engine.ZoneBounds;
                 MarkGeometryRecent(zoneName);
                 EvictLruGeometryIfNeeded();
-            }
-            else if (snap.HasGeometry)
-            {
-                // Bump recency so re-visited zones drift toward the tail of the LRU list.
-                MarkGeometryRecent(zoneName);
             }
 
             _zoneSnapshots[zoneName] = snap;
@@ -1437,14 +1476,124 @@ namespace VisualEQ
         }
 
         // Restores the camera pose from a prior snapshot for zoneName. Returns true iff
-        // a snapshot existed. MainMenuView calls this in place of the (0,0,1000) default
-        // reset so re-visiting a zone lands the user back at their last viewpoint.
+        // a real pose was available (i.e. the user actually visited this zone previously).
+        // Snapshots from Slice 3's background prefetch don't have a real pose — those
+        // return false so MainMenuView falls back to the (0,0,1000) default.
         public bool TryRestoreCameraForZone(string zoneName)
         {
             if (string.IsNullOrEmpty(zoneName)) return false;
             if (!_zoneSnapshots.TryGetValue(zoneName, out var snap)) return false;
+            if (snap.PrefetchedPoseIsPlaceholder) return false;
             Camera.SetPose(snap.CameraPosition, snap.CameraPitch, snap.CameraYaw);
             return true;
+        }
+
+        // Slice 3 — connected-zone DB prefetch. Runs after LoadZonePointsSync populates the
+        // current zone's outgoing targets. For up to MaxPrefetchTargets distinct target
+        // zones, fires off a background task that does the DB fetches (spawn rows, zone
+        // points, grids, peers) + a BuildAvailableModels file-scan, then publishes the
+        // result via TryAdd so an existing snapshot (with camera pose / geometry / pending-
+        // edit rows) is never clobbered.
+        //
+        // GL work stays main-thread — Loader.LoadZoneFile, Loader.LoadCharacter, Mesh ctors
+        // all upload to GL immediately (§7 CLAUDE.md), so we deliberately don't try to
+        // prewarm geometry or AniModels off-thread. The win here is DB latency skip on the
+        // first hop into a connected zone; the OES parse + collision rebuild still run at
+        // load time.
+        const int MaxPrefetchTargets = 4;
+
+        void PrefetchConnectedZones()
+        {
+            if (DbFactory == null) return;
+            if (ZonePointManager.ZonePoints.Count == 0) return;
+
+            var currentZone = CurrentZoneName;
+            var targets = ZonePointManager.ZonePoints
+                .Select(z => z.Row.TargetZone)
+                .Where(t => !string.IsNullOrEmpty(t)
+                            && !string.Equals(t, currentZone, StringComparison.OrdinalIgnoreCase)
+                            && !_zoneSnapshots.ContainsKey(t))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(MaxPrefetchTargets)
+                .ToList();
+
+            if (targets.Count == 0) return;
+
+            var assetsDir = ConvertedAssetsDir;
+            var dbFactory = DbFactory;
+
+            Console.WriteLine($"[Controller] Prefetching {targets.Count} connected zone(s): {string.Join(", ", targets)}");
+
+            Task.Run(async () =>
+            {
+                foreach (var zone in targets)
+                {
+                    // Late-race guard: user may have hit the zone before we got to it.
+                    if (_zoneSnapshots.ContainsKey(zone)) continue;
+                    try
+                    {
+                        await PrefetchOne(zone, assetsDir, dbFactory).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[Controller.Prefetch] '{zone}' failed: {ex.Message}");
+                    }
+                }
+            });
+        }
+
+        async Task PrefetchOne(string zone, string assetsDir, MySqlConnectionFactory dbFactory)
+        {
+            var spawnRepo = new SpawnRepository(dbFactory);
+            var zpRepo    = new ZonePointRepository(dbFactory);
+
+            var spawnList    = (await spawnRepo.GetZoneSpawnsFullAsync(zone).ConfigureAwait(false)).ToList();
+            var gridList     = (await spawnRepo.GetZoneGridsAsync(zone).ConfigureAwait(false)).ToList();
+            var outgoingList = (await zpRepo.GetZonePointsAsync(zone).ConfigureAwait(false)).ToList();
+            var incomingList = (await zpRepo.GetIncomingZonePointsAsync(zone).ConfigureAwait(false)).ToList();
+
+            var destinations = outgoingList
+                .Select(z => z.TargetZone)
+                .Where(t => !string.IsNullOrEmpty(t)
+                            && !string.Equals(t, zone, StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var peerRows = destinations.Count == 0
+                ? new List<Database.Models.TrilogyZonePoint>()
+                : (await zpRepo.GetZonePointsForZonesAsync(destinations).ConfigureAwait(false)).ToList();
+            var peerMap = new Dictionary<string, List<Database.Models.TrilogyZonePoint>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in peerRows)
+            {
+                if (string.IsNullOrEmpty(r.Zone)) continue;
+                if (!peerMap.TryGetValue(r.Zone, out var list))
+                {
+                    list = new List<Database.Models.TrilogyZonePoint>();
+                    peerMap[r.Zone] = list;
+                }
+                list.Add(r);
+            }
+
+            // Directory scan (chr-zip enumeration) — non-GL, safe on background thread.
+            var available = SpawnManager.BuildAvailableModels(zone, assetsDir);
+
+            var snap = new ZoneSnapshot
+            {
+                // No real camera pose yet — mark it so TryRestoreCameraForZone falls back
+                // to the (0,0,1000) default instead of teleporting to origin.
+                PrefetchedPoseIsPlaceholder = true,
+                SpawnRecords             = spawnList,
+                AvailableModels          = available,
+                ZoneGrids                = gridList,
+                CurrentZoneId            = gridList.Count > 0 ? (int?)gridList[0].Grid.ZoneId : null,
+                ZonePointsOutgoing       = outgoingList,
+                ZonePointsIncoming       = incomingList,
+                PeerZoneRows             = peerMap,
+            };
+
+            // TryAdd — never overwrite an existing (richer) snapshot. If the user hit this
+            // zone in the interim, their captured pose + geometry stay intact.
+            if (_zoneSnapshots.TryAdd(zone, snap))
+                Console.WriteLine($"[Controller.Prefetch] '{zone}' warmed ({spawnList.Count} spawns, {outgoingList.Count} zone-points).");
         }
 
         // Drops the entire cached snapshot for zoneName (pose + rows + geometry). Called
@@ -1453,7 +1602,7 @@ namespace VisualEQ
         public void InvalidateZoneSnapshot(string zoneName)
         {
             if (string.IsNullOrEmpty(zoneName)) return;
-            if (_zoneSnapshots.Remove(zoneName))
+            if (_zoneSnapshots.TryRemove(zoneName, out _))
             {
                 _geometryLru.Remove(zoneName);
                 Console.WriteLine($"[Controller] Zone snapshot invalidated for '{zoneName}'.");
@@ -1555,6 +1704,7 @@ namespace VisualEQ
                 if (_cachedZoneShortNames != null && ZoneShortNames.Count == 0)
                     ZoneShortNames.AddRange(_cachedZoneShortNames);
                 Console.WriteLine($"[Controller] Zone point cache hit for '{zoneName}' — skipped DB.");
+                PrefetchConnectedZones();
                 return;
             }
 
@@ -1602,6 +1752,8 @@ namespace VisualEQ
                         Console.WriteLine($"[Controller] Cached {ZoneShortNames.Count} zone shortnames for target dropdown.");
                     }
                 }
+
+                PrefetchConnectedZones();
             }
             catch (Exception ex)
             {
