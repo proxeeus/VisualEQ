@@ -369,8 +369,16 @@ namespace VisualEQ.ZonePointSystem
             // the server does heading * 2 at fire time (trilogy_client.cpp:1919) to get
             // its 0-512 internal value. HeadingToRotation expects 0-512, so match the
             // server: ×2 to convert wire → server.
+            //
+            // Base vector is scene +X (which is DB +Y = North per EQEmu convention,
+            // zoning.cpp:381-382: "0=+Y/North, 128=+X/West"). At heading 0 the arrow
+            // points north; the CCW-around-Z rotation then maps EQEmu heading directly
+            // to compass direction so the editor arrow matches what /loc reports
+            // in-game. (Was (0,1,0) = scene +Y = DB +X = west at heading 0 — 90°
+            // right of correct, which made every arrow-vs-in-game comparison off by
+            // exactly one cardinal.)
             var rot           = VisualEQ.SpawnSystem.SpawnManager.HeadingToRotation(zp.Row.Heading * 2f);
-            var forward       = Vector3.Normalize(Vector3.Transform(new Vector3(0, 1, 0), rot));
+            var forward       = Vector3.Normalize(Vector3.Transform(new Vector3(1, 0, 0), rot));
             var arrowStart    = padCenter;
             var arrowEnd      = arrowStart + forward * arrowLength;
 
