@@ -33,12 +33,29 @@ namespace VisualEQ.ConverterCore
             var materialNames = new List<string>();
             foreach (var x in textureRefs)
             {
+                // Fragment30 → Fragment05 → Fragment04 → Fragment03 chain. Any link
+                // can fail: freportn (and other zones) reference Fragment35 in the
+                // texture list, which the WLD reader treats as ignored, and downstream
+                // dereferences resolve to null. If we `continue` here the Textures list
+                // shrinks but PolyTexs keeps the original texture indices — Mesh.Bake
+                // then either grabs the wrong material or throws KeyNotFoundException
+                // when the stale index falls past the end of the shortened list.
+                // Instead, inject a placeholder so texture indices stay aligned.
                 var sr1 = x.Value;
-                if (sr1?.Reference.Value == null) continue;
-                var sr2 = sr1.Reference.Value;
-                var sr = sr2.Reference.Value;
-                var fns = sr.References.Select(y => y.Value.Filenames.ToList()).SelectMany(y => y).ToList();
-                textures.Add((x.Value.Flags, sr.FrameTime, fns));
+                var sr2 = sr1?.Reference.Value;
+                var sr  = sr2?.Reference.Value;
+                if (sr == null || sr.References == null)
+                {
+                    textures.Add((0u, 0u, new List<string>()));
+                    materialNames.Add(x.Name ?? "");
+                    continue;
+                }
+                var fns = sr.References
+                    .Where(y => y?.Value?.Filenames != null)
+                    .Select(y => y.Value.Filenames.ToList())
+                    .SelectMany(y => y)
+                    .ToList();
+                textures.Add((sr1.Flags, sr.FrameTime, fns));
                 materialNames.Add(x.Name ?? "");
             }
             Textures = textures;
@@ -250,6 +267,15 @@ namespace VisualEQ.ConverterCore
                 var pi = 0;
                 foreach (var (ptc, ti) in piece.PolyTexs)
                 {
+                    // Guard against out-of-range PolyTex indices from corrupt/unusual
+                    // WLDs (freportn hits this). Silently drop the offending polygon
+                    // group rather than crashing the entire decode — the resulting
+                    // hole is visible but the rest of the zone still loads.
+                    if (ti >= (uint)piece.Textures.Count)
+                    {
+                        pi += (int)ptc;
+                        continue;
+                    }
                     foreach (var (collidable, a, b, c) in piece.Polygons.Skip(pi).Take((int)ptc))
                     {
                         var index = ((int)ti + texoff, collidable);
