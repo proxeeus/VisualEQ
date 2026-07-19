@@ -56,8 +56,20 @@ namespace VisualEQ.ConverterCore
             var fns = FindFiles($"{name}.s3d").Concat(FindFiles($"{name}_*.s3d")).Where(fn => !fn.Contains("_chr")).ToList();
             if (!fns.Contains($"{name}_obj.s3d")) return false;
 
-            var s3ds = fns.AsParallel().Select(fn => new S3D(fn, File.OpenRead(Filename(fn)))).ToList();
-            var wlds = s3ds.AsParallel().Select(s3d => s3d.Where(fn => fn.EndsWith(".wld")).Select(fn => new Wld(s3d, fn)))
+            var s3ds = fns.Select(fn => new S3D(fn, File.OpenRead(Filename(fn)))).ToList();
+            try
+            {
+                return ConvertWldZoneCore(name, s3ds);
+            }
+            finally
+            {
+                foreach (var s3d in s3ds) s3d.Dispose();
+            }
+        }
+
+        bool ConvertWldZoneCore(string name, List<S3D> s3ds)
+        {
+            var wlds = s3ds.Select(s3d => s3d.Where(fn => fn.EndsWith(".wld")).Select(fn => new Wld(s3d, fn)))
                 .SelectMany(x => x).ToList();
 
             foreach (var wld in wlds)
@@ -76,7 +88,13 @@ namespace VisualEQ.ConverterCore
                     .Select(x =>
                         x.GetFragments<Fragment03>().Select(y => y.Fragment.Filenames.Select(z => (x.S3D, z))))
                     .SelectMany(x => x).SelectMany(x => x).Distinct();
-                TextureMap = texs.AsParallel().Select(x => ((x.Item1.Filename, x.Item2), ConvertTexture(x.Item1, zip, x.Item2))).ToDictionary(t => t.Item1, t => t.Item2);
+                // Serial texture pass: ConvertTexture already serializes the zip write via
+                // lock(zip), so parallelism only bought us image-decode concurrency at the
+                // cost of holding N decoded Images resident simultaneously. Under memory
+                // pressure (Parallels VM + already-cached zone geometry) that peak was
+                // implicated in second-decode crashes. Serial = one Image at a time.
+                TextureMap = texs.Select(x => ((x.Item1.Filename, x.Item2), ConvertTexture(x.Item1, zip, x.Item2)))
+                    .ToDictionary(t => t.Item1, t => t.Item2);
 
                 var zone = new OESZone(name);
 
@@ -192,8 +210,20 @@ namespace VisualEQ.ConverterCore
             var fns = FindFiles($"{name}*.s3d").ToList();
             if (fns.Count == 0) return false;
 
-            var s3ds = fns.AsParallel().Select(fn => new S3D(fn, File.OpenRead(Filename(fn)))).ToList();
-            var wlds = s3ds.AsParallel().Select(s3d => s3d.Where(fn => fn.EndsWith(".wld")).Select(fn => new Wld(s3d, fn)))
+            var s3ds = fns.Select(fn => new S3D(fn, File.OpenRead(Filename(fn)))).ToList();
+            try
+            {
+                return ConvertCharactersCore(name, s3ds);
+            }
+            finally
+            {
+                foreach (var s3d in s3ds) s3d.Dispose();
+            }
+        }
+
+        bool ConvertCharactersCore(string name, List<S3D> s3ds)
+        {
+            var wlds = s3ds.Select(s3d => s3d.Where(fn => fn.EndsWith(".wld")).Select(fn => new Wld(s3d, fn)))
                 .SelectMany(x => x).ToList();
 
             foreach (var wld in wlds)
@@ -743,72 +773,81 @@ namespace VisualEQ.ConverterCore
             var ename = $"{name}.eqg";
             if (!Exists(ename)) return false;
 
-            var eqg = new S3D(ename, File.OpenRead(Filename(ename)));
-            Zon zon;
-            var zname = $"{name}.zon";
-            if (eqg.Contains(zname))
-                zon = new Zon(eqg, eqg.Open(zname));
-            else if (Exists(zname))
-                zon = new Zon(eqg, File.OpenRead(zname));
-            else
-                return false;
-
-            var zn = OutputZip(name);
-            if (File.Exists(zn)) File.Delete(zn);
-            using (var zip = ZipFile.Open(zn, ZipArchiveMode.Create))
+            using (var eqg = new S3D(ename, File.OpenRead(Filename(ename))))
             {
-                var texs = zon.Objects.Select(x => x.Materials.Values.Select(y =>
-                    y.Properties.Values.Where(z => z is string w && w.ToLower().EndsWith(".dds")).Select(z =>
-                        (string)z)).SelectMany(y => y)).SelectMany(x => x).OrderBy(x => x).Distinct();
-                TextureMap = texs.AsParallel()
-                    .Select(x => ((ename, x), ConvertTexture(eqg, zip, x))).ToDictionary(t => t.Item1, t => t.Item2);
+                Zon zon;
+                var zname = $"{name}.zon";
+                if (eqg.Contains(zname))
+                    zon = new Zon(eqg, eqg.Open(zname));
+                else if (Exists(zname))
+                    zon = new Zon(eqg, File.OpenRead(zname));
+                else
+                    return false;
 
-                var zone = new OESZone(name);
-                var objs = zon.Objects.Select((obj, i) =>
+                var zn = OutputZip(name);
+                if (File.Exists(zn)) File.Delete(zn);
+                using (var zip = ZipFile.Open(zn, ZipArchiveMode.Create))
                 {
-                    var root = obj.IsTer ? (OESChunk)zone : new OESObject();
-                    if (root != zone)
-                        zone.Add(root);
-                    var skin = new OESSkin();
-                    root.Add(skin);
-                    obj.Meshes.ForEach(mesh =>
-                    {
-                        if (!obj.Materials.ContainsKey(mesh.Key.MatIndex)) return;
-                        var mat = obj.Materials[mesh.Key.MatIndex];
-                        if (mat.Properties.ContainsKey("e_TextureNormal0") && (string)mat.Properties["e_TextureNormal0"] != "None")
-                        {
-                            skin.Add(new OESMaterial(false, false, false) {
-                                new OESEffect("diffuse+normal"),
-                                new OESTexture(TextureMap[(ename, (string) mat.Properties["e_TextureDiffuse0"])]),
-                                new OESTexture(TextureMap[(ename, (string) mat.Properties["e_TextureNormal0"])])
-                            });
-                        }
-                        else
-                            skin.Add(new OESMaterial(false, false, false) { new OESTexture(TextureMap[(ename, (string)mat.Properties["e_TextureDiffuse0"])]) });
-                        var (vb, ib) = OptimizeBuffers(obj.VertexBuffer, mesh.Value);
-                        root.Add(new OESStaticMesh(mesh.Key.Collidable, ib, vb));
-                    });
-                    return obj.IsTer ? null : root;
-                }).ToList();
-
-                zon.Placeables.ForEach(instance =>
-                {
-                    if (objs.Count <= instance.ObjId || objs[instance.ObjId] == null) return;
-
-                    zone.Add(new OESInstance(
-                        (OESObject)objs[instance.ObjId],
-                        instance.Position,
-                        new Vector3(instance.Scale),
-                        Quaternion.CreateFromAxisAngle(new Vector3(0, 0, 1), instance.Rotation.X) *
-                        Quaternion.CreateFromAxisAngle(new Vector3(0, 1, 0), instance.Rotation.Y) *
-                        Quaternion.CreateFromAxisAngle(new Vector3(1, 0, 0), instance.Rotation.Z)));
-                });
-
-                zon.Lights.ForEach(light => zone.Add(new OESLight(light.Position, light.Color, light.Radius, 200)));
-
-                OESFile.Write(zip.CreateEntry("main.oes", CompressionLevel.Optimal).Open(), zone);
+                    return ConvertEqgZoneCore(name, ename, eqg, zon, zip);
+                }
             }
+        }
 
+        bool ConvertEqgZoneCore(string name, string ename, S3D eqg, Zon zon, ZipArchive zip)
+        {
+            var texs = zon.Objects.Select(x => x.Materials.Values.Select(y =>
+                y.Properties.Values.Where(z => z is string w && w.ToLower().EndsWith(".dds")).Select(z =>
+                    (string)z)).SelectMany(y => y)).SelectMany(x => x).OrderBy(x => x).Distinct();
+            // Serial texture pass — see the ConvertWldZone rationale: ConvertTexture holds
+            // lock(zip) for the write, so parallelism only helped with the image-decode
+            // step at the cost of peak Image memory.
+            TextureMap = texs.Select(x => ((ename, x), ConvertTexture(eqg, zip, x)))
+                .ToDictionary(t => t.Item1, t => t.Item2);
+
+            var zone = new OESZone(name);
+            var objs = zon.Objects.Select((obj, i) =>
+            {
+                var root = obj.IsTer ? (OESChunk)zone : new OESObject();
+                if (root != zone)
+                    zone.Add(root);
+                var skin = new OESSkin();
+                root.Add(skin);
+                obj.Meshes.ForEach(mesh =>
+                {
+                    if (!obj.Materials.ContainsKey(mesh.Key.MatIndex)) return;
+                    var mat = obj.Materials[mesh.Key.MatIndex];
+                    if (mat.Properties.ContainsKey("e_TextureNormal0") && (string)mat.Properties["e_TextureNormal0"] != "None")
+                    {
+                        skin.Add(new OESMaterial(false, false, false) {
+                            new OESEffect("diffuse+normal"),
+                            new OESTexture(TextureMap[(ename, (string) mat.Properties["e_TextureDiffuse0"])]),
+                            new OESTexture(TextureMap[(ename, (string) mat.Properties["e_TextureNormal0"])])
+                        });
+                    }
+                    else
+                        skin.Add(new OESMaterial(false, false, false) { new OESTexture(TextureMap[(ename, (string)mat.Properties["e_TextureDiffuse0"])]) });
+                    var (vb, ib) = OptimizeBuffers(obj.VertexBuffer, mesh.Value);
+                    root.Add(new OESStaticMesh(mesh.Key.Collidable, ib, vb));
+                });
+                return obj.IsTer ? null : root;
+            }).ToList();
+
+            zon.Placeables.ForEach(instance =>
+            {
+                if (objs.Count <= instance.ObjId || objs[instance.ObjId] == null) return;
+
+                zone.Add(new OESInstance(
+                    (OESObject)objs[instance.ObjId],
+                    instance.Position,
+                    new Vector3(instance.Scale),
+                    Quaternion.CreateFromAxisAngle(new Vector3(0, 0, 1), instance.Rotation.X) *
+                    Quaternion.CreateFromAxisAngle(new Vector3(0, 1, 0), instance.Rotation.Y) *
+                    Quaternion.CreateFromAxisAngle(new Vector3(1, 0, 0), instance.Rotation.Z)));
+            });
+
+            zon.Lights.ForEach(light => zone.Add(new OESLight(light.Position, light.Color, light.Radius, 200)));
+
+            OESFile.Write(zip.CreateEntry("main.oes", CompressionLevel.Optimal).Open(), zone);
             return true;
         }
 

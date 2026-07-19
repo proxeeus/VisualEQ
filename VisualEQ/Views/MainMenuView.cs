@@ -365,17 +365,32 @@ namespace VisualEQ.Views
         DecodeResult RunDecode(string eqPath, string zoneName)
         {
             var result = new DecodeResult { Zone = zoneName };
+            var converter = new Converter(eqPath, ConvertedZoneDir);
+
+            // Zone and character conversion each get their own try/catch so a chr failure
+            // (e.g. the S3D header-count mismatch on Velious _chr archives) doesn't wipe
+            // out an already-successful zone conversion. The zone _oes.zip has already
+            // been written to disk by the time character conversion runs.
             try
             {
-                var converter = new Converter(eqPath, ConvertedZoneDir);
                 result.ZoneStatus = converter.Convert(zoneName);
+            }
+            catch (Exception ex)
+            {
+                result.ZoneError = ex.Message;
+                Console.WriteLine($"[Decode] Zone '{zoneName}' failed: {ex}");
+            }
+
+            try
+            {
                 result.CharacterStatus = converter.Convert(zoneName + "_chr");
             }
             catch (Exception ex)
             {
-                result.Error = ex.Message;
-                Console.WriteLine($"[Decode] Failed: {ex}");
+                result.CharacterError = ex.Message;
+                Console.WriteLine($"[Decode] Character '{zoneName}_chr' failed: {ex}");
             }
+
             return result;
         }
 
@@ -387,30 +402,33 @@ namespace VisualEQ.Views
             _decodeTask = null;
             _decodeLabel = null;
 
-            if (r.Error != null)
-            {
-                _status   = $"Decode failed: {r.Error}";
-                _statusOk = false;
-                return;
-            }
-
             var msgs = new List<string>();
-            msgs.Add(r.ZoneStatus == ConvertedType.None
-                ? $"Zone '{r.Zone}' not found or not decodable."
-                : $"Zone '{r.Zone}' decoded.");
-            msgs.Add(r.CharacterStatus == ConvertedType.None
-                ? $"No characters found for '{r.Zone}' (optional)."
-                : $"Characters '{r.Zone}_chr' decoded.");
+            if (r.ZoneError != null)
+                msgs.Add($"Zone '{r.Zone}' failed: {r.ZoneError}");
+            else
+                msgs.Add(r.ZoneStatus == ConvertedType.None
+                    ? $"Zone '{r.Zone}' not found or not decodable."
+                    : $"Zone '{r.Zone}' decoded.");
+
+            if (r.CharacterError != null)
+                msgs.Add($"Characters '{r.Zone}_chr' failed: {r.CharacterError}");
+            else
+                msgs.Add(r.CharacterStatus == ConvertedType.None
+                    ? $"No characters found for '{r.Zone}' (optional)."
+                    : $"Characters '{r.Zone}_chr' decoded.");
 
             _status   = string.Join(" ", msgs);
-            _statusOk = r.ZoneStatus != ConvertedType.None;
+            // Success = zone was actually written. A chr failure is a warning, not a
+            // hard failure — the runtime falls back to gfaydark_chr for missing character
+            // meshes so the zone is still usable.
+            _statusOk = r.ZoneStatus != ConvertedType.None && r.ZoneError == null;
 
             // Refresh the zone list so the new entry appears immediately.
             _lastScan = DateTime.MinValue;
 
             // Drop any stale geometry snapshot so the next load of this zone re-parses
             // the freshly-written OES instead of restoring the pre-decode Model instances.
-            if (r.ZoneStatus != ConvertedType.None)
+            if (r.ZoneStatus != ConvertedType.None && r.ZoneError == null)
                 _controller.InvalidateZoneSnapshot(r.Zone);
         }
 
@@ -419,7 +437,8 @@ namespace VisualEQ.Views
             public string Zone;
             public ConvertedType ZoneStatus;
             public ConvertedType CharacterStatus;
-            public string Error;
+            public string ZoneError;
+            public string CharacterError;
         }
 
         void BeginBatchDecodeGlobals()
