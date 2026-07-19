@@ -778,7 +778,29 @@ namespace VisualEQ.Engine
 
             Camera.Update((float)e.Time);
 
+            UpdateWindowTitle();
+
             base.OnUpdateFrame(e);
+        }
+
+        // Refresh the window title with the current zone + EQ-space camera coords so
+        // the user can copy /loc-style values straight into DB fields. Throttled to
+        // ~5 Hz — Win32 SetWindowText is a synchronous IPC and running it every frame
+        // wastes cycles even though it's cheap. Camera.Position is scene-space; EQ
+        // convention is X = pos.Y, Y = pos.X (see CLAUDE.md §8).
+        float _titleNextUpdate;
+        string _lastTitle;
+        void UpdateWindowTitle()
+        {
+            if (Time < _titleNextUpdate) return;
+            _titleNextUpdate = Time + 0.2f;
+
+            var zone = Controller?.CurrentZoneName ?? "(no zone)";
+            var pos  = Camera.Position;
+            var title = $"VisualEQ — {zone}  X={pos.Y:F1}  Y={pos.X:F1}  Z={pos.Z:F1}";
+            if (title == _lastTitle) return;
+            _lastTitle = title;
+            Title = title;
         }
 
         int _diagFrameCount = 0;
