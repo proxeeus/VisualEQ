@@ -221,6 +221,10 @@ namespace VisualEQ.Views
             _deletePendingZone = null;
             _lastScan = DateTime.MinValue;
 
+            // Drop any cached snapshot so a subsequent re-decode + load re-parses fresh.
+            if (deletedFiles.Count > 0)
+                _controller.InvalidateZoneSnapshot(name);
+
             if (errors.Count > 0)
             {
                 _status = $"Delete failed: {string.Join("; ", errors)}";
@@ -403,6 +407,11 @@ namespace VisualEQ.Views
 
             // Refresh the zone list so the new entry appears immediately.
             _lastScan = DateTime.MinValue;
+
+            // Drop any stale geometry snapshot so the next load of this zone re-parses
+            // the freshly-written OES instead of restoring the pre-decode Model instances.
+            if (r.ZoneStatus != ConvertedType.None)
+                _controller.InvalidateZoneSnapshot(r.Zone);
         }
 
         struct DecodeResult

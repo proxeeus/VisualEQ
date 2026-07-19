@@ -398,6 +398,31 @@ namespace VisualEQ.Engine
         public void AddRegion(string name, byte kind, Vector3 min, Vector3 max) =>
             Regions.Add(new LiquidRegion(name, kind, min, max));
 
+        // Read accessors used by the Controller's zone snapshot cache (Slice 2). The cache
+        // holds the same Model/PointLight/LiquidRegion instances across F10 → re-visit so
+        // the OES parse + GL upload + collision octree rebuild all get skipped.
+        public IReadOnlyList<Model> StaticModels => Models;
+        public IReadOnlyList<PointLight> PointLights => Lights;
+
+        // Bulk restore path — re-adds the exact Model/PointLight/LiquidRegion instances the
+        // caller previously captured (their underlying Vao/Buffer GL handles remain valid on
+        // the device since ClearScene only clears the C# reference lists). Also stamps
+        // Globals.Collider + ZoneBounds so RebuildCollision doesn't need to run. Must be
+        // called on the GL thread — same rule as any other Engine mutation.
+        public void RestoreScene(
+            IEnumerable<Model> models,
+            IEnumerable<PointLight> lights,
+            IEnumerable<LiquidRegion> regions,
+            CollisionHelper collider,
+            (Vector3 Min, Vector3 Max)? zoneBounds)
+        {
+            foreach (var m in models) Models.Add(m);
+            foreach (var l in lights) Lights.Add(l);
+            foreach (var r in regions) Regions.Add(r);
+            Globals.Collider = collider;
+            ZoneBounds = zoneBounds;
+        }
+
         // Given a SCENE-space (X, Y) query point, returns the top-Z of the highest region
         // of the requested kind whose XY footprint contains the point. Multiple overlapping
         // pools use the highest surface — matches the intuition of a boat floating on the
