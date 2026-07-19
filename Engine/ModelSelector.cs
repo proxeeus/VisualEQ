@@ -22,12 +22,15 @@ namespace VisualEQ.Engine
         // is world XY (default) or camera-perpendicular (Alt-modified).
         private bool _useCameraPlane;
 
-        // Sampled once at BeginActualDrag. When true, ground-plane drag skips the downward
-        // collision probe and leaves Z at _dragStartPosition.Z + _wheelZOffset — for placing
-        // NPCs below water, inside dock recesses, or anywhere the auto-snap gets in the way.
-        // Mirrors _useCameraPlane's "sample once, hold for the drag" pattern so a slipped
-        // finger mid-drag doesn't re-engage the snap.
+        // Live-sampled every UpdateDrag frame. When true, ground-plane drag skips the
+        // downward collision probe and leaves Z at the freeze baseline + _wheelZOffset —
+        // for placing NPCs below water, inside dock recesses, or anywhere the auto-snap
+        // gets in the way. Toggling Ctrl mid-drag is honored: on the rising edge we
+        // capture the CURRENT Z as _freezeBaseZ so engage doesn't yank the model back to
+        // the drag-start altitude; on release the terrain probe re-engages (which can
+        // cause a visible jump if you've moved across uneven terrain — intended).
         private bool _freezeZ;
+        private float _freezeBaseZ;
 
         // Vertical distance from the ground under the model to the model's origin at the
         // moment drag started. Preserved during ground-plane drag so the model keeps sitting
@@ -205,6 +208,7 @@ namespace VisualEQ.Engine
                             || engine.GetPressedKeys().Contains(OpenTK.Input.Key.AltRight);
             _freezeZ = engine.GetPressedKeys().Contains(OpenTK.Input.Key.ControlLeft)
                      || engine.GetPressedKeys().Contains(OpenTK.Input.Key.ControlRight);
+            _freezeBaseZ = _dragStartPosition.Z;
             _wheelZOffset = 0f;
             _dragHorizOffset = Vector2.Zero;
             _dragGroundOffset = MODEL_GROUND_OFFSET;
@@ -311,8 +315,17 @@ namespace VisualEQ.Engine
                 var targetX = xyProj.X + _dragHorizOffset.X;
                 var targetY = xyProj.Y + _dragHorizOffset.Y;
 
-                float targetZ = _dragStartPosition.Z + _wheelZOffset; // fallback if no ground
-                // Ctrl held at drag start = freeze Z; skip the auto-snap probe entirely.
+                // Ctrl is live-sampled: press or release at any time during the drag.
+                // Rising edge (was-off, now-on): capture the CURRENT Z as the freeze
+                // baseline so engage holds where the model is, not where the drag started.
+                // Falling edge: terrain probe re-engages and Z snaps to whatever it finds
+                // under the cursor (may jump if you've moved — intended semantics).
+                bool ctrlNow = engine.GetPressedKeys().Contains(OpenTK.Input.Key.ControlLeft)
+                             || engine.GetPressedKeys().Contains(OpenTK.Input.Key.ControlRight);
+                if (ctrlNow && !_freezeZ) _freezeBaseZ = selectedModel.Position.Z - _wheelZOffset;
+                _freezeZ = ctrlNow;
+
+                float targetZ = (_freezeZ ? _freezeBaseZ : _dragStartPosition.Z) + _wheelZOffset;
                 if (!_freezeZ && Collider != null)
                 {
                     var probe = new Vector3(targetX, targetY, HighProbeAltitude);

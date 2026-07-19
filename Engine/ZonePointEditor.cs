@@ -125,6 +125,11 @@ namespace VisualEQ.Engine
         float _dragGroundOffset;
         float _wheelZOffset;
         bool _useCameraPlane;
+        bool _freezeZ;
+        // Baseline Z used while frozen — captured on the rising edge of Ctrl so mid-drag
+        // engage holds the CURRENT altitude, not the drag-start altitude (which would
+        // yank the handle backward if the user had already moved across terrain).
+        float _freezeBaseZ;
 
         // Resize-drag state: capture the row's center at drag start so we can compute
         // half-extents in world space from the mouse-on-plane point.
@@ -447,8 +452,18 @@ namespace VisualEQ.Engine
                 var targetX = xyProj.X + _dragHorizOffset.X;
                 var targetY = xyProj.Y + _dragHorizOffset.Y;
 
-                float targetZ = _dragStartCenter.Z + _wheelZOffset;
-                if (Collider != null)
+                // Ctrl is live-sampled: engage or disengage freeze at any point during
+                // the drag. On the rising edge (was-off, now-on) we capture the CURRENT
+                // altitude as the freeze baseline so mid-drag engage doesn't yank the
+                // handle back to the drag-start Z. Releasing Ctrl returns to terrain-probe
+                // mode and Z will snap to whatever the probe finds under the cursor.
+                bool ctrlNow = _engine.GetPressedKeys().Contains(OpenTK.Input.Key.ControlLeft)
+                             || _engine.GetPressedKeys().Contains(OpenTK.Input.Key.ControlRight);
+                if (ctrlNow && !_freezeZ) _freezeBaseZ = _currentCenter.Z - _wheelZOffset;
+                _freezeZ = ctrlNow;
+
+                float targetZ = (_freezeZ ? _freezeBaseZ : _dragStartCenter.Z) + _wheelZOffset;
+                if (!_freezeZ && Collider != null)
                 {
                     var probe = new Vector3(targetX, targetY, HighProbeAltitude);
                     var hit = Collider.FindIntersection(probe, new Vector3(0, 0, -1), 0.5f);
@@ -518,6 +533,9 @@ namespace VisualEQ.Engine
 
             _useCameraPlane = _engine.GetPressedKeys().Contains(OpenTK.Input.Key.AltLeft)
                             || _engine.GetPressedKeys().Contains(OpenTK.Input.Key.AltRight);
+            _freezeZ = _engine.GetPressedKeys().Contains(OpenTK.Input.Key.ControlLeft)
+                     || _engine.GetPressedKeys().Contains(OpenTK.Input.Key.ControlRight);
+            _freezeBaseZ = _dragStartCenter.Z;
             _wheelZOffset = 0f;
             _dragHorizOffset = Vector2.Zero;
             _dragGroundOffset = DefaultGroundOffset;
@@ -597,6 +615,7 @@ namespace VisualEQ.Engine
             }
             _isDragging = false;
             _dragPending = false;
+            _freezeZ = false;
             _target = null;
         }
 
@@ -611,6 +630,7 @@ namespace VisualEQ.Engine
             }
             _isDragging = false;
             _dragPending = false;
+            _freezeZ = false;
             _target = null;
         }
 
