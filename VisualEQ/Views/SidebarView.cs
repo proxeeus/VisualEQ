@@ -2639,53 +2639,13 @@ namespace VisualEQ.Views
                 return;
             }
 
-            var shortNames = _view.Controller.ZoneShortNames;
-            if (shortNames.Count > 0)
-            {
-                RenderTargetZoneCombo(zp, current, shortNames);
-                return;
-            }
-
-            RenderTargetZoneInputTextFallback(zp, current);
+            RenderTargetZoneInputText(zp, current);
         }
 
-        // Combo dropdown fed by the cached zone shortnames list. On any selection change,
-        // records a single ZonePointFieldEditAction — same undo path as any other field.
-        void RenderTargetZoneCombo(
-            VisualEQ.ZonePointSystem.ZonePoint zp,
-            string current,
-            System.Collections.Generic.List<string> shortNames)
-        {
-            var items = shortNames.ToArray();
-            int idx = Array.IndexOf(items, current);
-            if (idx < 0)
-            {
-                // Current value isn't in the cached list (unusual — stale zone shortname or
-                // a value not in `zone` table). Show a message so the user can spot it.
-                ImGui.Text($"target_zone = '{current}' (unknown to zone table)");
-                ImGui.Text("Pick a known zone below to fix:");
-                idx = 0;
-            }
-            else
-            {
-                ImGui.Text("target_zone");
-            }
-
-            var refIdx = idx;
-            if (ImGui.Combo($"###{Id}zpTZCombo", ref refIdx, items) && refIdx != idx)
-            {
-                var newValue = items[refIdx];
-                _view.Controller.RecordAction(
-                    new VisualEQ.EditSystem.ZonePointFieldEditAction(
-                        zp,
-                        VisualEQ.EditSystem.ZonePointFieldEditAction.Field.TargetZone,
-                        current, newValue));
-            }
-        }
-
-        // Fallback path when no zone shortnames are cached (DB not configured yet). Uses
-        // the same byte-buffer + active-edit pattern as the other InputText widgets.
-        void RenderTargetZoneInputTextFallback(VisualEQ.ZonePointSystem.ZonePoint zp, string current)
+        // Free-form target_zone entry — same byte-buffer + active-edit pattern as the
+        // other InputText widgets. Preferred over a Combo so the user can type any
+        // shortname (including zones not in the cached `zone` table).
+        void RenderTargetZoneInputText(VisualEQ.ZonePointSystem.ZonePoint zp, string current)
         {
             var isThisFieldActive =
                 _zpActiveEditZonePointId == zp.Row.Id &&
@@ -2699,7 +2659,7 @@ namespace VisualEQ.Views
                 _zpTargetZoneBufferForId = zp.Row.Id;
             }
 
-            ImGui.Text("target_zone (no zone table cached — type shortname)");
+            ImGui.Text("target_zone");
             ImGui.InputText($"###{Id}zpTZ", _zpTargetZoneBuffer, (uint)_zpTargetZoneBuffer.Length, InputTextFlags.Default, null);
             HandleActivationTransition(
                 zp,
