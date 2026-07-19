@@ -321,22 +321,15 @@ namespace VisualEQ
             }
         }
 
-        // Shutdown drain. Destroys every cached MeshGeometry's GL objects (index +
-        // per-animation VBOs and VAOs) synchronously on the calling thread and clears
-        // the caches. Must run with the GL context current — call from EngineCore.OnUnload,
-        // NOT from a finalizer. Kunark editing sessions accumulate hundreds of geometry
-        // entries × ~66 GL objects each; releasing them here means the finalizer thread
-        // has nothing to do at process teardown, which was the primary cause of the
-        // multi-second exit stall on Parallels/ARM64.
+        // Shutdown drop. Called from Controller.Shutdown before Process.Kill so the OS
+        // reclaim path doesn't have to walk these dictionaries. Deliberately does NOT
+        // call GL.Delete* on the cached buffers/textures — Parallels/ARM64 GL emulation
+        // makes each GL.Delete call expensive, and TerminateProcess reclaims the GL
+        // context (and everything behind it) instantly regardless.
         internal static void ClearAllCaches()
         {
             lock (_oesRootCacheLock)
             {
-                foreach (var geom in _meshGeometryCache.Values)
-                {
-                    try { geom.Destroy(); }
-                    catch (Exception ex) { WriteLine($"[Loader.ClearAllCaches] geometry destroy failed: {ex.Message}"); }
-                }
                 _meshGeometryCache.Clear();
                 _oesRootCache.Clear();
             }

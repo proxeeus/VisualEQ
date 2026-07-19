@@ -465,22 +465,33 @@ namespace VisualEQ.Engine
             Run();
         }
 
-        // Fires after Run() returns but BEFORE the OpenTK context is destroyed. This is
-        // our only chance to release GL resources from the render thread with a current
-        // context. Without this, ~Buffer/~Vao/~Texture finalizers pile up on the finalizer
-        // thread post-exit, each calling GL.Delete* with no current context — which is
-        // what made "close after a long Kunark editing session" take several seconds.
+        // Earliest possible hook for a window-X-click. Flush persistent state
+        // (edit buffer) then TerminateProcess — OS reclaims the GL context, the
+        // heap, all sockets. No finalizer thread, no GL.Delete calls, no OpenTK
+        // shutdown dance. Long editing sessions with tens of thousands of live
+        // GL wrapper objects were making the "graceful" shutdown paths take
+        // several seconds each; this is measured in milliseconds regardless.
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            base.OnClosing(e);
+            if (e.Cancel) return;
+            HardExit();
+        }
+
+        // Also hook OnUnload so the Tilde-key Exit() path (which doesn't go through
+        // OnClosing) still gets the flush + kill. Whichever hook fires first wins.
         protected override void OnUnload(EventArgs e)
         {
-            try
-            {
-                Controller?.Shutdown();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[EngineCore.OnUnload] shutdown failed: {ex.Message}");
-            }
+            HardExit();
             base.OnUnload(e);
+        }
+
+        void HardExit()
+        {
+            try { Controller?.Shutdown(); }
+            catch (Exception ex) { Console.WriteLine($"[EngineCore.HardExit] shutdown failed: {ex.Message}"); }
+            try { System.Diagnostics.Process.GetCurrentProcess().Kill(); }
+            catch { }
         }
 
         // Rebuilds the collision octree from the currently-loaded static, collidable meshes.

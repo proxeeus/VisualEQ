@@ -103,14 +103,8 @@ namespace VisualEQ
                 controller.HelpView = helpView;
 
                 controller.Start();
-
-                // Bypass finalization. EngineCore.OnUnload already released the heavy
-                // GL caches while the context was current; anything left is either OS-
-                // reclaimable (sockets, file handles) or a wrapper whose finalizer would
-                // just poke a dead GL context. On Parallels/ARM64 that finalizer pass is
-                // where the "close takes forever after long Kunark session" was coming
-                // from — skipping it drops shutdown to effectively instant.
-                Environment.Exit(0);
+                // Unreachable in practice: EngineCore.OnClosing / OnUnload calls
+                // Process.Kill before Run() returns. Kept as a defensive fallthrough.
             }
             catch (Exception ex)
             {
