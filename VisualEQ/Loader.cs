@@ -65,21 +65,32 @@ namespace VisualEQ
             }
         }
 
-        // Classic-EQ tree/pine/palm ACTORDEF naming conventions. Kunark uses
-        // TREE###/TREEPINE###/WARDPINE###/SWAMPTREE###/TREEDEAD###. Faydark and
-        // Everfrost use PINETREE###/PALM/PINE###. Prefixes only — no strict digit
-        // check — so PALMLEAF, TREEBUSH, etc. get tagged too. Rocks/pillars/props
-        // stay visible (WARROCK, STALAG, KUPEDAST, ...).
-        static readonly string[] FoliagePrefixes =
+        // Classic-EQ vegetation ACTORDEFs follow "<theme><type><number>" naming:
+        //   TREE102, PINETREE103, SWAMPTREE101, WARDPINE100         (classic/Faydark)
+        //   JNTREE103, JNGRASS101, JNPLANT101, JNLOG104             (Kunark jungle)
+        //   CMPLANT105B, DRGRASS101                                 (Kunark marsh/drylands)
+        //
+        // Substring-match the type tokens rather than an ever-growing prefix list —
+        // new theme prefixes appear in every expansion and a curated list keeps
+        // leaving zones out (trakanon/emeraldjungle were entirely missed by the
+        // initial TREE*/PINE*/BUSH* set). Tokens are chosen so the false-positive
+        // surface is essentially zero on classic EQ object names: no in-game object
+        // contains "TREE"/"PINE"/"PALM"/"BUSH"/"GRASS"/"PLANT" that isn't
+        // actually vegetation. LOG is deliberately excluded (JNLOG is minor and
+        // "log" could match unrelated names like "DIALOG" in future data).
+        //
+        // Rocks/pillars/props/tents stay visible: WARROCK, STALAG, KUPEDAST,
+        // CAMPFIRE, TENT, TABLE, CHAIR, BARREL, BALLISTAE, none of which contain
+        // any of the vegetation tokens.
+        static readonly string[] FoliageTokens =
         {
-            "TREE", "TREEDEAD", "TREEPINE", "PINETREE", "PINE",
-            "WARDPINE", "SWAMPTREE", "PALM", "BUSH",
+            "TREE", "PINE", "PALM", "BUSH", "GRASS", "PLANT",
         };
         static bool IsFoliageName(string name)
         {
             if (string.IsNullOrEmpty(name)) return false;
-            foreach (var prefix in FoliagePrefixes)
-                if (name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            foreach (var token in FoliageTokens)
+                if (name.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0)
                     return true;
             return false;
         }
