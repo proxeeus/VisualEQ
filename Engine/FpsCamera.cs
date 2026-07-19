@@ -11,7 +11,8 @@ namespace VisualEQ.Engine
     public class FpsCamera
     {
         public Vector3 Position;
-        float Pitch, Yaw;
+        public float Pitch { get; private set; }
+        public float Yaw { get; private set; }
 
         public static Matrix4x4 Matrix;
         public Matrix4x4 LookRotation = Matrix4x4.Identity;
@@ -38,6 +39,20 @@ namespace VisualEQ.Engine
         {
             Position = pos;
             Pitch = Yaw = 0;
+        }
+
+        // Restores a saved camera pose (used by the zone-snapshot cache so F10 → re-visit
+        // lands the user back exactly where they were, not at the (0,0,1000) default).
+        // Rebuilds LookRotation so the next render frame reflects the restored orientation
+        // without waiting for a mouse-look event.
+        public void SetPose(Vector3 position, float pitch, float yaw)
+        {
+            Position = position;
+            Pitch = pitch;
+            Yaw = yaw;
+            LookRotation = Matrix4x4.CreateFromAxisAngle(Right, Pitch);
+            if (Yaw != 0)
+                LookRotation *= Matrix4x4.CreateFromAxisAngle(Up, Yaw);
         }
 
         // Smoothly moves the camera to `target` over `duration` seconds. Any in-progress

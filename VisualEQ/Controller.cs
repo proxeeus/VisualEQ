@@ -32,6 +32,41 @@ namespace VisualEQ
         Dictionary<string, string> _availableModels = new Dictionary<string, string>();
         internal Dictionary<string, string> AvailableModels => _availableModels;
 
+        // Per-zone snapshot cache — populated on ClearCurrentZone so that F10 → pick the
+        // same zone again skips DB round-trips and restores the camera pose. Rows are only
+        // cached when PendingBuffer is empty (a dirty buffer means the in-memory rows have
+        // been mutated relative to DB, so re-feeding them would leak edits across the
+        // re-load). Camera pose is always cached — it's independent of edit state. Key is
+        // zone shortname (case-insensitive). Session-lifetime; cleared on Shutdown.
+        readonly Dictionary<string, ZoneSnapshot> _zoneSnapshots =
+            new Dictionary<string, ZoneSnapshot>(StringComparer.OrdinalIgnoreCase);
+
+        // Session-wide cache of every zone shortname in the DB — global to the DB, not per
+        // zone. Populated on the first LoadZonePointsSync that has DbFactory != null and
+        // reused by every subsequent zone load so we don't re-query zone.short_name every
+        // time.
+        List<string> _cachedZoneShortNames;
+
+        sealed class ZoneSnapshot
+        {
+            // Always populated.
+            public Vector3 CameraPosition;
+            public float CameraPitch;
+            public float CameraYaw;
+
+            // Populated only when the buffer was empty at ClearCurrentZone time. Null
+            // otherwise (forces a DB re-fetch on re-visit).
+            public List<Database.Models.SpawnRecord> SpawnRecords;
+            public Dictionary<string, string> AvailableModels;
+            public List<Database.Models.ZoneGridRecord> ZoneGrids;
+            public int? CurrentZoneId;
+            public List<Database.Models.TrilogyZonePoint> ZonePointsOutgoing;
+            public List<Database.Models.TrilogyZonePoint> ZonePointsIncoming;
+            public Dictionary<string, List<Database.Models.TrilogyZonePoint>> PeerZoneRows;
+
+            public bool HasRowData => SpawnRecords != null;
+        }
+
         public AniModel LastModelLoaded;
 
         private ModelSelector modelSelector;
@@ -1226,6 +1261,13 @@ namespace VisualEQ
         // to disk before we drop the reference — protects against losing work on F10.
         public void ClearCurrentZone()
         {
+            // Snapshot the current zone's state BEFORE tearing down so a later re-visit
+            // can skip the DB round-trips and restore the camera pose. Rows are only
+            // captured when the buffer is empty — otherwise the in-memory rows have been
+            // mutated relative to DB and re-feeding them would leak edits across reload.
+            if (!string.IsNullOrEmpty(CurrentZoneName))
+                CaptureZoneSnapshot(CurrentZoneName);
+
             if (_bufferDirty && PendingBuffer != null && !PendingBuffer.IsEmpty)
                 EditBufferManager.SaveForZone(PendingBuffer);
             _bufferDirty = false;
@@ -1275,6 +1317,51 @@ namespace VisualEQ
             ZoneChanged?.Invoke(null);
         }
 
+        // Captures the current zone's state into _zoneSnapshots so a re-visit can skip DB
+        // work + restore the camera pose. Camera pose is always captured; rows only when
+        // PendingBuffer is empty (guards against caching mutated-relative-to-DB rows).
+        void CaptureZoneSnapshot(string zoneName)
+        {
+            var snap = new ZoneSnapshot
+            {
+                CameraPosition = Camera.Position,
+                CameraPitch    = Camera.Pitch,
+                CameraYaw      = Camera.Yaw,
+            };
+
+            var bufferEmpty = PendingBuffer == null || PendingBuffer.IsEmpty;
+            if (bufferEmpty)
+            {
+                // SpawnPoints + HiddenSpawnPoints together = every SpawnRecord ever fetched
+                // for this zone. Both are needed so a re-visit rebuilds any pending-delete
+                // rows too (their delete lives in the buffer, but the buffer is empty here
+                // so there are no hidden points to begin with — kept for symmetry).
+                var records = SpawnManager.SpawnPoints.Select(sp => sp.Record).ToList();
+                records.AddRange(SpawnManager.HiddenSpawnPoints.Values.Select(sp => sp.Record));
+                snap.SpawnRecords    = records;
+                snap.AvailableModels = new Dictionary<string, string>(_availableModels);
+                snap.ZoneGrids       = ZoneGrids.ToList();
+                snap.CurrentZoneId   = CurrentZoneId;
+                snap.ZonePointsOutgoing = ZonePointManager.ZonePoints.Select(z => z.Row).ToList();
+                snap.ZonePointsIncoming = ZonePointManager.IncomingPoints.Select(z => z.Row).ToList();
+                snap.PeerZoneRows       = new Dictionary<string, List<Database.Models.TrilogyZonePoint>>(
+                    ZonePointManager.PeerZoneRows, StringComparer.OrdinalIgnoreCase);
+            }
+
+            _zoneSnapshots[zoneName] = snap;
+        }
+
+        // Restores the camera pose from a prior snapshot for zoneName. Returns true iff
+        // a snapshot existed. MainMenuView calls this in place of the (0,0,1000) default
+        // reset so re-visiting a zone lands the user back at their last viewpoint.
+        public bool TryRestoreCameraForZone(string zoneName)
+        {
+            if (string.IsNullOrEmpty(zoneName)) return false;
+            if (!_zoneSnapshots.TryGetValue(zoneName, out var snap)) return false;
+            Camera.SetPose(snap.CameraPosition, snap.CameraPitch, snap.CameraYaw);
+            return true;
+        }
+
         // App-exit hook. Called from EngineCore.OnUnload while the GL context is still
         // current. Two responsibilities:
         //  1. Flush any pending edit buffer immediately (bypass the 500 ms debounce) so
@@ -1297,6 +1384,8 @@ namespace VisualEQ
             }
 
             _modelCache.Clear();
+            _zoneSnapshots.Clear();
+            _cachedZoneShortNames = null;
 
             try
             {
@@ -1346,6 +1435,30 @@ namespace VisualEQ
                 Console.WriteLine("[Controller] Zone point load skipped — no DB connection.");
                 return;
             }
+
+            // Snapshot hit — feed cached rows straight into the managers and skip the
+            // 3 zone-point queries. Shortnames use the session-wide cache (below) since
+            // they're global-to-DB, not per-zone.
+            if (_zoneSnapshots.TryGetValue(zoneName, out var snap) && snap.HasRowData)
+            {
+                ZonePointManager.LoadFromRows(snap.ZonePointsOutgoing);
+                ZonePointManager.LoadIncomingFromRows(snap.ZonePointsIncoming);
+                foreach (var kv in snap.PeerZoneRows)
+                    foreach (var row in kv.Value)
+                    {
+                        if (!ZonePointManager.PeerZoneRows.TryGetValue(kv.Key, out var list))
+                        {
+                            list = new List<Database.Models.TrilogyZonePoint>();
+                            ZonePointManager.PeerZoneRows[kv.Key] = list;
+                        }
+                        list.Add(row);
+                    }
+                if (_cachedZoneShortNames != null && ZoneShortNames.Count == 0)
+                    ZoneShortNames.AddRange(_cachedZoneShortNames);
+                Console.WriteLine($"[Controller] Zone point cache hit for '{zoneName}' — skipped DB.");
+                return;
+            }
+
             try
             {
                 var repo = new ZonePointRepository(DbFactory);
@@ -1373,12 +1486,22 @@ namespace VisualEQ
                 }
 
                 // Populate the dropdown-backing list once per zone load. Cached because
-                // it's used every inspector-render frame.
+                // it's used every inspector-render frame. Session-wide _cachedZoneShortNames
+                // survives F10 → new zone so subsequent zones skip the query too.
                 if (ZoneShortNames.Count == 0)
                 {
-                    var shortnames = repo.GetAllZoneShortNamesAsync().GetAwaiter().GetResult();
-                    ZoneShortNames.AddRange(shortnames.Where(s => !string.IsNullOrEmpty(s)));
-                    Console.WriteLine($"[Controller] Cached {ZoneShortNames.Count} zone shortnames for target dropdown.");
+                    if (_cachedZoneShortNames != null)
+                    {
+                        ZoneShortNames.AddRange(_cachedZoneShortNames);
+                    }
+                    else
+                    {
+                        var shortnames = repo.GetAllZoneShortNamesAsync().GetAwaiter().GetResult()
+                            .Where(s => !string.IsNullOrEmpty(s)).ToList();
+                        ZoneShortNames.AddRange(shortnames);
+                        _cachedZoneShortNames = shortnames;
+                        Console.WriteLine($"[Controller] Cached {ZoneShortNames.Count} zone shortnames for target dropdown.");
+                    }
                 }
             }
             catch (Exception ex)
@@ -1968,10 +2091,19 @@ namespace VisualEQ
 
             try
             {
-                var repo = new SpawnRepository(DbFactory);
-                var records = await repo.GetZoneSpawnsFullAsync(zoneName);
-
-                _availableModels = SpawnManager.BuildAvailableModels(zoneName, ConvertedAssetsDir);
+                IEnumerable<Database.Models.SpawnRecord> records;
+                if (_zoneSnapshots.TryGetValue(zoneName, out var snap) && snap.HasRowData)
+                {
+                    records = snap.SpawnRecords;
+                    _availableModels = new Dictionary<string, string>(snap.AvailableModels);
+                    Console.WriteLine($"[Controller] Spawn cache hit for '{zoneName}' — skipped DB.");
+                }
+                else
+                {
+                    var repo = new SpawnRepository(DbFactory);
+                    records = await repo.GetZoneSpawnsFullAsync(zoneName);
+                    _availableModels = SpawnManager.BuildAvailableModels(zoneName, ConvertedAssetsDir);
+                }
                 SpawnManager.LoadFromRecords(records, Engine, _modelCache, _availableModels, LastModelLoaded);
 
                 // Register spawn instances with the model selector so they are clickable.
@@ -2012,9 +2144,18 @@ namespace VisualEQ
                 return false;
             }
 
-            var repo = new SpawnRepository(DbFactory);
-            _spawnLoadRecords = repo.GetZoneSpawnsFullAsync(zoneName).GetAwaiter().GetResult().ToList();
-            _spawnLoadAvailable = SpawnManager.BuildAvailableModels(zoneName, ConvertedAssetsDir);
+            if (_zoneSnapshots.TryGetValue(zoneName, out var snap) && snap.HasRowData)
+            {
+                _spawnLoadRecords   = snap.SpawnRecords.ToList();
+                _spawnLoadAvailable = new Dictionary<string, string>(snap.AvailableModels);
+                Console.WriteLine($"[Controller] Spawn cache hit for '{zoneName}' — skipped DB.");
+            }
+            else
+            {
+                var repo = new SpawnRepository(DbFactory);
+                _spawnLoadRecords   = repo.GetZoneSpawnsFullAsync(zoneName).GetAwaiter().GetResult().ToList();
+                _spawnLoadAvailable = SpawnManager.BuildAvailableModels(zoneName, ConvertedAssetsDir);
+            }
             _availableModels = _spawnLoadAvailable;
             SpawnManager.PrepareForLoad();
             _spawnLoadIndex = 0;
@@ -2069,10 +2210,19 @@ namespace VisualEQ
 
             try
             {
-                var repo = new SpawnRepository(DbFactory);
-                var records = repo.GetZoneSpawnsFullAsync(zoneName).GetAwaiter().GetResult();
-
-                _availableModels = SpawnManager.BuildAvailableModels(zoneName, ConvertedAssetsDir);
+                IEnumerable<Database.Models.SpawnRecord> records;
+                if (_zoneSnapshots.TryGetValue(zoneName, out var snap) && snap.HasRowData)
+                {
+                    records = snap.SpawnRecords;
+                    _availableModels = new Dictionary<string, string>(snap.AvailableModels);
+                    Console.WriteLine($"[Controller] Spawn cache hit for '{zoneName}' — skipped DB.");
+                }
+                else
+                {
+                    var repo = new SpawnRepository(DbFactory);
+                    records = repo.GetZoneSpawnsFullAsync(zoneName).GetAwaiter().GetResult();
+                    _availableModels = SpawnManager.BuildAvailableModels(zoneName, ConvertedAssetsDir);
+                }
                 SpawnManager.LoadFromRecords(records, Engine, _modelCache, _availableModels, LastModelLoaded);
 
                 foreach (var sp in SpawnManager.SpawnPoints)
@@ -2093,6 +2243,22 @@ namespace VisualEQ
         public void LoadZoneGridsSync(string zoneName)
         {
             if (DbFactory == null) return;
+
+            // Snapshot hit — reuse cached grid records (and CurrentZoneId) so we skip the
+            // GetZoneGridsAsync round-trip. SpawnCount is recomputed against the freshly-
+            // loaded SpawnPoints since edits may have moved spawns between grids.
+            if (_zoneSnapshots.TryGetValue(zoneName, out var snap) && snap.HasRowData)
+            {
+                ZoneGrids.Clear();
+                foreach (var g in snap.ZoneGrids)
+                {
+                    g.SpawnCount = SpawnManager.SpawnPoints.Count(sp => sp.Record.Spawn.PathGrid == g.Grid.Id);
+                    ZoneGrids.Add(g);
+                }
+                CurrentZoneId = snap.CurrentZoneId;
+                Console.WriteLine($"[Controller] Zone grid cache hit for '{zoneName}' — skipped DB.");
+                return;
+            }
 
             try
             {

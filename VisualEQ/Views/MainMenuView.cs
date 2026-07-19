@@ -661,7 +661,11 @@ namespace VisualEQ.Views
 
                     case LoadPhase.LoadDefault:
                         _controller.LoadDefaultCharacterForZone(_loadingZone);
-                        VisualEQ.Engine.Globals.Camera.Position = new Vector3(0, 0, 1000);
+                        // Restore the last-known camera pose for this zone if we've been
+                        // here before this session; otherwise drop to the (0,0,1000)
+                        // default so first-visit still looks down from above the map.
+                        if (!_controller.TryRestoreCameraForZone(_loadingZone))
+                            VisualEQ.Engine.Globals.Camera.Position = new Vector3(0, 0, 1000);
                         _loadProgress = 0.65f;
                         _loadPhase = LoadPhase.FetchSpawns;
                         _loadLabel = "Fetching spawns from database…";
