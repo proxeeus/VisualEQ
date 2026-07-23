@@ -354,6 +354,26 @@ namespace VisualEQ.Views
                 return;
             }
 
+            // Pre-flight source check: catch typos ("kaladimROFL" vs "kaladima") before
+            // launching a task that would silently return "not found or not decodable"
+            // after a delay. Only enforced when the zone hasn't already been decoded —
+            // an existing {zone}_oes.zip means the decode step is a no-op skip and we
+            // don't care whether the source files are still on disk.
+            var zoneAlreadyDecoded = File.Exists(Path.Combine(ConvertedZoneDir, $"{zoneName}_oes.zip"));
+            if (!zoneAlreadyDecoded)
+            {
+                var wldPath = Path.Combine(eqPath, $"{zoneName}_obj.s3d");
+                var eqgPath = Path.Combine(eqPath, $"{zoneName}.eqg");
+                if (!File.Exists(wldPath) && !File.Exists(eqgPath))
+                {
+                    _status   = $"Zone '{zoneName}' not found in EQ install "
+                              + $"(looked for {zoneName}_obj.s3d or {zoneName}.eqg). "
+                              + "Check the zone short name and EQ install path.";
+                    _statusOk = false;
+                    return;
+                }
+            }
+
             _status = "";
             _decodeLabel = zoneName;
             _decodeTask = Task.Run(() => RunDecode(eqPath, zoneName));
@@ -367,28 +387,48 @@ namespace VisualEQ.Views
             var result = new DecodeResult { Zone = zoneName };
             var converter = new Converter(eqPath, ConvertedZoneDir);
 
+            // Skip conversion when the output zip already exists — decoding is expensive
+            // (10-60s + several MB of I/O) and produces byte-identical output for the same
+            // source. To force a re-decode, delete the entry from the zone list first.
+            var zonePath = Path.Combine(ConvertedZoneDir, $"{zoneName}_oes.zip");
+            var chrPath  = Path.Combine(ConvertedZoneDir, $"{zoneName}_chr_oes.zip");
+
             // Zone and character conversion each get their own try/catch so a chr failure
             // (e.g. the S3D header-count mismatch on Velious _chr archives) doesn't wipe
             // out an already-successful zone conversion. The zone _oes.zip has already
             // been written to disk by the time character conversion runs.
-            try
+            if (File.Exists(zonePath))
             {
-                result.ZoneStatus = converter.Convert(zoneName);
+                result.ZoneSkipped = true;
             }
-            catch (Exception ex)
+            else
             {
-                result.ZoneError = ex.Message;
-                Console.WriteLine($"[Decode] Zone '{zoneName}' failed: {ex}");
+                try
+                {
+                    result.ZoneStatus = converter.Convert(zoneName);
+                }
+                catch (Exception ex)
+                {
+                    result.ZoneError = ex.Message;
+                    Console.WriteLine($"[Decode] Zone '{zoneName}' failed: {ex}");
+                }
             }
 
-            try
+            if (File.Exists(chrPath))
             {
-                result.CharacterStatus = converter.Convert(zoneName + "_chr");
+                result.CharacterSkipped = true;
             }
-            catch (Exception ex)
+            else
             {
-                result.CharacterError = ex.Message;
-                Console.WriteLine($"[Decode] Character '{zoneName}_chr' failed: {ex}");
+                try
+                {
+                    result.CharacterStatus = converter.Convert(zoneName + "_chr");
+                }
+                catch (Exception ex)
+                {
+                    result.CharacterError = ex.Message;
+                    Console.WriteLine($"[Decode] Character '{zoneName}_chr' failed: {ex}");
+                }
             }
 
             return result;
@@ -403,14 +443,18 @@ namespace VisualEQ.Views
             _decodeLabel = null;
 
             var msgs = new List<string>();
-            if (r.ZoneError != null)
+            if (r.ZoneSkipped)
+                msgs.Add($"Zone '{r.Zone}' already decoded — skipped.");
+            else if (r.ZoneError != null)
                 msgs.Add($"Zone '{r.Zone}' failed: {r.ZoneError}");
             else
                 msgs.Add(r.ZoneStatus == ConvertedType.None
                     ? $"Zone '{r.Zone}' not found or not decodable."
                     : $"Zone '{r.Zone}' decoded.");
 
-            if (r.CharacterError != null)
+            if (r.CharacterSkipped)
+                msgs.Add($"Characters '{r.Zone}_chr' already decoded — skipped.");
+            else if (r.CharacterError != null)
                 msgs.Add($"Characters '{r.Zone}_chr' failed: {r.CharacterError}");
             else
                 msgs.Add(r.CharacterStatus == ConvertedType.None
@@ -418,10 +462,11 @@ namespace VisualEQ.Views
                     : $"Characters '{r.Zone}_chr' decoded.");
 
             _status   = string.Join(" ", msgs);
-            // Success = zone was actually written. A chr failure is a warning, not a
-            // hard failure — the runtime falls back to gfaydark_chr for missing character
-            // meshes so the zone is still usable.
-            _statusOk = r.ZoneStatus != ConvertedType.None && r.ZoneError == null;
+            // Success = zone was actually written OR the existing zone zip was left in place
+            // (skipping is a valid successful no-op). A chr failure is a warning, not a hard
+            // failure — the runtime falls back to gfaydark_chr for missing character meshes
+            // so the zone is still usable.
+            _statusOk = (r.ZoneStatus != ConvertedType.None || r.ZoneSkipped) && r.ZoneError == null;
 
             // Refresh the zone list so the new entry appears immediately.
             _lastScan = DateTime.MinValue;
@@ -439,6 +484,8 @@ namespace VisualEQ.Views
             public ConvertedType CharacterStatus;
             public string ZoneError;
             public string CharacterError;
+            public bool ZoneSkipped;
+            public bool CharacterSkipped;
         }
 
         void BeginBatchDecodeGlobals()
@@ -488,6 +535,21 @@ namespace VisualEQ.Views
             foreach (var root in roots)
             {
                 lock (_batchLock) _batchProgress = root;
+
+                // Skip when the output already exists — a rerun of the batch decoder should
+                // be idempotent for anything already on disk. Skipped items count towards
+                // "succeeded" so the final tally reflects the total decoded population,
+                // not just what got (re)written this run.
+                if (File.Exists(Path.Combine(ConvertedZoneDir, $"{root}_oes.zip")))
+                {
+                    lock (_batchLock)
+                    {
+                        _batchSucceeded++;
+                        _batchDone++;
+                    }
+                    continue;
+                }
+
                 try
                 {
                     var status = converter.Convert(root);
