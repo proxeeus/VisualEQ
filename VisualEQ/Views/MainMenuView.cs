@@ -807,7 +807,7 @@ namespace VisualEQ.Views
                 _zones.Add(new ZoneEntry(name, File.GetLastWriteTime(path)));
             }
 
-            _zones = _zones.OrderByDescending(z => z.LastModified).ToList();
+            _zones = _zones.OrderBy(z => z.Name, StringComparer.OrdinalIgnoreCase).ToList();
             _lastScan = DateTime.UtcNow;
         }
 
