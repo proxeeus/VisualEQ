@@ -29,7 +29,7 @@ namespace VisualEQ
                     var zone = OESFile.Read<OESZone>(ms);
                     WriteLine($"Loading {zone.Name}");
 
-                    engine.Add(FromMeshes(FromSkin(zone.Find<OESSkin>().First(), zip), new[] { Matrix4x4.Identity }, zone.Find<OESStaticMesh>()));
+                    engine.Add(FromMeshes(FromSkin(zone.Find<OESSkin>().First(), path, zip), new[] { Matrix4x4.Identity }, zone.Find<OESStaticMesh>()));
 
                     var objInstances = zone.Find<OESObject>().ToDictionary(x => x, x => new List<Matrix4x4>());
                     zone.Find<OESInstance>().ForEach(inst =>
@@ -39,7 +39,7 @@ namespace VisualEQ
                     foreach (var (obj, instances) in objInstances)
                     {
                         var model = FromMeshes(
-                            FromSkin(obj.Find<OESSkin>().First(), zip),
+                            FromSkin(obj.Find<OESSkin>().First(), path, zip),
                             instances.ToArray(),
                             obj.Find<OESStaticMesh>()
                         );
@@ -306,6 +306,44 @@ namespace VisualEQ
         static readonly Dictionary<(string Path, string Name, int Mesh, bool SingleFrame), MeshGeometry> _meshGeometryCache
             = new Dictionary<(string, string, int, bool), MeshGeometry>();
 
+        // Shared textures keyed by (zip path, PNG entry name). Every FromSkin call
+        // routes through here so the same PNG uploads to GL once per session, not once
+        // per zone visit and once per (texture, helm, face) combo. Before this cache,
+        // ClearCurrentZone dropped _modelCache references, but the underlying Texture
+        // GL handles never got deleted (finalizer thread can't safely GL.DeleteTexture
+        // without a current context), so every zone swap orphaned a wave of textures
+        // on the GPU — FPS crashed after a few swaps and shutdown finalizer walks got
+        // slower and slower. Session-lifetime; MUST be accessed from the GL thread.
+        static readonly Dictionary<(string ZipPath, string Entry), Texture> _textureCache
+            = new Dictionary<(string, string), Texture>(TextureCacheKeyComparer.Instance);
+
+        sealed class TextureCacheKeyComparer : IEqualityComparer<(string ZipPath, string Entry)>
+        {
+            public static readonly TextureCacheKeyComparer Instance = new TextureCacheKeyComparer();
+            public bool Equals((string ZipPath, string Entry) x, (string ZipPath, string Entry) y) =>
+                StringComparer.OrdinalIgnoreCase.Equals(x.ZipPath, y.ZipPath) &&
+                StringComparer.OrdinalIgnoreCase.Equals(x.Entry, y.Entry);
+            public int GetHashCode((string ZipPath, string Entry) o) =>
+                StringComparer.OrdinalIgnoreCase.GetHashCode(o.ZipPath ?? "") ^
+                (StringComparer.OrdinalIgnoreCase.GetHashCode(o.Entry ?? "") * 397);
+        }
+
+        // Decode + upload the PNG at `entryName` inside `zip`, or return the cached
+        // Texture if we've already uploaded it in this session. All character/zone
+        // texture creation goes through here.
+        static Texture GetOrUploadTexture(string zipPath, string entryName, ZipArchive zip)
+        {
+            var key = (zipPath, entryName);
+            if (_textureCache.TryGetValue(key, out var cached)) return cached;
+            using (var s = zip.GetEntry(entryName)?.Open())
+            {
+                var img = Png.Decode(Path.GetFileName(entryName), s);
+                var tex = new Texture(img, false);
+                _textureCache[key] = tex;
+                return tex;
+            }
+        }
+
         static OESRoot GetOrLoadRoot(string path)
         {
             lock (_oesRootCacheLock)
@@ -332,6 +370,7 @@ namespace VisualEQ
             {
                 _meshGeometryCache.Clear();
                 _oesRootCache.Clear();
+                _textureCache.Clear();
             }
         }
 
@@ -344,7 +383,7 @@ namespace VisualEQ
                     var model = root.Find<OESCharacter>().First(x => x.Name == name);
                     var oams = model.Find<OESAnimatedMesh>().ToList();
 
-                    var materials = FromSkin(model.Find<OESSkin>().First(), zip, textureIndex, faceIndex, oams.Count);
+                    var materials = FromSkin(model.Find<OESSkin>().First(), path, zip, textureIndex, faceIndex, oams.Count);
 
                     var allAniSets = model.Find<OESAnimationSet>().ToList();
                     var anisets = allAniSets
@@ -442,14 +481,18 @@ namespace VisualEQ
             return (race + region + subpart, v);
         }
 
-        static List<Material> FromSkin(OESSkin skin, ZipArchive zip, int textureIndex = 0, int faceIndex = 0, int materialsToBuild = -1) =>
-            FromSkinInner(skin, zip, textureIndex, faceIndex, materialsToBuild);
+        static List<Material> FromSkin(OESSkin skin, string zipPath, ZipArchive zip, int textureIndex = 0, int faceIndex = 0, int materialsToBuild = -1) =>
+            FromSkinInner(skin, zipPath, zip, textureIndex, faceIndex, materialsToBuild);
 
         // `materialsToBuild` caps how many Material objects (with GL texture uploads)
         // are actually built. Character skins carry many extra OESMaterials the
         // converter emits for variant/face lookup — we don't want to allocate GL
         // textures for those. -1 = build every material (used by zone/object skins).
-        static List<Material> FromSkinInner(OESSkin skin, ZipArchive zip, int textureIndex, int faceIndex, int materialsToBuild)
+        // `zipPath` is the on-disk path of `zip` — used as the zip half of the
+        // (zipPath, entryName) key for the session-lifetime `_textureCache`. Two
+        // Materials picking the same PNG will end up sharing the same Texture,
+        // even across zone swaps and (texture, helm, face) combos of the same chr.
+        static List<Material> FromSkinInner(OESSkin skin, string zipPath, ZipArchive zip, int textureIndex, int faceIndex, int materialsToBuild)
         {
             // Build 9-char basename → zip-entry-name lookup. All alt materials the
             // converter extracted (skin variants + face variants) show up here. Look-up
@@ -516,8 +559,7 @@ namespace VisualEQ
                 var textures = mat.Find<OESTexture>().Select(x =>
                 {
                     var loadFilename = PickVariantFilename(x.Filename);
-                    using (var tzs = zip.GetEntry(loadFilename)?.Open())
-                        return Png.Decode(Path.GetFileName(loadFilename), tzs);
+                    return GetOrUploadTexture(zipPath, loadFilename, zip);
                 }).ToArray();
 
                 switch (effect.Name)

@@ -1,6 +1,4 @@
-using System.Linq;
 using System.Numerics;
-using ImageLib;
 using VisualEQ.Common;
 using VisualEQ.Engine;
 using OpenTK.Graphics.OpenGL4;
@@ -26,9 +24,9 @@ void main() {
         readonly Texture[] Textures;
         readonly float AnimationSpeed;
 
-        public ForwardDiffuseMaterial(Image[] images, float animationSpeed = 0)
+        public ForwardDiffuseMaterial(Texture[] textures, float animationSpeed = 0)
         {
-            Textures = images.Select(image => new Texture(image, false)).ToArray();
+            Textures = textures;
             AnimationSpeed = animationSpeed;
         }
 
