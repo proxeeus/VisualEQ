@@ -277,14 +277,14 @@ namespace VisualEQ.ConverterCore
         class AniTreePrecursor
         {
             public uint Index;
-            public (Quaternion Rotate, Vector3 Translate)[] Frames;
+            public (Quaternion Rotate, Vector3 Translate, float Scale)[] Frames;
             public AniTreePrecursor[] Children;
         }
 
         class AniTreeFrame
         {
             public uint Index;
-            public (Quaternion Rotate, Vector3 Translate) Transform;
+            public (Quaternion Rotate, Vector3 Translate, float Scale) Transform;
             public AniTreeFrame[] Children;
         }
 
@@ -497,6 +497,13 @@ namespace VisualEQ.ConverterCore
 
                     void BuildBoneMatrices(AniTreeFrame cur, Matrix4x4 mat)
                     {
+                        // Order matches LANTERN Unity's Transform.localScale semantics: the
+                        // bone's own scale multiplies before its translation/rotation, so it
+                        // scales the child sub-tree in root space. Placing CreateScale after
+                        // parent (i.e. between parent and this bone's T/R) means a root bone
+                        // scale of e.g. 0.06 for a fish shrinks the whole downstream mesh.
+                        if (cur.Transform.Scale != 1f)
+                            mat = Matrix4x4.CreateScale(cur.Transform.Scale) * mat;
                         mat = Matrix4x4.CreateTranslation(cur.Transform.Translate) * mat;
                         mat = Matrix4x4.CreateFromQuaternion(cur.Transform.Rotate) * mat;
                         matrices[cur.Index] = mat;
@@ -934,16 +941,21 @@ namespace VisualEQ.ConverterCore
                 var frames = track.PieceTrack?.Value?.Reference.Value?.Frames;
                 var rot = Quaternion.Identity;
                 var trans = Vector3.Zero;
+                var scale = 1f;
                 if (frames != null && frames.Length > 0)
                 {
                     rot = frames[0].Rotation;
                     trans = frames[0].Shift;
+                    scale = frames[0].Scale;
                 }
-                // Match GenerateAnimatedMeshes' order: translate first, then rotate,
-                // then apply parent transform. Row-vector convention (System.Numerics)
-                // applies these left-to-right when computing v * M, which reproduces the
-                // classic-client "local translate → local rotate → parent" chain.
-                var mat = Matrix4x4.CreateTranslation(trans) * parent;
+                // Match GenerateAnimatedMeshes' order: scale first (in parent's frame), then
+                // translate, then rotate, then chain into parent. Row-vector convention
+                // (System.Numerics) applies these left-to-right when computing v * M, which
+                // reproduces the classic-client "local scale → local translate → local
+                // rotate → parent" chain.
+                var mat = parent;
+                if (scale != 1f) mat = Matrix4x4.CreateScale(scale) * mat;
+                mat = Matrix4x4.CreateTranslation(trans) * mat;
                 mat = Matrix4x4.CreateFromQuaternion(rot) * mat;
                 boneMats[idx] = mat;
                 foreach (var ch in track.Children) Walk((uint)ch, mat);
