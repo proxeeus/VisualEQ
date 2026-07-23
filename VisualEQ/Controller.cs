@@ -885,6 +885,38 @@ namespace VisualEQ
             BufferChanged?.Invoke();
         }
 
+        // OpenTK.NETCore ships a stub OpenTK.Icon.ExtractAssociatedIcon (IL is just `ldnull; ret`)
+        // and OpenTK.Icon has no public ctor, so we build one from a raw HICON via
+        // reflection. ExtractIconW pulls the first icon group out of the exe (which
+        // <ApplicationIcon> already embedded), giving us a 32x32 HICON. WM_SETICON via
+        // WinGLNative.set_Icon takes it from there and Windows scales for the 16x16 taskbar slot.
+        [System.Runtime.InteropServices.DllImport("shell32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        static extern IntPtr ExtractIconW(IntPtr hInst, string pszExeFileName, uint nIconIndex);
+
+        void TrySetWindowIcon()
+        {
+            try
+            {
+                var exePath = System.IO.Path.Combine(AppContext.BaseDirectory, "VisualEQ.exe");
+                if (!System.IO.File.Exists(exePath)) return;
+
+                var hicon = ExtractIconW(IntPtr.Zero, exePath, 0);
+                if (hicon == IntPtr.Zero || hicon == new IntPtr(1)) return;
+
+                var iconType = typeof(OpenTK.Icon);
+                var icon = (OpenTK.Icon)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(iconType);
+                iconType.GetField("handle", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).SetValue(icon, hicon);
+                iconType.GetField("<Width>k__BackingField", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).SetValue(icon, 32);
+                iconType.GetField("<Height>k__BackingField", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).SetValue(icon, 32);
+
+                Engine.Icon = icon;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Controller] Failed to set window icon: {ex.Message}");
+            }
+        }
+
         public Controller(AppSettings settings)
         {
             Settings = settings;
@@ -927,6 +959,14 @@ namespace VisualEQ
             {
                 DbFactory = new MySqlConnectionFactory(settings.Database);
             }
+
+            // The taskbar/window otherwise show dotnet.exe's default icon because we launch
+            // via `dotnet exec VisualEQ.dll` — the OS sees dotnet.exe as the process host
+            // and never consults the apphost exe's embedded icon. Pull it out of VisualEQ.exe
+            // (which sits next to the dll thanks to <OutputType>Exe</OutputType>) and hand it
+            // to GameWindow so WM_SETICON overrides the taskbar entry. Failure is non-fatal —
+            // a missing icon shouldn't stop the app from launching.
+            TrySetWindowIcon();
 
             Engine.UpdateFrame += (s, e) =>
             {
