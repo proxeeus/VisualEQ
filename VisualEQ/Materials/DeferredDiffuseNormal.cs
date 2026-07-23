@@ -1,7 +1,4 @@
-using System.Diagnostics;
-using System.Linq;
 using System.Numerics;
-using ImageLib;
 using VisualEQ.Engine;
 using OpenTK.Graphics.OpenGL4;
 
@@ -27,8 +24,7 @@ namespace VisualEQ.Materials
 
         readonly Texture[] Textures;
 
-        public DeferredDiffuseNormalMaterial(Image[] images) =>
-            Textures = images.Select(image => new Texture(image, false)).ToArray();
+        public DeferredDiffuseNormalMaterial(Texture[] textures) => Textures = textures;
 
         public override void Use(Matrix4x4 projView, MaterialUse use)
         {

@@ -120,6 +120,7 @@ Design: `SpawnPoint` **wraps** `AniModelInstance` — the engine renders raw `An
 - **Alt-skin materials are unreferenced by the mesh's Fragment31.** Higher armor variants (`FPMCH0101`, `HUMHE0011` etc.) live as orphan Fragment30s in the WLD. `Converter.GenerateAnimatedMeshes` sweeps the WLD after the base pass and emits them into the OES skin so `Loader.FromSkin.PickVariantFilename` can swap PNGs at load. Requires re-decoding chr zips after any converter change.
 - **Helmet variant Fragment36s are unreferenced by `Fragment10.Meshes`.** LANTERN's `WldFileCharacters.FindAdditionalAnimationsAndMeshes` sweeps orphan Fragment36s named `{race}HE##_DMSPRITEDEF` (for ## > 00) and adds them as skeleton secondaries. `Converter.GenerateAnimatedMeshes` does the same and tags each helmet variant with a helmet group in the `OESMeshGroups` chunk (§12).
 - **OES root parse is expensive.** A 60 MB `global_chr` OES takes a couple of seconds to fully deserialize. `Loader._oesRootCache` holds one parsed tree per chr-zip path for the session; `OESFile.ShallowScanCharacters` is a header-only walk for the richness-scan path and never touches OESAnimationBuffer data.
+- **GL texture uploads are session-cached in `Loader._textureCache`** keyed by `(zipPath, entryName)`. Every FromSkin call goes through `GetOrUploadTexture`; two Materials referencing the same PNG share the same Texture, and zone-swap → re-visit doesn't re-upload. Never call `new Texture(...)` outside this path for character/zone skins — the `Texture` finalizer runs on the finalizer thread with no current GL context, so bypassing the cache leaks the GL handle on-GPU per zone visit and per (texture, helm, face) combo. `FireMaterial` is the one exception (single hardcoded flame.png, guarded by its own `static Texture Texture`).
 
 ## 8. Coordinate systems
 
@@ -185,11 +186,12 @@ Foundation for the eventual NPC editor. Every `npc_types` field that affects the
 `LoadCharacter(path, name, animationWhitelist, singleFrame, textureIndex, helmTextureIndex, faceIndex)`:
 
 1. `GetOrLoadRoot(path)` — session-shared parsed OESRoot.
-2. `FromSkin(skin, zip, textureIndex, faceIndex, materialsToBuild)` — builds `Material[]` for the mesh's own materials only. Extra alt-skin OES materials are scanned for name lookup but skip GL upload. `PickVariantFilename` computes the combined skin+face transformation:
+2. `FromSkin(skin, zipPath, zip, textureIndex, faceIndex, materialsToBuild)` — builds `Material[]` for the mesh's own materials only. Extra alt-skin OES materials are scanned for name lookup but skip GL upload. `PickVariantFilename` computes the combined skin+face transformation:
    - Combined `race + region + textureIndex.ToString("00") + faceIndex.ToString()[0] + subpartOnes`
    - Falls back progressively: combined → skin-only → face-only → original
 3. `ShouldRender(meshIdx)` — reads `OESMeshGroups.Groups[meshIdx]`, applies helmet-group filter per `helmTextureIndex`. Base head only hides when a matching secondary is present.
 4. `MeshGeometry` cache `(path, name, meshIdx, singleFrame)` — VBOs / VAOs / index buffer shared across every variant. See §5.
+5. `_textureCache` `(zipPath, entryName) → Texture` — session-lifetime. Every PNG in any skin (chr or zone) uploads to GL exactly once, then is shared across every Material that references it. Critical for zone-swap stability: without it, each F10 → new-zone orphaned every character texture from the outgoing zone (their `Texture` finalizers can't call `GL.DeleteTexture` on the finalizer thread without a current context — the GL handle just leaks on-GPU). Cleared only in `Loader.ClearAllCaches` at Shutdown. Materials now take `Texture[]` (not `Image[]`) in their constructors so callers can't accidentally bypass the cache.
 
 ### Cache key layout
 
