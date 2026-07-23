@@ -88,7 +88,12 @@ namespace VisualEQ.LegacyFileReader
     public class Fragment12
     {
         public uint Flags;
-        public (Quaternion Rotation, Vector3 Shift)[] Frames;
+        // Per-frame bone transform. Scale is the classic S3D "shiftDenom" reinterpreted per
+        // LANTERN (LanternExtractor/EQ/Wld/Fragments/TrackDefFragment.cs isS3dTrack2 branch):
+        // shiftDenom / 256 is the bone's local scale, NOT the divisor for shiftXYZ. Fish and
+        // sea-horse root bones ship with a small shiftDenom so their whole skeleton shrinks
+        // uniformly — this is how the classic client sizes those meshes.
+        public (Quaternion Rotation, Vector3 Shift, float Scale)[] Frames;
 
         public override string ToString() => $"Fragment12(Flags=0x{Flags:X}, Frames={Frames.Length})";
     }
@@ -387,11 +392,22 @@ namespace VisualEQ.LegacyFileReader
                     var shiftX = (float)Br.ReadInt16();
                     var shiftY = (float)Br.ReadInt16();
                     var shiftZ = (float)Br.ReadInt16();
-                    var shiftDenom = Br.ReadInt16();
+                    var shiftDenom = (float)Br.ReadInt16();
+
+                    // Match LANTERN: translation = shift/256, scale = shiftDenom/256.
+                    // shiftDenom == 0 → zero-translation, identity scale (1.0). Humanoids
+                    // and most creatures ship with shiftDenom == 256 so scale = 1.0 and the
+                    // translation math is unchanged; only races with a non-256 denom (fish,
+                    // sea horse) had been silently ignored.
+                    var translation = shiftDenom == 0f
+                        ? Vector3.Zero
+                        : new Vector3(shiftX / 256f, shiftY / 256f, shiftZ / 256f);
+                    var scale = shiftDenom == 0f ? 1f : shiftDenom / 256f;
 
                     return (
                         new Quaternion(rotX / 16384, rotY / 16384, rotZ / 16384, rotW / 16384),
-                        new Vector3(shiftX / shiftDenom, shiftY / shiftDenom, shiftZ / shiftDenom)
+                        translation,
+                        scale
                     );
                 }).ToArray()
             };
