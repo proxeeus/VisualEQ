@@ -96,6 +96,12 @@ namespace VisualEQ
 
             public bool HasRowData  => SpawnRecords != null;
             public bool HasGeometry => StaticGeometry != null;
+
+            // Zone-point rows can be invalidated independently of the spawn/grid caches
+            // after a commit (see OnCommitSucceeded), so LoadZonePointsSync needs its
+            // own gate — HasRowData staying true does not imply the zone-point lists
+            // are still populated.
+            public bool HasZonePointRowData => ZonePointsOutgoing != null && ZonePointsIncoming != null;
         }
 
         public AniModel LastModelLoaded;
@@ -1285,6 +1291,35 @@ namespace VisualEQ
                     }
                     LoadZoneGridsSync(CurrentZoneName);
                 }
+
+                // A trilogy_zone_points write in the current zone changes rows that other
+                // zones' snapshots have cached under ZonePointsIncoming (their landing pads
+                // for planes we own) and PeerZoneRows (sandwich-detector peer sets). Those
+                // are separate object instances from the current zone's live rows, so an
+                // edit here does not mutate them — a re-visit would show stale target coords
+                // (e.g. a wildcard 999999 the user just fixed). Drop the zone-point row
+                // lists on every cached snapshot so the next LoadZonePointsSync re-queries.
+                // Spawn/grid caches and geometry stay put; the zone-point queries are tiny.
+                if (result.ZonePointRowsWritten > 0 ||
+                    result.ZonePointInsertsWritten > 0 ||
+                    result.ZonePointDeletesWritten > 0)
+                {
+                    int invalidated = 0;
+                    foreach (var kv in _zoneSnapshots)
+                    {
+                        var s = kv.Value;
+                        if (s.ZonePointsOutgoing == null &&
+                            s.ZonePointsIncoming == null &&
+                            s.PeerZoneRows == null)
+                            continue;
+                        s.ZonePointsOutgoing = null;
+                        s.ZonePointsIncoming = null;
+                        s.PeerZoneRows       = null;
+                        invalidated++;
+                    }
+                    if (invalidated > 0)
+                        Console.WriteLine($"[Controller] Zone-point row cache invalidated on {invalidated} snapshot(s) after commit.");
+                }
             }
 
             // Hidden SpawnPoints held pending-delete rows for revert. After a successful
@@ -1726,8 +1761,10 @@ namespace VisualEQ
 
             // Snapshot hit — feed cached rows straight into the managers and skip the
             // 3 zone-point queries. Shortnames use the session-wide cache (below) since
-            // they're global-to-DB, not per-zone.
-            if (_zoneSnapshots.TryGetValue(zoneName, out var snap) && snap.HasRowData)
+            // they're global-to-DB, not per-zone. Uses HasZonePointRowData (not
+            // HasRowData) because a commit can invalidate the zone-point row lists on a
+            // snapshot while leaving spawn/grid rows intact — see OnCommitSucceeded.
+            if (_zoneSnapshots.TryGetValue(zoneName, out var snap) && snap.HasZonePointRowData)
             {
                 ZonePointManager.LoadFromRows(snap.ZonePointsOutgoing);
                 ZonePointManager.LoadIncomingFromRows(snap.ZonePointsIncoming);
