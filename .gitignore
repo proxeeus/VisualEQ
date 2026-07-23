@@ -9,6 +9,8 @@ imgui.ini
 
 # publish-release.ps1 output directories (release/ is already covered by [Rr]elease/ below)
 publish/
+# scratch space for one-off tooling (icon extraction, etc.)
+tmp/
 
 ## .NET Core
 *.swp
