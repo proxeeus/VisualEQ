@@ -3265,6 +3265,31 @@ namespace VisualEQ.Views
             System.Array.Copy(bytes, dst, n);
         }
 
+        // Per-field numeric-input byte buffers. ImGui.NET 0.4.6 doesn't expose InputInt /
+        // InputFloat in the C# wrapper (only the native cimgui bindings), so the numeric
+        // widgets fall back to InputText with a byte buffer + parse. Buffers are keyed by
+        // field name and reset when the selected NPC changes so a stale value from a
+        // previous NPC's HP doesn't leak into the newly-selected NPC's field.
+        private readonly Dictionary<string, byte[]> _npcNumBufs = new Dictionary<string, byte[]>();
+        private int? _npcNumBufsForId;
+
+        void ResetNpcNumBufsIfNpcChanged(int npcId)
+        {
+            if (_npcNumBufsForId == npcId) return;
+            _npcNumBufs.Clear();
+            _npcNumBufsForId = npcId;
+        }
+
+        byte[] GetNumBuffer(string field, int size)
+        {
+            if (!_npcNumBufs.TryGetValue(field, out var buf))
+            {
+                buf = new byte[size];
+                _npcNumBufs[field] = buf;
+            }
+            return buf;
+        }
+
         // ───────── NPC field widget helpers ───────────────────────────
 
         // Records the from/to values via NpcFieldEditAction on widget deactivation.
@@ -3324,6 +3349,10 @@ namespace VisualEQ.Views
             _npcActiveEditReader      = null;
         }
 
+        // Renders a typed integer input via InputText + parse (see _npcNumBufs comment
+        // for why not InputInt). Buffer resyncs from the current value whenever this field
+        // isn't the actively-edited one, so undo/redo and cross-NPC selection keep the
+        // widget in sync. Typed values outside [minValue, maxValue] clamp on write.
         void NpcInt(int npcId, string field, string label,
             System.Func<int> read, System.Action<int> write, bool editable,
             int minValue = int.MinValue, int maxValue = int.MaxValue)
@@ -3334,14 +3363,23 @@ namespace VisualEQ.Views
                 ImGui.Text($"  {label}: {current}");
                 return;
             }
-            var val = (float)current;
-            var changed = ImGui.DragFloat($"{label}###{Id}ni{field}", ref val, 0f, 0f, 1f, "%.0f", 1f);
-            if (changed)
+            var buf = GetNumBuffer(field, 20);
+            var bufStr = ReadBuffer(buf);
+            var expectedStr = current.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var isMe = _npcActiveEditForId == npcId && _npcActiveEditField == field;
+            if (!isMe && bufStr != expectedStr)
+                WriteStringToBuffer(buf, expectedStr);
+
+            ImGui.Text(label);
+            ImGui.InputText($"###{Id}ni{field}", buf, (uint)buf.Length, InputTextFlags.Default, null);
+            var typed = ReadBuffer(buf);
+            if (typed != bufStr &&
+                int.TryParse(typed, System.Globalization.NumberStyles.Integer,
+                             System.Globalization.CultureInfo.InvariantCulture, out var parsed))
             {
-                var asInt = (int)System.Math.Round(val);
-                if (asInt < minValue) asInt = minValue;
-                if (asInt > maxValue) asInt = maxValue;
-                write(asInt);
+                if (parsed < minValue) parsed = minValue;
+                if (parsed > maxValue) parsed = maxValue;
+                if (parsed != current) write(parsed);
             }
             HandleNpcActivation(npcId, field, (int)current, () => (object)read());
         }
@@ -3355,34 +3393,51 @@ namespace VisualEQ.Views
                 ImGui.Text($"  {label}: {current}");
                 return;
             }
-            // DragFloat only carries ~7 significant digits — fine for typical HP/mana up to
-            // ~10^7. For extreme raid mobs beyond that, editing loses precision on the low
-            // end but writes back through Convert.ToInt64 without corruption of the high
-            // bits. Acceptable for a first pass; a proper 64-bit input widget is out of
-            // scope for Slice 2.
-            var val = (float)current;
-            var changed = ImGui.DragFloat($"{label}###{Id}nl{field}", ref val, 0f, 0f, 1f, "%.0f", 1f);
-            if (changed)
+            var buf = GetNumBuffer(field, 24);
+            var bufStr = ReadBuffer(buf);
+            var expectedStr = current.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var isMe = _npcActiveEditForId == npcId && _npcActiveEditField == field;
+            if (!isMe && bufStr != expectedStr)
+                WriteStringToBuffer(buf, expectedStr);
+
+            ImGui.Text(label);
+            ImGui.InputText($"###{Id}nl{field}", buf, (uint)buf.Length, InputTextFlags.Default, null);
+            var typed = ReadBuffer(buf);
+            if (typed != bufStr &&
+                long.TryParse(typed, System.Globalization.NumberStyles.Integer,
+                              System.Globalization.CultureInfo.InvariantCulture, out var parsed))
             {
-                var asLong = (long)System.Math.Round((double)val);
-                if (asLong < 0) asLong = 0;
-                write(asLong);
+                if (parsed < 0) parsed = 0;
+                if (parsed != current) write(parsed);
             }
             HandleNpcActivation(npcId, field, (long)current, () => (object)read());
         }
 
         void NpcFloat(int npcId, string field, string label,
-            System.Func<float> read, System.Action<float> write, bool editable, string fmt = "%.2f")
+            System.Func<float> read, System.Action<float> write, bool editable, string fmt = "F2")
         {
             var current = read();
+            var display = current.ToString(fmt, System.Globalization.CultureInfo.InvariantCulture);
             if (!editable)
             {
-                ImGui.Text($"  {label}: {current.ToString(fmt.Replace("%.", "F").Replace("f", ""), System.Globalization.CultureInfo.InvariantCulture)}");
+                ImGui.Text($"  {label}: {display}");
                 return;
             }
-            var val = current;
-            var changed = ImGui.DragFloat($"{label}###{Id}nf{field}", ref val, 0f, 0f, 1f, fmt, 1f);
-            if (changed) write(val);
+            var buf = GetNumBuffer(field, 24);
+            var bufStr = ReadBuffer(buf);
+            var isMe = _npcActiveEditForId == npcId && _npcActiveEditField == field;
+            if (!isMe && bufStr != display)
+                WriteStringToBuffer(buf, display);
+
+            ImGui.Text(label);
+            ImGui.InputText($"###{Id}nf{field}", buf, (uint)buf.Length, InputTextFlags.Default, null);
+            var typed = ReadBuffer(buf);
+            if (typed != bufStr &&
+                float.TryParse(typed, System.Globalization.NumberStyles.Float,
+                               System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+            {
+                if (System.Math.Abs(parsed - current) > 0.0001f) write(parsed);
+            }
             HandleNpcActivation(npcId, field, (float)current, () => (object)read());
         }
 
@@ -3508,12 +3563,20 @@ namespace VisualEQ.Views
             if (isSet)
             {
                 var cur = current ?? 0;
-                var val = (float)cur;
-                var changed = ImGui.DragFloat($"  {label}###{Id}nni{field}", ref val, 0f, 0f, 1f, "%.0f", 1f);
-                if (changed)
+                var buf = GetNumBuffer(field, 20);
+                var bufStr = ReadBuffer(buf);
+                var expectedStr = cur.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                var isMe = _npcActiveEditForId == npcId && _npcActiveEditField == field;
+                if (!isMe && bufStr != expectedStr)
+                    WriteStringToBuffer(buf, expectedStr);
+
+                ImGui.InputText($"  {label}###{Id}nni{field}", buf, (uint)buf.Length, InputTextFlags.Default, null);
+                var typed = ReadBuffer(buf);
+                if (typed != bufStr &&
+                    int.TryParse(typed, System.Globalization.NumberStyles.Integer,
+                                 System.Globalization.CultureInfo.InvariantCulture, out var parsed))
                 {
-                    var asInt = (int)System.Math.Round(val);
-                    write(asInt);
+                    if (parsed != cur) write(parsed);
                 }
                 HandleNpcActivation(npcId, field, current ?? 0, () => (object)(read() ?? 0));
             }
@@ -3701,21 +3764,47 @@ namespace VisualEQ.Views
         static readonly int[]    _npcMeleeVals   = { 0, 1, 2, 3, 7, 8, 10, 21, 23, 26, 28, 30, 36, 38, 45, 51 };
         static readonly string[] _npcMeleeLabels = { "1H Blunt", "1H Slashing", "2H Blunt", "2H Slashing", "Archery", "Backstab", "Bash", "Dragon Punch", "Eagle Strike", "Flying Kick", "Hand to Hand", "Kick", "1H Piercing", "Round Kick", "2H Piercing", "Throwing" };
 
+        // Race / Class / BodyType combo options. Built once at class-init from the
+        // SpawnInfoLookups dicts, sorted alphabetically by label — a 230-entry Race combo
+        // is much easier to scan by name than by numeric id order. Labels are formatted
+        // "Name (id)" so the id is still visible next to the name.
+        static readonly int[]    _npcRaceVals;
+        static readonly string[] _npcRaceLabels;
+        static readonly int[]    _npcClassVals;
+        static readonly string[] _npcClassLabels;
+        static readonly int[]    _npcBodyTypeVals;
+        static readonly string[] _npcBodyTypeLabels;
+
+        static SidebarWidget()
+        {
+            BuildEnumComboOptions(SpawnInfoLookups.AllRaces,     out _npcRaceVals,     out _npcRaceLabels);
+            BuildEnumComboOptions(SpawnInfoLookups.AllClasses,   out _npcClassVals,   out _npcClassLabels);
+            BuildEnumComboOptions(SpawnInfoLookups.AllBodyTypes, out _npcBodyTypeVals, out _npcBodyTypeLabels);
+        }
+
+        static void BuildEnumComboOptions(System.Collections.Generic.IReadOnlyDictionary<int, string> src,
+            out int[] values, out string[] labels)
+        {
+            var pairs = src.Select(kv => new { Id = kv.Key, Label = kv.Value })
+                           .OrderBy(p => p.Label, System.StringComparer.OrdinalIgnoreCase)
+                           .ToArray();
+            values = pairs.Select(p => p.Id).ToArray();
+            labels = pairs.Select(p => $"{p.Label} ({p.Id})").ToArray();
+        }
+
         void RenderNpcDetailsBody(VisualEQ.Database.Models.NpcTypeFull n, bool editable)
         {
             var npcId = n.Id;
+            ResetNpcNumBufsIfNpcChanged(npcId);
 
             // ── Identity ───────────────────────────────────────────
             ImGui.Text($"[id {n.Id}]");
             NpcText(npcId, "name", "Name", _npcNameBuf, () => n.Name, v => n.Name = v, editable);
             NpcText(npcId, "lastname", "Last name", _npcLastNameBuf, () => n.LastName, v => n.LastName = v, editable);
             NpcInt(npcId, "level", "Level", () => n.Level, v => n.Level = v, editable, 1, 127);
-            NpcInt(npcId, "race", "Race", () => n.Race, v => n.Race = v, editable, 0, 1000);
-            ImGui.Text($"  ({SpawnInfoLookups.RaceName(n.Race)})");
-            NpcInt(npcId, "class", "Class", () => n.Class, v => n.Class = v, editable, 0, 255);
-            ImGui.Text($"  ({SpawnInfoLookups.ClassName(n.Class)})");
-            NpcInt(npcId, "bodytype", "Body type", () => n.BodyType, v => n.BodyType = v, editable, 0, 100);
-            ImGui.Text($"  ({SpawnInfoLookups.BodyTypeName(n.BodyType)})");
+            NpcEnumCombo(npcId, "race",     "Race",      () => n.Race,     v => n.Race     = v, _npcRaceVals,     _npcRaceLabels,     editable);
+            NpcEnumCombo(npcId, "class",    "Class",     () => n.Class,    v => n.Class    = v, _npcClassVals,    _npcClassLabels,    editable);
+            NpcEnumCombo(npcId, "bodytype", "Body type", () => n.BodyType, v => n.BodyType = v, _npcBodyTypeVals, _npcBodyTypeLabels, editable);
             NpcEnumCombo(npcId, "gender", "Gender", () => n.Gender, v => n.Gender = v,
                 _npcGenderVals, _npcGenderLabels, editable);
             NpcFloat(npcId, "size", "Size", () => n.Size, v => n.Size = v, editable);
@@ -3846,8 +3935,8 @@ namespace VisualEQ.Views
             ImGui.Separator();
             ImGui.Text("Scaling");
             NpcInt(npcId, "scalerate",  "Scale rate", () => n.Scalerate,  v => n.Scalerate  = v, editable);
-            NpcFloat(npcId, "spellscale", "Spell scale", () => n.Spellscale, v => n.Spellscale = v, editable, "%.1f");
-            NpcFloat(npcId, "healscale",  "Heal scale",  () => n.Healscale,  v => n.Healscale  = v, editable, "%.1f");
+            NpcFloat(npcId, "spellscale", "Spell scale", () => n.Spellscale, v => n.Spellscale = v, editable, "F1");
+            NpcFloat(npcId, "healscale",  "Heal scale",  () => n.Healscale,  v => n.Healscale  = v, editable, "F1");
             NpcInt(npcId, "exp_mod",    "Exp mod",   () => n.ExpMod,   v => n.ExpMod   = v, editable);
             NpcInt(npcId, "maxlevel",   "Max level", () => n.Maxlevel, v => n.Maxlevel = v, editable, 0, 127);
 

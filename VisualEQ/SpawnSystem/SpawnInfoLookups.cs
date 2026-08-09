@@ -65,6 +65,14 @@ namespace VisualEQ.SpawnSystem
             }
         }
 
+        // Read-only exposures of the enum tables — used by the NPC editor's combo widgets
+        // to build (value → label) picker options. Keeping the underlying dicts private
+        // preserves the "look up one id" call-site pattern (RaceName/ClassName/BodyTypeName)
+        // for readers that don't need the whole set.
+        public static System.Collections.Generic.IReadOnlyDictionary<int, string> AllRaces     => Races;
+        public static System.Collections.Generic.IReadOnlyDictionary<int, string> AllClasses   => Classes;
+        public static System.Collections.Generic.IReadOnlyDictionary<int, string> AllBodyTypes => BodyTypes;
+
         // Race labels — kept aligned with RaceModelMapper. Where a race is used
         // in the DB for something that doesn't match its canonical EQEmu name
         // (e.g. race 20 canonically "Trakanon Chief" but populated with Venril
