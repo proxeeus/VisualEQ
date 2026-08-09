@@ -1162,6 +1162,47 @@ namespace VisualEQ
             RecordAction(action);
         }
 
+        // Apply a NpcEdit's CurrentValues to the load-time NpcType stored on
+        // SpawnRecord.Entries[].Npc. Only handles fields NpcType actually carries —
+        // race/gender/size/texture/helmtexture/face — since those are what
+        // SpawnManager.LoadFromRecords consults for model resolution on the next
+        // zone reload. Other edited fields (STR/HP/etc.) aren't on NpcType and are
+        // re-fetched from DB whenever GetZoneSpawnsFullAsync runs (which happens
+        // after our snapshot invalidation forces a refresh).
+        static void ApplyCommittedEditToNpcType(Database.Models.NpcType npc, EditSystem.NpcEdit edit)
+        {
+            foreach (var kv in edit.CurrentValues)
+            {
+                switch (kv.Key)
+                {
+                    case "race":
+                        if (int.TryParse(kv.Value, System.Globalization.NumberStyles.Integer,
+                                         System.Globalization.CultureInfo.InvariantCulture, out var r)) npc.Race = r;
+                        break;
+                    case "gender":
+                        if (int.TryParse(kv.Value, System.Globalization.NumberStyles.Integer,
+                                         System.Globalization.CultureInfo.InvariantCulture, out var g)) npc.Gender = g;
+                        break;
+                    case "size":
+                        if (float.TryParse(kv.Value, System.Globalization.NumberStyles.Float,
+                                           System.Globalization.CultureInfo.InvariantCulture, out var sz)) npc.Size = sz;
+                        break;
+                    case "texture":
+                        if (int.TryParse(kv.Value, System.Globalization.NumberStyles.Integer,
+                                         System.Globalization.CultureInfo.InvariantCulture, out var t)) npc.Texture = t;
+                        break;
+                    case "helmtexture":
+                        if (int.TryParse(kv.Value, System.Globalization.NumberStyles.Integer,
+                                         System.Globalization.CultureInfo.InvariantCulture, out var h)) npc.HelmTexture = h;
+                        break;
+                    case "face":
+                        if (int.TryParse(kv.Value, System.Globalization.NumberStyles.Integer,
+                                         System.Globalization.CultureInfo.InvariantCulture, out var f)) npc.Face = f;
+                        break;
+                }
+            }
+        }
+
         // Central intake for edit actions. Runs Apply and records for undo. Also called
         // by future action sources (rotation UI, waypoint drag).
         public void RecordAction(IEditAction action)
@@ -1399,6 +1440,38 @@ namespace VisualEQ
                 // pre-commit face/helm/texture/race/gender.
                 if (result.NpcRowsWritten > 0)
                 {
+                    // 1. Apply the just-committed field values back to every live
+                    //    sp.Record.Entries[].Npc for THIS zone. Widgets only mutate the
+                    //    sidebar's _displayedNpc clone, never the load-time NpcType on
+                    //    SpawnRecord. Without this pass, F10's CaptureZoneSnapshot would
+                    //    re-capture stale (pre-commit) records — because it reads from
+                    //    SpawnManager.SpawnPoints — and the next zone re-visit would
+                    //    restore the snapshot with the pre-commit values. Only the
+                    //    fields NpcType actually carries are updated (race/gender/size/
+                    //    texture/helmtexture/face — the visual-affecting set that drives
+                    //    model resolution on reload).
+                    if (PendingBuffer != null)
+                    {
+                        foreach (var kv in PendingBuffer.Npcs)
+                        {
+                            var npcId = kv.Key;
+                            var edit  = kv.Value;
+                            foreach (var sp in SpawnManager.SpawnPoints)
+                            {
+                                foreach (var entry in sp.Record.Entries)
+                                {
+                                    if (entry.Npc == null || entry.Npc.Id != npcId) continue;
+                                    ApplyCommittedEditToNpcType(entry.Npc, edit);
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Also null SpawnRecords on cached snapshots for OTHER zones —
+                    //    the live-NpcType pass above only reaches spawns in this zone,
+                    //    and an npc_types row can be referenced by spawns anywhere.
+                    //    Nulling forces the next visit to GetZoneSpawnsFullAsync to
+                    //    pull the committed row from DB.
                     int invalidated = 0;
                     foreach (var kv in _zoneSnapshots)
                     {
