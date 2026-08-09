@@ -362,13 +362,23 @@ namespace VisualEQ.Views
 
             ImGui.BeginWindow($"Sidebar###{Id}", PinnedPanel);
 
-            // Force height + clamp width. Preserves whatever width the user dragged to.
             var current = ImGui.GetWindowSize();
             var w = current.X;
             if (w < MinWidth) w = MinWidth;
             if (w > winW - MinRightGutter) w = winW - MinRightGutter;
-            if (Math.Abs(current.X - w) > 0.5f || Math.Abs(current.Y - winH) > 0.5f)
+
+            // Only force-set the window size when there's a MEANINGFUL drift — either
+            // width clamp fired (user dragged past bounds) or height needs to grow/
+            // shrink by more than a handful of pixels (OS window resize). Calling
+            // SetWindowSize every frame on tiny sub-pixel drifts appears to reset
+            // the sidebar's scroll offset in ImGui.NET 0.4.6, capping user scroll at
+            // ~one page of content — the "can't scroll indefinitely" bug.
+            var widthNeedsClamp = System.Math.Abs(current.X - w) > 0.5f;
+            var heightDrifted   = System.Math.Abs(current.Y - winH) > 10f;
+            if (widthNeedsClamp || heightDrifted)
                 ImGui.SetWindowSize(new Vector2(w, winH));
+
+            // Persist the (possibly-user-dragged) width for settings.json.
             if (Math.Abs(w - _width) > 0.5f)
             {
                 _width = w;
@@ -4144,6 +4154,21 @@ namespace VisualEQ.Views
             NpcCheckbox(npcId, "isquest",               "isquest",               () => n.IsQuest,            v => n.IsQuest            = v, editable);
             NpcCheckbox(npcId, "exclude",               "exclude",               () => n.Exclude,            v => n.Exclude            = v, editable);
 
+            // ── Special abilities (Slice 4 — friendly checkbox editor) ─────
+            // Placed right after AI & Behavior because that's where OPs look for
+            // combat/behavior toggles (Summon, Rampage, Flurry etc. are ability-like
+            // combat mods). Previously buried at the very bottom after Charm Overrides
+            // + Provenance where nobody would find it.
+            ImGui.Separator();
+            NpcSpecialAbilitiesEditor(npcId, () => n.SpecialAbilities, v => n.SpecialAbilities = v, editable);
+
+            // npcspecialattks is the legacy per-letter format (S=Summon, E=Enrage,
+            // R=Rampage, ...). Server auto-migrated it into special_abilities long ago
+            // (see database_update_manifest.cpp lines 184+). Kept read-only here — a
+            // fork that still writes to it can add editing later; the mainstream path
+            // is special_abilities.
+            ImGui.Text($"npcspecialattks (legacy): {(string.IsNullOrEmpty(n.NpcSpecialAttks) ? "(none)" : n.NpcSpecialAttks)}");
+
             // ── References (typeahead pickers for the FK fields) ───
             ImGui.Separator();
             ImGui.Text("References");
@@ -4191,17 +4216,6 @@ namespace VisualEQ.Views
             NpcNullableInt(npcId, "charm_attack_delay",     "Charm attack delay",      () => n.CharmAttackDelay,      v => n.CharmAttackDelay      = v, editable);
             NpcNullableInt(npcId, "charm_accuracy_rating", "Charm accuracy rating",    () => n.CharmAccuracyRating,   v => n.CharmAccuracyRating   = v, editable);
             NpcNullableInt(npcId, "charm_avoidance_rating","Charm avoidance rating",   () => n.CharmAvoidanceRating,  v => n.CharmAvoidanceRating  = v, editable);
-
-            // ── Special abilities (Slice 4 — friendly checkbox editor) ─────
-            ImGui.Separator();
-            NpcSpecialAbilitiesEditor(npcId, () => n.SpecialAbilities, v => n.SpecialAbilities = v, editable);
-
-            // npcspecialattks is the legacy per-letter format (S=Summon, E=Enrage,
-            // R=Rampage, ...). Server auto-migrated it into special_abilities long ago
-            // (see database_update_manifest.cpp lines 184+). Kept read-only here — a
-            // fork that still writes to it can add editing later; the mainstream path
-            // is special_abilities.
-            ImGui.Text($"npcspecialattks (legacy): {(string.IsNullOrEmpty(n.NpcSpecialAttks) ? "(none)" : n.NpcSpecialAttks)}");
 
             // ── Provenance ─────────────────────────────────────────
             ImGui.Separator();
