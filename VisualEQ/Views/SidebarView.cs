@@ -3060,8 +3060,12 @@ namespace VisualEQ.Views
 
             if (hasEdit != _npcDisplayedHadEdit || currentVer != _npcDisplayedVersion)
             {
+                Console.WriteLine($"[NpcDbg] MaintainDisplayedNpc REBUILD npc={npcId} hadEdit {_npcDisplayedHadEdit}->{hasEdit} ver {_npcDisplayedVersion}->{currentVer}");
+                var beforeFace = _displayedNpc?.Face ?? -1;
                 _displayedNpc = CloneNpcTypeFull(_npcDetailsData);
+                Console.WriteLine($"[NpcDbg]   after clone _displayedNpc.Face = {_displayedNpc.Face} (baseline was {_npcDetailsData.Face})");
                 OverlayPendingEdits(_displayedNpc, npcId);
+                Console.WriteLine($"[NpcDbg]   after overlay _displayedNpc.Face = {_displayedNpc.Face} (was {beforeFace} before rebuild)");
                 _npcDisplayedHadEdit = hasEdit;
                 _npcDisplayedVersion = currentVer;
                 SyncNpcTextBuffers(_displayedNpc);
@@ -3130,8 +3134,9 @@ namespace VisualEQ.Views
         void OverlayPendingEdits(VisualEQ.Database.Models.NpcTypeFull dest, int npcId)
         {
             var buffer = _view.Controller.PendingBuffer;
-            if (buffer == null) return;
-            if (!buffer.Npcs.TryGetValue(npcId, out var edit)) return;
+            if (buffer == null) { Console.WriteLine($"[NpcDbg] OverlayPendingEdits: buffer NULL (npc={npcId})"); return; }
+            if (!buffer.Npcs.TryGetValue(npcId, out var edit)) { Console.WriteLine($"[NpcDbg] OverlayPendingEdits: no entry for npc={npcId} (buf has {buffer.Npcs.Count} entries)"); return; }
+            Console.WriteLine($"[NpcDbg] OverlayPendingEdits: npc={npcId} applying {edit.CurrentValues.Count} entries: {string.Join(", ", edit.CurrentValues.Select(kv => $"{kv.Key}={kv.Value}"))}");
             foreach (var kv in edit.CurrentValues)
                 ApplyNpcFieldValue(dest, kv.Key, kv.Value);
         }
@@ -3482,8 +3487,10 @@ namespace VisualEQ.Views
                 if (asInt > maxValue) asInt = maxValue;
                 if (asInt != current)
                 {
+                    Console.WriteLine($"[NpcDbg] NpcInt write '{field}' {current}->{asInt} (npc={npcId})");
                     write(asInt);
                     RecordNpcFieldEdit(npcId, field, current, asInt, _displayedNpc?.Name ?? "?");
+                    Console.WriteLine($"[NpcDbg]   after write: _displayedNpc.field-property = {read()} (buf currentValues has '{field}': {(_view.Controller.PendingBuffer?.Npcs.TryGetValue(npcId, out var e0) == true && e0.CurrentValues.TryGetValue(field, out var v0) ? v0 : "MISSING")})");
                 }
             }
         }
