@@ -28,6 +28,43 @@ namespace VisualEQ.SpawnSystem
             }
         }
 
+        // Melee-type / ranged-type — server-side Skill enum values used by npc_types
+        // prim_melee_type, sec_melee_type, ranged_type. The full skill table has ~80
+        // entries; only the ones an NPC can plausibly slot into a weapon type are named,
+        // rest fall back to "Skill N". Default for HTH NPCs is 28.
+        public static string MeleeTypeName(int skill) =>
+            MeleeTypes.TryGetValue(skill, out var n) ? n : $"Skill {skill}";
+
+        // Stuck-behavior — what an NPC does when pathfinding fails (from Mob::Stuck_Behavior).
+        public static string StuckBehaviorName(int b)
+        {
+            switch (b)
+            {
+                case 0:  return "Run to target";
+                case 1:  return "Warp to target";
+                case 2:  return "Take no action";
+                case 3:  return "Evade combat";
+                default: return $"Behavior {b}";
+            }
+        }
+
+        // Flymode — vertical movement rules. -1 = "use default for race", so it's a
+        // valid stored value and gets its own label rather than the fallback.
+        public static string FlymodeName(int fm)
+        {
+            switch (fm)
+            {
+                case -1: return "Default (race)";
+                case 0:  return "Grounded";
+                case 1:  return "Flying";
+                case 2:  return "Levitating";
+                case 3:  return "Water";
+                case 4:  return "Floating (no gravity)";
+                case 5:  return "Levitating over water";
+                default: return $"Flymode {fm}";
+            }
+        }
+
         // Race labels — kept aligned with RaceModelMapper. Where a race is used
         // in the DB for something that doesn't match its canonical EQEmu name
         // (e.g. race 20 canonically "Trakanon Chief" but populated with Venril
@@ -218,6 +255,23 @@ namespace VisualEQ.SpawnSystem
             { 40, "Merchant" }, { 41, "Adventure Recruiter" }, { 42, "Adventure Merchant" },
             { 60, "LDoN Recruiter" }, { 61, "LDoN Merchant" }, { 62, "Guild Bank" },
             { 63, "Rewards Merchant" }, { 65, "Discord Merchant" },
+        };
+
+        // Server-side EQEmu Skill enum values pertinent to weapon-type slots on npc_types.
+        // Only the weapon skills are named — the rest of the ~80-entry Skill table (Bind
+        // Wound, Meditate, etc.) doesn't apply to prim_melee_type/sec_melee_type/ranged_type,
+        // but we don't filter them out at the SQL layer so a legacy value still shows
+        // "Skill N" via the fallback rather than crashing the picker.
+        static readonly Dictionary<int, string> MeleeTypes = new Dictionary<int, string>
+        {
+            {  0, "1H Blunt" },       {  1, "1H Slashing" },
+            {  2, "2H Blunt" },       {  3, "2H Slashing" },
+            {  7, "Archery" },        {  8, "Backstab" },
+            { 10, "Bash" },           { 21, "Dragon Punch" },
+            { 23, "Eagle Strike" },   { 26, "Flying Kick" },
+            { 28, "Hand to Hand" },   { 30, "Kick" },
+            { 36, "1H Piercing" },    { 38, "Round Kick" },
+            { 45, "2H Piercing" },    { 51, "Throwing" },
         };
 
         static readonly Dictionary<int, string> BodyTypes = new Dictionary<int, string>

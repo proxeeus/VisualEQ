@@ -29,7 +29,11 @@ namespace VisualEQ.EditSystem
         //        spawngroup name + spawnentries so commit can INSERT spawngroup → spawnentries
         //        → spawn2 in one go, then remap the negative TempSpawnId to the real
         //        AUTO_INCREMENT id on the in-memory SpawnPoint.
-        public int SchemaVersion { get; set; } = 8;
+        //   v9 — NPC field edits. NpcEdit gets sparse OriginalValues / CurrentValues
+        //        dictionaries keyed by SQL column name, so a ~100-column table doesn't
+        //        require 200 property pairs. Type parsing at commit time is driven by
+        //        NpcFieldCatalog.
+        public int SchemaVersion { get; set; } = 9;
 
         public Dictionary<int, SpawnEdit> Spawns { get; set; } = new Dictionary<int, SpawnEdit>();
 
@@ -251,11 +255,23 @@ namespace VisualEQ.EditSystem
         public DateTime DeletedAt { get; set; }
     }
 
+    // Pending npc_types field edits. Storage is sparse: each entry only holds the columns
+    // the user has actually touched. Keys are SQL column names (lowercase, matches
+    // npc_types schema); values are stringified via InvariantCulture on write and parsed
+    // per catalog on commit. A hardcoded per-field pair (like SpawnEdit's OriginalX etc.)
+    // would need ~200 properties for the ~100 editable columns — sparse dict keeps the
+    // JSON small and lets us grow the field set without model changes.
+    //
+    // Contract: OriginalValues[k] is the DB-baseline value at first-touch; CurrentValues[k]
+    // is the in-progress value. If a subsequent edit walks a field back to its original,
+    // both entries for that key are removed. When both dicts are empty, the whole NpcEdit
+    // is removed from buffer.Npcs so commit sees no pending change.
     public class NpcEdit
     {
         public int NpcId { get; set; }
-        // Populated when Phase 5.9+ NPC editing lands. Kept as a placeholder so the JSON
-        // shape is stable across releases.
+        public string DisplayName { get; set; }
+        public Dictionary<string, string> OriginalValues { get; set; } = new Dictionary<string, string>();
+        public Dictionary<string, string> CurrentValues  { get; set; } = new Dictionary<string, string>();
         public DateTime LastModifiedAt { get; set; }
     }
 

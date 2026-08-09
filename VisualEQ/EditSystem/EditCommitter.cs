@@ -25,6 +25,7 @@ namespace VisualEQ.EditSystem
             public int ZonePointRowsWritten;      // UPDATEs on existing rows
             public int ZonePointInsertsWritten;
             public int ZonePointDeletesWritten;
+            public int NpcRowsWritten;            // UPDATEs on npc_types
 
             // Maps pending-insert temp ids (negative) to their assigned AUTO_INCREMENT ids
             // (positive) after a successful INSERT. Consumers (OnCommitSucceeded) apply this
@@ -273,6 +274,36 @@ namespace VisualEQ.EditSystem
                                     tx);
                             }
 
+                            // NPC field edits — sparse per-field updates on npc_types. Each
+                            // NpcEdit's CurrentValues dict holds only the columns the user
+                            // actually touched, keyed by SQL column name; the SET clause is
+                            // built dynamically so a single-field edit doesn't rewrite every
+                            // column and MySQL's row-write log stays tight.
+                            int npcRows = 0;
+                            foreach (var kv in buffer.Npcs)
+                            {
+                                var edit = kv.Value;
+                                if (edit.CurrentValues == null || edit.CurrentValues.Count == 0)
+                                    continue;
+
+                                var setClauses = new System.Collections.Generic.List<string>();
+                                var parameters = new DynamicParameters();
+                                parameters.Add("Id", edit.NpcId);
+                                int p = 0;
+                                foreach (var fv in edit.CurrentValues)
+                                {
+                                    var def = NpcFieldCatalog.Get(fv.Key);
+                                    if (def == null) continue; // unknown field — skip rather than fail the whole commit
+                                    var paramName = $"p{p++}";
+                                    setClauses.Add($"{def.ForSet} = @{paramName}");
+                                    parameters.Add(paramName, NpcFieldCatalog.ParseValue(fv.Value, def.Kind));
+                                }
+                                if (setClauses.Count == 0) continue;
+
+                                var sql = $"UPDATE npc_types SET {string.Join(", ", setClauses)} WHERE id = @Id";
+                                npcRows += await connection.ExecuteAsync(sql, parameters, tx);
+                            }
+
                             // Zone-point commits: DELETE first (so a delete+re-insert with
                             // the same target coord doesn't briefly duplicate a row), then
                             // INSERT (returns AUTO_INCREMENT ids we map back to the temp
@@ -386,6 +417,7 @@ namespace VisualEQ.EditSystem
                                 ZonePointRowsWritten     = zonePointRows,
                                 ZonePointInsertsWritten  = zonePointInserts,
                                 ZonePointDeletesWritten  = zonePointDeletes,
+                                NpcRowsWritten           = npcRows,
                                 InsertedIdMap            = insertedIdMap,
                             };
                         }

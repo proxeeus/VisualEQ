@@ -128,6 +128,11 @@ namespace VisualEQ
         // Non-null once the user has saved a valid DB connection.
         public MySqlConnectionFactory DbFactory { get; private set; }
 
+        // Session-lifetime cache for reference-data typeahead pickers (loottables, factions,
+        // merchants, spell sets). Created alongside DbFactory when settings.Database is
+        // configured; each table lazy-loads on first UI request. Null when no DB.
+        public SpawnSystem.ReferenceDataCache ReferenceData { get; private set; }
+
         public SpawnManager SpawnManager { get; } = new SpawnManager();
 
         public ZonePointManager ZonePointManager { get; } = new ZonePointManager();
@@ -964,6 +969,7 @@ namespace VisualEQ
                 !string.IsNullOrEmpty(settings.Database?.Database))
             {
                 DbFactory = new MySqlConnectionFactory(settings.Database);
+                ReferenceData = new SpawnSystem.ReferenceDataCache(DbFactory);
             }
 
             // The taskbar/window otherwise show dotnet.exe's default icon because we launch
