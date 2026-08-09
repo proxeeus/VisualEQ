@@ -10,10 +10,15 @@ namespace VisualEQ.EditSystem
     //   3. EditCommitter's dynamic UPDATE SQL builder
     //
     // NOT included:
-    //   - visual fields (texture/helmtexture/face/luclin_*/drakkin_*/armortint_*/*_texture) —
-    //     Slice 3 owns these with live preview + camera framing
+    //   - cosmetic Luclin/Drakkin/armor-tint fields — RaceModelMapper doesn't consult
+    //     them on the Trilogy client this editor targets; can be turned on later
+    //     when a fork wires them into resolution
     //   - special_abilities / npcspecialattks — Slice 4 owns these with the friendly parser
     //   - version / peqid — provenance metadata, not intended to be user-editable
+    //
+    // Slice 3 additions: texture / helmtexture / face are now editable with live
+    // preview (see Controller.RefreshNpcVisualForNpc), so they're registered here
+    // and route through the same UPDATE-npc_types commit path as the rest.
     //
     // Column names are the exact npc_types SQL identifiers (lowercase, some with underscores
     // or leading _), so EditCommitter can splice them straight into SET clauses.
@@ -58,6 +63,11 @@ namespace VisualEQ.EditSystem
             { "bodytype",               new FieldDef("bodytype",               FieldKind.Int) },
             { "gender",                 new FieldDef("gender",                 FieldKind.Int) },
             { "size",                   new FieldDef("size",                   FieldKind.Float) },
+
+            // Visual (Slice 3 — live preview via Controller.RefreshNpcVisualForNpc)
+            { "texture",                new FieldDef("texture",                FieldKind.Int) },
+            { "helmtexture",            new FieldDef("helmtexture",            FieldKind.Int) },
+            { "face",                   new FieldDef("face",                   FieldKind.Int) },
 
             // Combat vitals
             { "hp",                     new FieldDef("hp",                     FieldKind.Long) },

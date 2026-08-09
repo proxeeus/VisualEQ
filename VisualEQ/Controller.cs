@@ -890,6 +890,41 @@ namespace VisualEQ
                 }
             }
 
+            // Restore on-scene AniModelInstance for any NPC that had visual edits — the
+            // per-field revert loops above only touch the buffer + spawn records; the
+            // AniModel (texture/helm/face-baked material variants and race/gender chr
+            // codes) needs an explicit rebuild against the DB-baseline NpcType stored on
+            // sp.Record.Entries. Otherwise Discard leaves the scene showing the edited
+            // face/helm/texture/race/gender even though the buffer is empty.
+            var npcIdsWithEdits = PendingBuffer.Npcs.Keys.ToList();
+            foreach (var npcId in npcIdsWithEdits)
+            {
+                foreach (var sp in SpawnManager.SpawnPoints)
+                {
+                    var primary = sp.Record.Entries
+                        .OrderByDescending(e => e.Entry.Chance)
+                        .FirstOrDefault();
+                    if (primary?.Npc == null || primary.Npc.Id != npcId) continue;
+
+                    // NpcType (the light DB-baseline record on the spawn) carries every
+                    // field RebuildInstanceForNpc needs (race/gender/size/texture/helm/
+                    // face). Wrap it into a minimal NpcTypeFull so the shared refresh
+                    // path doesn't need a NpcType overload.
+                    var baseline = new Database.Models.NpcTypeFull
+                    {
+                        Id          = primary.Npc.Id,
+                        Race        = primary.Npc.Race,
+                        Gender      = primary.Npc.Gender,
+                        Size        = primary.Npc.Size,
+                        Texture     = primary.Npc.Texture,
+                        HelmTexture = primary.Npc.HelmTexture,
+                        Face        = primary.Npc.Face,
+                    };
+                    SpawnManager.RebuildInstanceForNpc(sp, baseline, Engine, CharacterModels,
+                        _modelCache, _availableModels, LastModelLoaded);
+                }
+            }
+
             EditBufferManager.DeleteForZone(PendingBuffer.Zone);
             PendingBuffer = new EditBuffer { Zone = CurrentZoneName, CreatedAt = DateTime.UtcNow };
             _bufferDirty = false;
@@ -1127,12 +1162,81 @@ namespace VisualEQ
             RecordAction(action);
         }
 
+        // Apply a NpcEdit's CurrentValues to the load-time NpcType stored on
+        // SpawnRecord.Entries[].Npc. Only handles fields NpcType actually carries —
+        // race/gender/size/texture/helmtexture/face — since those are what
+        // SpawnManager.LoadFromRecords consults for model resolution on the next
+        // zone reload. Other edited fields (STR/HP/etc.) aren't on NpcType and are
+        // re-fetched from DB whenever GetZoneSpawnsFullAsync runs (which happens
+        // after our snapshot invalidation forces a refresh).
+        static void ApplyCommittedEditToNpcType(Database.Models.NpcType npc, EditSystem.NpcEdit edit)
+        {
+            foreach (var kv in edit.CurrentValues)
+            {
+                switch (kv.Key)
+                {
+                    case "race":
+                        if (int.TryParse(kv.Value, System.Globalization.NumberStyles.Integer,
+                                         System.Globalization.CultureInfo.InvariantCulture, out var r)) npc.Race = r;
+                        break;
+                    case "gender":
+                        if (int.TryParse(kv.Value, System.Globalization.NumberStyles.Integer,
+                                         System.Globalization.CultureInfo.InvariantCulture, out var g)) npc.Gender = g;
+                        break;
+                    case "size":
+                        if (float.TryParse(kv.Value, System.Globalization.NumberStyles.Float,
+                                           System.Globalization.CultureInfo.InvariantCulture, out var sz)) npc.Size = sz;
+                        break;
+                    case "texture":
+                        if (int.TryParse(kv.Value, System.Globalization.NumberStyles.Integer,
+                                         System.Globalization.CultureInfo.InvariantCulture, out var t)) npc.Texture = t;
+                        break;
+                    case "helmtexture":
+                        if (int.TryParse(kv.Value, System.Globalization.NumberStyles.Integer,
+                                         System.Globalization.CultureInfo.InvariantCulture, out var h)) npc.HelmTexture = h;
+                        break;
+                    case "face":
+                        if (int.TryParse(kv.Value, System.Globalization.NumberStyles.Integer,
+                                         System.Globalization.CultureInfo.InvariantCulture, out var f)) npc.Face = f;
+                        break;
+                }
+            }
+        }
+
         // Central intake for edit actions. Runs Apply and records for undo. Also called
         // by future action sources (rotation UI, waypoint drag).
         public void RecordAction(IEditAction action)
         {
             action.Apply(this);
             UndoStack.Record(action);
+        }
+
+        // Live visual refresh for every scene instance backed by npc_types.id == npcId.
+        // Called by the NPC editor's sidebar widget after a visual-affecting field edit
+        // (race / gender / size / texture / helmtexture / face) fires. Delegates the
+        // per-spawn re-resolution to SpawnManager.RebuildInstanceForNpc; the sidebar's
+        // _displayedNpc is the source of the effective post-edit values.
+        //
+        // Multiple spawns can reference the same npc_types row — this refreshes all of
+        // them so a race change on a shared NPC updates every visible copy in one call.
+        //
+        // Returns true if at least one spawn actually got a new instance (used by the
+        // camera-framing hook to decide whether to re-frame after the swap).
+        public bool RefreshNpcVisualForNpc(int npcId, VisualEQ.Database.Models.NpcTypeFull effective)
+        {
+            if (effective == null || _availableModels == null) return false;
+            bool anyChanged = false;
+            foreach (var sp in SpawnManager.SpawnPoints)
+            {
+                var primary = sp.Record.Entries
+                    .OrderByDescending(e => e.Entry.Chance)
+                    .FirstOrDefault();
+                if (primary?.Npc == null || primary.Npc.Id != npcId) continue;
+
+                if (SpawnManager.RebuildInstanceForNpc(sp, effective, Engine, CharacterModels, _modelCache, _availableModels, LastModelLoaded))
+                    anyChanged = true;
+            }
+            return anyChanged;
         }
 
         // Public wrappers for hotkey / sidebar button use. Return true if something changed.
@@ -1325,6 +1429,59 @@ namespace VisualEQ
                     }
                     if (invalidated > 0)
                         Console.WriteLine($"[Controller] Zone-point row cache invalidated on {invalidated} snapshot(s) after commit.");
+                }
+
+                // NPC field commits mutate npc_types rows that live inside every
+                // snapshot's SpawnRecords (each SpawnRecord.Entries[].Npc holds the
+                // NpcType fetched at load time). An npc_types row can be referenced by
+                // spawns in multiple zones, so we can't scope this to just the current
+                // zone — drop SpawnRecords on every cached snapshot so the next zone
+                // load re-queries and gets the committed values instead of showing the
+                // pre-commit face/helm/texture/race/gender.
+                if (result.NpcRowsWritten > 0)
+                {
+                    // 1. Apply the just-committed field values back to every live
+                    //    sp.Record.Entries[].Npc for THIS zone. Widgets only mutate the
+                    //    sidebar's _displayedNpc clone, never the load-time NpcType on
+                    //    SpawnRecord. Without this pass, F10's CaptureZoneSnapshot would
+                    //    re-capture stale (pre-commit) records — because it reads from
+                    //    SpawnManager.SpawnPoints — and the next zone re-visit would
+                    //    restore the snapshot with the pre-commit values. Only the
+                    //    fields NpcType actually carries are updated (race/gender/size/
+                    //    texture/helmtexture/face — the visual-affecting set that drives
+                    //    model resolution on reload).
+                    if (PendingBuffer != null)
+                    {
+                        foreach (var kv in PendingBuffer.Npcs)
+                        {
+                            var npcId = kv.Key;
+                            var edit  = kv.Value;
+                            foreach (var sp in SpawnManager.SpawnPoints)
+                            {
+                                foreach (var entry in sp.Record.Entries)
+                                {
+                                    if (entry.Npc == null || entry.Npc.Id != npcId) continue;
+                                    ApplyCommittedEditToNpcType(entry.Npc, edit);
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Also null SpawnRecords on cached snapshots for OTHER zones —
+                    //    the live-NpcType pass above only reaches spawns in this zone,
+                    //    and an npc_types row can be referenced by spawns anywhere.
+                    //    Nulling forces the next visit to GetZoneSpawnsFullAsync to
+                    //    pull the committed row from DB.
+                    int invalidated = 0;
+                    foreach (var kv in _zoneSnapshots)
+                    {
+                        var s = kv.Value;
+                        if (s.SpawnRecords == null) continue;
+                        s.SpawnRecords = null;
+                        invalidated++;
+                    }
+                    if (invalidated > 0)
+                        Console.WriteLine($"[Controller] SpawnRecords cache invalidated on {invalidated} snapshot(s) after NPC commit.");
                 }
             }
 

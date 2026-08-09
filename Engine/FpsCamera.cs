@@ -35,6 +35,13 @@ namespace VisualEQ.Engine
         float _flyStartTime;
         float _flyDuration;
 
+        // Look-lock target. When non-null, Update() re-orients the camera to face
+        // _lookLockTarget every frame (rebuilding Pitch/Yaw/LookRotation). Cleared
+        // automatically the moment the user drags mouse-look — the "any keyboard/mouse
+        // input releases" behavior lives in EngineCore's mouse handler, which calls
+        // ClearLookLock() before applying user rotation input.
+        Vector3? _lookLockTarget;
+
         public FpsCamera(Vector3 pos)
         {
             Position = pos;
@@ -66,6 +73,31 @@ namespace VisualEQ.Engine
             _flyDuration  = Math.Max(0.01f, duration);
             _flying       = true;
         }
+
+        // Combined "fly to camera pose + orient at a lookAt target" — used by the NPC
+        // editor's visual-field auto-framing so the camera lands facing the subject at
+        // the end of the tween, not just at a coincidental pose. LockLookAt runs per-
+        // frame during the flight AND after, so the orientation tracks the subject if
+        // the model swaps mid-flight (race change while flying-in, etc.).
+        public void FlyToLookAt(Vector3 cameraPos, Vector3 lookAtTarget, float duration = 0.25f)
+        {
+            FlyTo(cameraPos, duration);
+            LockLookAt(lookAtTarget);
+        }
+
+        // Enables a per-frame look-at override. While active, camera Pitch/Yaw are recomputed
+        // each Update() to face `worldPoint`, so a subject that moves (or a scale/model swap
+        // that shifts the head position) stays framed. Any user-driven Look() call clears
+        // this — the sidebar can also call ClearLookLock() explicitly on defocus.
+        public void LockLookAt(Vector3 worldPoint)
+        {
+            _lookLockTarget = worldPoint;
+            LookAt(worldPoint); // apply immediately so this frame reflects the lock
+        }
+
+        public void ClearLookLock() => _lookLockTarget = null;
+
+        public bool IsLookLocked => _lookLockTarget.HasValue;
 
         public void Move(Vector3 _movement)
         {
@@ -105,6 +137,9 @@ namespace VisualEQ.Engine
 
         public void Look(float pitchmod, float yawmod)
         {
+            // User-driven rotation clears any active look-lock — matches the
+            // "any keyboard/mouse-drag releases" spec from the NPC editor plan doc.
+            _lookLockTarget = null;
             var eps = 0.01f;
             Pitch = clamp(Pitch + pitchmod, -PI / 2 + eps, PI / 2 - eps);
             Yaw += yawmod;
@@ -135,6 +170,26 @@ namespace VisualEQ.Engine
 
         public void Update(float timestep)
         {
+            // Re-apply the look-lock every frame so the camera tracks a moving/re-scaling
+            // subject. Runs BEFORE the flying branch so the tween's landing pose is also
+            // oriented at the subject (not just at wherever the yaw happened to land).
+            if (_lookLockTarget.HasValue)
+            {
+                var target = _lookLockTarget.Value;
+                var eye = Position + new Vector3(0, 0, CameraHeight);
+                var dir = target - eye;
+                if (dir.LengthSquared() >= 0.0001f)
+                {
+                    dir = Vector3.Normalize(dir);
+                    var eps = 0.01f;
+                    Pitch = clamp(Asin(clamp(dir.Z, -1f, 1f)), -PI / 2 + eps, PI / 2 - eps);
+                    Yaw   = Atan2(-dir.X, dir.Y);
+                    LookRotation = Matrix4x4.CreateFromAxisAngle(Right, Pitch);
+                    if (Yaw != 0)
+                        LookRotation *= Matrix4x4.CreateFromAxisAngle(Up, Yaw);
+                }
+            }
+
             if (_flying)
             {
                 var t = (FrameTime - _flyStartTime) / _flyDuration;

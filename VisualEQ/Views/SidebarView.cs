@@ -3042,6 +3042,11 @@ namespace VisualEQ.Views
                     _npcDisplayedVersion = e0.LastModifiedAt.Ticks;
                 }
                 SyncNpcTextBuffers(_displayedNpc);
+                // Selecting a different NPC while the camera is locked to the previous
+                // one's head/torso would leave the camera pointing at empty space (the
+                // lock target is a fixed world point). Release the lock so mouse-look
+                // control returns to the user until they focus a visual field again.
+                Camera.ClearLookLock();
                 return;
             }
 
@@ -3149,6 +3154,9 @@ namespace VisualEQ.Views
                 case "bodytype":               dest.BodyType = (int)v; break;
                 case "gender":                 dest.Gender = (int)v; break;
                 case "size":                   dest.Size = (float)v; break;
+                case "texture":                dest.Texture = (int)v; break;
+                case "helmtexture":            dest.HelmTexture = (int)v; break;
+                case "face":                   dest.Face = (int)v; break;
                 case "hp":                     dest.Hp = (long)v; break;
                 case "mana":                   dest.Mana = (long)v; break;
                 case "AC":                     dest.Ac = (int)v; break;
@@ -3265,32 +3273,103 @@ namespace VisualEQ.Views
             System.Array.Copy(bytes, dst, n);
         }
 
-        // Per-field numeric-input byte buffers. ImGui.NET 0.4.6 doesn't expose InputInt /
-        // InputFloat in the C# wrapper (only the native cimgui bindings), so the numeric
-        // widgets fall back to InputText with a byte buffer + parse. Buffers are keyed by
-        // field name and reset when the selected NPC changes so a stale value from a
-        // previous NPC's HP doesn't leak into the newly-selected NPC's field.
-        private readonly Dictionary<string, byte[]> _npcNumBufs = new Dictionary<string, byte[]>();
-        private int? _npcNumBufsForId;
-
-        void ResetNpcNumBufsIfNpcChanged(int npcId)
-        {
-            if (_npcNumBufsForId == npcId) return;
-            _npcNumBufs.Clear();
-            _npcNumBufsForId = npcId;
-        }
-
-        byte[] GetNumBuffer(string field, int size)
-        {
-            if (!_npcNumBufs.TryGetValue(field, out var buf))
-            {
-                buf = new byte[size];
-                _npcNumBufs[field] = buf;
-            }
-            return buf;
-        }
+        // (numeric byte-buffer state removed — numeric widgets now use DragFloat, which
+        // owns its own display state, so we don't need per-field byte buffers or the
+        // reset-on-npc-change dance.)
 
         // ───────── NPC field widget helpers ───────────────────────────
+
+        // Visual-affecting fields — the ones whose edits should trigger a live model
+        // rebuild via Controller.RefreshNpcVisualForNpc. Race + gender rebuild the
+        // AniModel from a new chr code; size rebuilds Scale on the same instance;
+        // texture/helm/face swap the material variant on the same code.
+        static readonly System.Collections.Generic.HashSet<string> _npcVisualFields =
+            new System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase)
+            {
+                "race", "gender", "size", "texture", "helmtexture", "face",
+            };
+
+        static bool IsNpcVisualField(string field) => _npcVisualFields.Contains(field);
+
+        // Single funnel for every NPC-field edit action. Records the action AND, for
+        // visual-affecting fields, immediately re-runs Controller.RefreshNpcVisualForNpc
+        // so the on-screen model reflects the new value without waiting for save. If the
+        // instance actually got a new AniModel or a new Scale, re-frames the camera so
+        // the look-lock targets the new head/torso positions instead of the pre-swap ones.
+        void RecordNpcFieldEdit(int npcId, string field, object from, object to, string display)
+        {
+            _view.Controller.RecordAction(
+                new VisualEQ.EditSystem.NpcFieldEditAction(npcId, field, from, to, display));
+            if (IsNpcVisualField(field) && _displayedNpc != null && _displayedNpc.Id == npcId)
+            {
+                var changed = _view.Controller.RefreshNpcVisualForNpc(npcId, _displayedNpc);
+                if (changed)
+                {
+                    var sp = _view.SelectedSpawn;
+                    if (sp != null) FrameNpcForField(sp, field);
+                }
+            }
+        }
+
+        // Framing hints for the auto-camera. FullBody pulls back so the whole silhouette
+        // is in frame; Face zooms into the head; UpperBody is a middle ground for helm
+        // edits where you want to see head + shoulders.
+        enum NpcFramingHint { Face, UpperBody, FullBody }
+
+        static NpcFramingHint FramingHintForField(string field)
+        {
+            switch (field)
+            {
+                case "face":         return NpcFramingHint.Face;
+                case "helmtexture":  return NpcFramingHint.UpperBody;
+                default:             return NpcFramingHint.FullBody; // texture, size, race, gender
+            }
+        }
+
+        // Compute a "in-front-of-NPC" camera pose for the given hint and fly there with
+        // a look-lock so scrubbing texture/face/helm keeps the camera on the subject.
+        // Face-height / torso-height offsets match the spine-cylinder heuristic used by
+        // ModelSelector.
+        void FrameNpcForField(SpawnPoint sp, string field)
+        {
+            if (sp?.Model == null) return;
+            var hint  = FramingHintForField(field);
+            var pos   = sp.Model.Position;
+            var scale = System.Math.Max(0.1f, sp.Model.Scale);
+            // Use the race-specific authored mesh height so halflings/dwarves (mesh
+            // authored at 4 units) don't get framed above their heads. Fall back to 6
+            // when we don't have the effective NpcTypeFull (shouldn't happen — this is
+            // called from field widgets that always have _displayedNpc — but guard just
+            // in case).
+            var meshHeight = _displayedNpc != null
+                ? VisualEQ.SpawnSystem.SpawnManager.MeshHeightForRace(_displayedNpc.Race)
+                : 6f;
+            var head  = pos + new Vector3(0, 0, meshHeight * scale);
+            var torso = pos + new Vector3(0, 0, (meshHeight * 2f / 3f) * scale);
+
+            Vector3 target;
+            float distance;
+            switch (hint)
+            {
+                case NpcFramingHint.Face:      target = head;  distance = 4f  + 2f * scale; break;
+                case NpcFramingHint.UpperBody: target = head;  distance = 8f  + 3f * scale; break;
+                default:                       target = torso; distance = 12f + 5f * scale; break;
+            }
+
+            // NPC's forward vector — camera sits in front of the face, looking back.
+            var facing = Vector3.Transform(new Vector3(0, 1, 0), sp.Model.Rotation);
+            facing.Z = 0;
+            if (facing.LengthSquared() < 0.0001f) facing = new Vector3(0, 1, 0);
+            facing = Vector3.Normalize(facing);
+
+            var cameraPos = target + facing * distance;
+            // FpsCamera.Update adds CameraHeight to Position before the LookAt matrix, so
+            // pre-subtract it here to land the eye AT target-height (not target + 5.5).
+            cameraPos.Z -= VisualEQ.Engine.FpsCamera.CameraHeight;
+
+            Camera.FlyToLookAt(cameraPos, target, 0.35f);
+        }
+
 
         // Records the from/to values via NpcFieldEditAction on widget deactivation.
         // Single-slot activation tracker — ImGui only allows one active item at a time so
@@ -3299,7 +3378,22 @@ namespace VisualEQ.Views
         // value at flush time (usually the current displayed-npc property).
         void HandleNpcActivation(int npcId, string field, object beforeValueIfStarting, Func<object> readCurrent)
         {
-            var isActive = ImGui.IsAnyItemActive();
+            // ImGui.NET 0.4.6's IsAnyItemActive is unreliable for InputText — it's true
+            // on the click frame + during actual keystroke frames, but returns false in
+            // between (while the InputText still holds focus). Using it as the sole
+            // defocus signal fires false flushes, which clear our tracking state, so
+            // the next frame's !isMe branch resyncs the buffer to expected and wipes
+            // whatever the user typed. Symptom: typed values silently revert to the
+            // pre-focus value.
+            //
+            // Fix: combine IsAnyItemActive (reliable rising-edge signal for "focus just
+            // captured this frame") with Gui.KeyboardWanted (reliable "some InputText
+            // is still receiving keyboard input"). Consider the field defocused only
+            // when BOTH are false — the keyboard-wanted bit stays true as long as any
+            // text input is focused, so transient IsAnyItemActive=false readings during
+            // idle-typing frames don't fire a false flush.
+            var isActive       = ImGui.IsAnyItemActive();
+            var keyboardWanted = _view.Controller.Engine.Gui.KeyboardWanted;
             var wasThisFieldActive =
                 _npcActiveEditForId == npcId &&
                 _npcActiveEditField == field;
@@ -3315,9 +3409,19 @@ namespace VisualEQ.Views
                 _npcActiveEditField      = field;
                 _npcActiveEditBeforeValue = beforeValueIfStarting;
                 _npcActiveEditReader      = readCurrent;
+
+                // Auto-frame when focus first lands on a visual field, so the user sees
+                // what they're editing before typing anything. The look-lock stays active
+                // until the user drags mouse-look (FpsCamera.Look clears it).
+                var sp = _view.SelectedSpawn;
+                if (sp != null && IsNpcVisualField(field))
+                    FrameNpcForField(sp, field);
             }
-            else if (!isActive && wasThisFieldActive)
+            else if (wasThisFieldActive && !isActive && !keyboardWanted)
             {
+                // Only flush when BOTH ImGui-item-active and keyboard-wanted are false —
+                // that's the real defocus. Transient !isActive during focused typing
+                // (with keyboardWanted still true) is ignored.
                 FlushNpcActiveEditIfChanged();
             }
         }
@@ -3339,8 +3443,7 @@ namespace VisualEQ.Views
             if (changed)
             {
                 var display = _displayedNpc?.Name ?? "?";
-                _view.Controller.RecordAction(
-                    new VisualEQ.EditSystem.NpcFieldEditAction(npcId, field, before, after, display));
+                RecordNpcFieldEdit(npcId, field, before, after, display);
             }
 
             _npcActiveEditForId       = null;
@@ -3349,10 +3452,19 @@ namespace VisualEQ.Views
             _npcActiveEditReader      = null;
         }
 
-        // Renders a typed integer input via InputText + parse (see _npcNumBufs comment
-        // for why not InputInt). Buffer resyncs from the current value whenever this field
-        // isn't the actively-edited one, so undo/redo and cross-NPC selection keep the
-        // widget in sync. Typed values outside [minValue, maxValue] clamp on write.
+        // Numeric widgets use DragFloat with dragSpeed=0 (drag disabled — users
+        // click and type, no accidental drag). Recording is INLINE: DragFloat returns
+        // `changed=true` only for the widget the user actually interacted with, so we
+        // record one action per commit without the HandleNpcActivation state-tracking
+        // dance that cross-contaminated fields via IsAnyItemActive's global scope.
+        //
+        // The earlier state-tracking approach (isMe / _npcActiveEditForId flushed per
+        // field) fell apart because IsAnyItemActive is not scoped to the last-rendered
+        // widget — every field's HandleNpcActivation saw isActive=true whenever ANY
+        // widget was active, treated itself as "just activated", and thrashed the
+        // state slot. That let a subsequent field's flush read a WRONG reader lambda
+        // and record spurious walk-back actions, which in turn cleaned up
+        // buffer.Npcs entries mid-edit — reverting previously-committed field values.
         void NpcInt(int npcId, string field, string label,
             System.Func<int> read, System.Action<int> write, bool editable,
             int minValue = int.MinValue, int maxValue = int.MaxValue)
@@ -3363,25 +3475,20 @@ namespace VisualEQ.Views
                 ImGui.Text($"  {label}: {current}");
                 return;
             }
-            var buf = GetNumBuffer(field, 20);
-            var bufStr = ReadBuffer(buf);
-            var expectedStr = current.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            var isMe = _npcActiveEditForId == npcId && _npcActiveEditField == field;
-            if (!isMe && bufStr != expectedStr)
-                WriteStringToBuffer(buf, expectedStr);
-
             ImGui.Text(label);
-            ImGui.InputText($"###{Id}ni{field}", buf, (uint)buf.Length, InputTextFlags.Default, null);
-            var typed = ReadBuffer(buf);
-            if (typed != bufStr &&
-                int.TryParse(typed, System.Globalization.NumberStyles.Integer,
-                             System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+            var val = (float)current;
+            var changed = ImGui.DragFloat($"###{Id}ni{field}", ref val, 0f, 0f, 1f, "%.0f", 1f);
+            if (changed)
             {
-                if (parsed < minValue) parsed = minValue;
-                if (parsed > maxValue) parsed = maxValue;
-                if (parsed != current) write(parsed);
+                var asInt = (int)System.Math.Round(val);
+                if (asInt < minValue) asInt = minValue;
+                if (asInt > maxValue) asInt = maxValue;
+                if (asInt != current)
+                {
+                    write(asInt);
+                    RecordNpcFieldEdit(npcId, field, current, asInt, _displayedNpc?.Name ?? "?");
+                }
             }
-            HandleNpcActivation(npcId, field, (int)current, () => (object)read());
         }
 
         void NpcLong(int npcId, string field, string label,
@@ -3393,52 +3500,44 @@ namespace VisualEQ.Views
                 ImGui.Text($"  {label}: {current}");
                 return;
             }
-            var buf = GetNumBuffer(field, 24);
-            var bufStr = ReadBuffer(buf);
-            var expectedStr = current.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            var isMe = _npcActiveEditForId == npcId && _npcActiveEditField == field;
-            if (!isMe && bufStr != expectedStr)
-                WriteStringToBuffer(buf, expectedStr);
-
             ImGui.Text(label);
-            ImGui.InputText($"###{Id}nl{field}", buf, (uint)buf.Length, InputTextFlags.Default, null);
-            var typed = ReadBuffer(buf);
-            if (typed != bufStr &&
-                long.TryParse(typed, System.Globalization.NumberStyles.Integer,
-                              System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+            // DragFloat carries ~7 significant digits; values > ~10^7 lose low-bit
+            // precision on edit. Practical HP/mana/regen ranges fit fine.
+            var val = (float)current;
+            var changed = ImGui.DragFloat($"###{Id}nl{field}", ref val, 0f, 0f, 1f, "%.0f", 1f);
+            if (changed)
             {
-                if (parsed < 0) parsed = 0;
-                if (parsed != current) write(parsed);
+                var asLong = (long)System.Math.Round((double)val);
+                if (asLong < 0) asLong = 0;
+                if (asLong != current)
+                {
+                    write(asLong);
+                    RecordNpcFieldEdit(npcId, field, current, asLong, _displayedNpc?.Name ?? "?");
+                }
             }
-            HandleNpcActivation(npcId, field, (long)current, () => (object)read());
         }
 
         void NpcFloat(int npcId, string field, string label,
             System.Func<float> read, System.Action<float> write, bool editable, string fmt = "F2")
         {
             var current = read();
-            var display = current.ToString(fmt, System.Globalization.CultureInfo.InvariantCulture);
             if (!editable)
             {
+                var display = current.ToString(fmt, System.Globalization.CultureInfo.InvariantCulture);
                 ImGui.Text($"  {label}: {display}");
                 return;
             }
-            var buf = GetNumBuffer(field, 24);
-            var bufStr = ReadBuffer(buf);
-            var isMe = _npcActiveEditForId == npcId && _npcActiveEditField == field;
-            if (!isMe && bufStr != display)
-                WriteStringToBuffer(buf, display);
-
             ImGui.Text(label);
-            ImGui.InputText($"###{Id}nf{field}", buf, (uint)buf.Length, InputTextFlags.Default, null);
-            var typed = ReadBuffer(buf);
-            if (typed != bufStr &&
-                float.TryParse(typed, System.Globalization.NumberStyles.Float,
-                               System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+            var val = current;
+            var dfFmt = fmt.StartsWith("F", System.StringComparison.Ordinal)
+                ? "%." + fmt.Substring(1) + "f"
+                : "%.2f";
+            var changed = ImGui.DragFloat($"###{Id}nf{field}", ref val, 0f, 0f, 1f, dfFmt, 1f);
+            if (changed && System.Math.Abs(val - current) > 0.0001f)
             {
-                if (System.Math.Abs(parsed - current) > 0.0001f) write(parsed);
+                write(val);
+                RecordNpcFieldEdit(npcId, field, current, val, _displayedNpc?.Name ?? "?");
             }
-            HandleNpcActivation(npcId, field, (float)current, () => (object)read());
         }
 
         void NpcText(int npcId, string field, string label,
@@ -3477,12 +3576,11 @@ namespace VisualEQ.Views
                 if (before != after)
                 {
                     // Checkbox activation is instantaneous — no drag-then-release cycle to
-                    // coalesce over, so record the action inline instead of routing through
-                    // HandleNpcActivation.
+                    // coalesce over, so record inline (still routed through the visual-
+                    // refresh funnel).
                     write(after);
                     var display = _displayedNpc?.Name ?? "?";
-                    _view.Controller.RecordAction(
-                        new VisualEQ.EditSystem.NpcFieldEditAction(npcId, field, before, after, display));
+                    RecordNpcFieldEdit(npcId, field, before, after, display);
                 }
             }
         }
@@ -3522,8 +3620,7 @@ namespace VisualEQ.Views
                 {
                     write(after);
                     var display = _displayedNpc?.Name ?? "?";
-                    _view.Controller.RecordAction(
-                        new VisualEQ.EditSystem.NpcFieldEditAction(npcId, field, current, after, display));
+                    RecordNpcFieldEdit(npcId, field, current, after, display);
                 }
             }
         }
@@ -3548,37 +3645,30 @@ namespace VisualEQ.Views
                 {
                     write(0);
                     var display = _displayedNpc?.Name ?? "?";
-                    _view.Controller.RecordAction(
-                        new VisualEQ.EditSystem.NpcFieldEditAction(npcId, field, (int?)null, (int?)0, display));
+                    RecordNpcFieldEdit(npcId, field, (int?)null, (int?)0, display);
                 }
                 else if (!isSet && current.HasValue)
                 {
                     var before = current;
                     write(null);
                     var display = _displayedNpc?.Name ?? "?";
-                    _view.Controller.RecordAction(
-                        new VisualEQ.EditSystem.NpcFieldEditAction(npcId, field, before, (int?)null, display));
+                    RecordNpcFieldEdit(npcId, field, before, (int?)null, display);
                 }
             }
             if (isSet)
             {
                 var cur = current ?? 0;
-                var buf = GetNumBuffer(field, 20);
-                var bufStr = ReadBuffer(buf);
-                var expectedStr = cur.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                var isMe = _npcActiveEditForId == npcId && _npcActiveEditField == field;
-                if (!isMe && bufStr != expectedStr)
-                    WriteStringToBuffer(buf, expectedStr);
-
-                ImGui.InputText($"  {label}###{Id}nni{field}", buf, (uint)buf.Length, InputTextFlags.Default, null);
-                var typed = ReadBuffer(buf);
-                if (typed != bufStr &&
-                    int.TryParse(typed, System.Globalization.NumberStyles.Integer,
-                                 System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                var val = (float)cur;
+                var changed = ImGui.DragFloat($"  {label}###{Id}nni{field}", ref val, 0f, 0f, 1f, "%.0f", 1f);
+                if (changed)
                 {
-                    if (parsed != cur) write(parsed);
+                    var asInt = (int)System.Math.Round(val);
+                    if (asInt != cur)
+                    {
+                        write(asInt);
+                        RecordNpcFieldEdit(npcId, field, cur, asInt, _displayedNpc?.Name ?? "?");
+                    }
                 }
-                HandleNpcActivation(npcId, field, current ?? 0, () => (object)(read() ?? 0));
             }
         }
 
@@ -3606,8 +3696,7 @@ namespace VisualEQ.Views
             {
                 // Explicit clear sets the FK to 0 (EQEmu's "no assignment" sentinel).
                 var display = _displayedNpc?.Name ?? "?";
-                _view.Controller.RecordAction(
-                    new VisualEQ.EditSystem.NpcFieldEditAction(npcId, field, current, 0, display));
+                RecordNpcFieldEdit(npcId, field, current, 0, display);
             }
         }
 
@@ -3728,11 +3817,10 @@ namespace VisualEQ.Views
                     var picked = filtered[_fkPickerSelectedIdx];
                     if (picked.Id != _fkPickerCurrentValue)
                     {
-                        _view.Controller.RecordAction(
-                            new VisualEQ.EditSystem.NpcFieldEditAction(
-                                _fkPickerNpcId, _fkPickerFieldName,
-                                _fkPickerCurrentValue, picked.Id,
-                                _fkPickerNpcDisplayName));
+                        RecordNpcFieldEdit(
+                            _fkPickerNpcId, _fkPickerFieldName,
+                            _fkPickerCurrentValue, picked.Id,
+                            _fkPickerNpcDisplayName);
                     }
                     EndFkPicker();
                 }
@@ -3795,7 +3883,6 @@ namespace VisualEQ.Views
         void RenderNpcDetailsBody(VisualEQ.Database.Models.NpcTypeFull n, bool editable)
         {
             var npcId = n.Id;
-            ResetNpcNumBufsIfNpcChanged(npcId);
 
             // ── Identity ───────────────────────────────────────────
             ImGui.Text($"[id {n.Id}]");
@@ -3851,10 +3938,21 @@ namespace VisualEQ.Views
             NpcInt(npcId, "Corrup", "Corrup", () => n.Corrup, v => n.Corrup = v, editable);
             NpcInt(npcId, "PhR",    "PhR",    () => n.PhR,    v => n.PhR    = v, editable, 0);
 
-            // ── Visual (read-only in Slice 2 — Slice 3 owns live preview) ───
+            // ── Visual ─────────────────────────────────────────────
+            // Texture / helm / face are the "live preview" trio — editing any of them
+            // triggers Controller.RefreshNpcVisualForNpc which cache-swaps the AniModel
+            // on every scene instance backed by this npc_types row. Focusing any of
+            // these fields also auto-frames the camera (see HandleNpcActivation).
             ImGui.Separator();
-            ImGui.Text("Visual (read-only — Slice 3 adds editing + live preview)");
-            ImGui.Text($"  Body texture {n.Texture}   Helm {n.HelmTexture}   Face {n.Face}");
+            ImGui.Text("Visual");
+            NpcInt(npcId, "texture",     "Body texture", () => n.Texture,     v => n.Texture     = v, editable, 0, 15);
+            NpcInt(npcId, "helmtexture", "Helm texture", () => n.HelmTexture, v => n.HelmTexture = v, editable, 0, 15);
+            NpcInt(npcId, "face",        "Face",         () => n.Face,        v => n.Face        = v, editable, 0, 15);
+
+            // Cosmetic / luclin / drakkin fields — not wired into the live-preview
+            // refresh (RaceModelMapper doesn't consult them for the Trilogy client this
+            // editor targets). Kept read-only for now; a later slice can turn them on
+            // if a Luclin-era fork wires them into model resolution.
             ImGui.Text($"  Extra: arm {n.ArmTexture}  bracer {n.BracerTexture}  hand {n.HandTexture}  leg {n.LegTexture}  feet {n.FeetTexture}");
             ImGui.Text($"  Weapons: d_melee1 {n.DMeleeTexture1}   d_melee2 {n.DMeleeTexture2}   ammo {n.AmmoIdfile ?? ""}");
             ImGui.Text($"  Melee types: prim {SpawnInfoLookups.MeleeTypeName(n.PrimMeleeType)} ({n.PrimMeleeType})  sec {SpawnInfoLookups.MeleeTypeName(n.SecMeleeType)} ({n.SecMeleeType})  ranged {SpawnInfoLookups.MeleeTypeName(n.RangedType)} ({n.RangedType})");
