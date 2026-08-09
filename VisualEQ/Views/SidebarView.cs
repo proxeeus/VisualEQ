@@ -3244,6 +3244,7 @@ namespace VisualEQ.Views
                 case "charm_accuracy_rating":  dest.CharmAccuracyRating = (int?)v; break;
                 case "charm_avoidance_rating": dest.CharmAvoidanceRating = (int?)v; break;
                 case "charm_atk":              dest.CharmAtk = (int?)v; break;
+                case "special_abilities":      dest.SpecialAbilities = (string)v; break;
             }
         }
 
@@ -3700,6 +3701,148 @@ namespace VisualEQ.Views
             }
         }
 
+        // Special-abilities editor (Slice 4). One row per SpecialAbilityCatalog entry
+        // with an enable checkbox + a value input (int, DragFloat with drag disabled).
+        // Any ability that has non-zero params 0..8 shows them read-only inline —
+        // param editing is out of MVP scope; users who need it can bypass the widget
+        // by editing the raw string via server-side tooling. Unknown ability ids (in
+        // raw string but not in the server catalog we scraped) get a "Custom (id=N)"
+        // read-only row at the bottom and are preserved verbatim on save.
+        //
+        // Every change re-serializes the whole entries dict and fires one
+        // NpcFieldEditAction — same commit path as any other npc_types field.
+        void NpcSpecialAbilitiesEditor(int npcId, System.Func<string> read, System.Action<string> write, bool editable)
+        {
+            var current = read() ?? "";
+            var parsed  = VisualEQ.EditSystem.SpecialAbilityString.Parse(current);
+
+            ImGui.Text($"Special abilities  ({parsed.Count} active)");
+            if (!editable)
+            {
+                if (parsed.Count == 0)
+                {
+                    ImGui.Text("  (none)");
+                    return;
+                }
+                foreach (var e in parsed.Values.OrderBy(x => x.AbilityId))
+                {
+                    var entry = VisualEQ.EditSystem.SpecialAbilityCatalog.Get(e.AbilityId);
+                    var name = entry != null ? entry.Name : $"Custom (id={e.AbilityId})";
+                    ImGui.Text($"  {name}: value={e.Value}{FormatSaParams(e.Params)}");
+                }
+                return;
+            }
+
+            // Scrollable list — 57 known abilities fits comfortably at ~18px per row
+            // inside a bounded child. Height is tall enough to show ~15 rows without
+            // scrolling; users scroll for the rest.
+            ImGui.BeginChild($"###{Id}saList", new Vector2(0, 300), true, WindowFlags.Default);
+            var display = _displayedNpc?.Name ?? "?";
+            bool dirty = false;
+
+            foreach (var abilityEntry in VisualEQ.EditSystem.SpecialAbilityCatalog.All)
+            {
+                var abilityId = abilityEntry.Id;
+                var hasEntry = parsed.TryGetValue(abilityId, out var e);
+                var chk = hasEntry;
+
+                if (ImGui.Checkbox($"###{Id}saChk{abilityId}", ref chk))
+                {
+                    if (chk && !hasEntry)
+                    {
+                        parsed[abilityId] = new VisualEQ.EditSystem.SpecialAbilityString.Entry
+                        {
+                            AbilityId = abilityId,
+                            Value     = 1,
+                        };
+                        dirty = true;
+                        hasEntry = true;
+                        e = parsed[abilityId];
+                    }
+                    else if (!chk && hasEntry)
+                    {
+                        parsed.Remove(abilityId);
+                        dirty = true;
+                        hasEntry = false;
+                    }
+                }
+
+                ImGui.SameLine();
+                ImGui.Text(abilityEntry.Name);
+
+                if (hasEntry)
+                {
+                    ImGui.SameLine();
+                    ImGui.Text("value");
+                    ImGui.SameLine();
+                    var val = (float)e.Value;
+                    // dragSpeed=1 so Ctrl+Click text entry works (same trap from Slice 3).
+                    var changed = ImGui.DragFloat($"###{Id}saVal{abilityId}", ref val, 0f, 0f, 1f, "%.0f", 1f);
+                    if (changed)
+                    {
+                        var newV = (int)System.Math.Round(val);
+                        if (newV != e.Value)
+                        {
+                            e.Value = newV;
+                            dirty = true;
+                        }
+                    }
+
+                    // Read-only inline params. Rare enough that MVP surfaces them as
+                    // text; full param editor is a follow-up if the OP asks for it.
+                    if (HasAnyParam(e.Params))
+                        ImGui.Text($"    params:{FormatSaParams(e.Params)}");
+                }
+            }
+
+            // Unknown ability ids surface at the bottom of the list so they're not
+            // silently dropped. Preserved on serialize because they live in `parsed`
+            // — the checkbox loop doesn't remove them (only iterates known ids).
+            var unknownIds = parsed.Keys.Where(id => !VisualEQ.EditSystem.SpecialAbilityCatalog.IsKnown(id)).ToList();
+            if (unknownIds.Count > 0)
+            {
+                ImGui.Separator();
+                ImGui.Text("Unknown ability ids (preserved on save):");
+                foreach (var id in unknownIds)
+                {
+                    var e = parsed[id];
+                    ImGui.Text($"  id={id}: value={e.Value}{FormatSaParams(e.Params)}");
+                }
+            }
+
+            ImGui.EndChild();
+
+            if (dirty)
+            {
+                var newRaw = VisualEQ.EditSystem.SpecialAbilityString.Serialize(parsed);
+                if (newRaw != current)
+                {
+                    write(newRaw);
+                    RecordNpcFieldEdit(npcId, "special_abilities", current, newRaw, display);
+                }
+            }
+        }
+
+        static bool HasAnyParam(int[] p)
+        {
+            for (int i = 0; i < p.Length; i++) if (p[i] != 0) return true;
+            return false;
+        }
+
+        static string FormatSaParams(int[] p)
+        {
+            var sb = new System.Text.StringBuilder();
+            int lastNonZero = -1;
+            for (int i = 0; i < p.Length; i++) if (p[i] != 0) lastNonZero = i;
+            for (int i = 0; i <= lastNonZero; i++)
+            {
+                sb.Append(' ');
+                sb.Append('p'); sb.Append(i); sb.Append('=');
+                sb.Append(p[i]);
+            }
+            return sb.ToString();
+        }
+
         // ───────── FK picker modal ────────────────────────────────────
 
         void BeginFkPicker(VisualEQ.SpawnSystem.ReferenceDataCache.Table table,
@@ -4049,11 +4192,16 @@ namespace VisualEQ.Views
             NpcNullableInt(npcId, "charm_accuracy_rating", "Charm accuracy rating",    () => n.CharmAccuracyRating,   v => n.CharmAccuracyRating   = v, editable);
             NpcNullableInt(npcId, "charm_avoidance_rating","Charm avoidance rating",   () => n.CharmAvoidanceRating,  v => n.CharmAvoidanceRating  = v, editable);
 
-            // ── Special abilities (read-only — Slice 4 adds friendly editor) ──
+            // ── Special abilities (Slice 4 — friendly checkbox editor) ─────
             ImGui.Separator();
-            ImGui.Text("Special abilities (raw — Slice 4 makes this friendly)");
-            ImGui.Text($"  npcspecialattks: {(string.IsNullOrEmpty(n.NpcSpecialAttks) ? "(none)" : n.NpcSpecialAttks)}");
-            ImGui.Text($"  special_abilities: {(string.IsNullOrEmpty(n.SpecialAbilities) ? "(none)" : n.SpecialAbilities)}");
+            NpcSpecialAbilitiesEditor(npcId, () => n.SpecialAbilities, v => n.SpecialAbilities = v, editable);
+
+            // npcspecialattks is the legacy per-letter format (S=Summon, E=Enrage,
+            // R=Rampage, ...). Server auto-migrated it into special_abilities long ago
+            // (see database_update_manifest.cpp lines 184+). Kept read-only here — a
+            // fork that still writes to it can add editing later; the mainstream path
+            // is special_abilities.
+            ImGui.Text($"npcspecialattks (legacy): {(string.IsNullOrEmpty(n.NpcSpecialAttks) ? "(none)" : n.NpcSpecialAttks)}");
 
             // ── Provenance ─────────────────────────────────────────
             ImGui.Separator();
