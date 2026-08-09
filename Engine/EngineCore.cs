@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using CollisionManager;
 using NsimGui;
 using NsimGui.Widgets;
@@ -155,6 +156,46 @@ namespace VisualEQ.Engine
         public new int Width => base.Width;
         public new int Height => base.Height;
 
+        // Win32 work-area query. Work area == primary monitor size minus taskbar,
+        // start bar, and any other reserved system space. Setting the window bounds
+        // to this rect gives the app the full usable region without overlapping the
+        // taskbar. Only bound on Windows; on non-Windows (unlikely for this app but
+        // possible via WSL/mono/etc.) TryFitToWorkArea just fails silently.
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern bool SystemParametersInfo(uint uAction, uint uParam, ref Win32Rect lpvParam, uint fuWinIni);
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct Win32Rect { public int Left, Top, Right, Bottom; }
+
+        const uint SPI_GETWORKAREA = 0x0030;
+
+        void TryFitToWorkArea()
+        {
+            try
+            {
+                var rect = new Win32Rect();
+                if (!SystemParametersInfo(SPI_GETWORKAREA, 0, ref rect, 0)) return;
+
+                var w = rect.Right - rect.Left;
+                var h = rect.Bottom - rect.Top;
+                if (w <= 0 || h <= 0) return;
+
+                // Drop out of Maximized before repositioning — Maximized bounds
+                // are locked to whatever the OS decided; setting X/Y/Width/Height
+                // on a maximized window has no effect until we transition to Normal.
+                WindowState = WindowState.Normal;
+                X          = rect.Left;
+                Y          = rect.Top;
+                // Width/Height shadowed as read-only on EngineCore — go through base.
+                base.Width  = w;
+                base.Height = h;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[EngineCore] TryFitToWorkArea failed: {ex.Message}");
+            }
+        }
+
         public EngineCore() : base(
             1280, 720, new GraphicsMode(new ColorFormat(8, 8, 8, 8), 16, 0), "VisualEQ",
             GameWindowFlags.Default, DisplayDevice.Default, 4, 1, GraphicsContextFlags.ForwardCompatible
@@ -163,6 +204,16 @@ namespace VisualEQ.Engine
             VSync = VSyncMode.Off;
             // Fill the primary display on launch so the menu and rendered scene get maximum space.
             WindowState = WindowState.Maximized;
+
+            // Explicit fallback: some setups (notably Parallels ARM64) don't have
+            // OpenTK's Maximized correctly stop at the taskbar's work area — the
+            // window ends up covering the whole screen and the taskbar overlaps the
+            // bottom N pixels of content. Query Win32 SPI_GETWORKAREA and clamp the
+            // window bounds to the reported rect. This runs AFTER Maximized so on
+            // setups where Maximized already did the right thing, this is a no-op
+            // (bounds already match work area).
+            TryFitToWorkArea();
+
             Stopwatch.Start();
             Gui = new Gui(new GuiRenderer());
             WaypointEditor = new WaypointEditor(this);

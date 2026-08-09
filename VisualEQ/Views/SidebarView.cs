@@ -166,12 +166,13 @@ namespace VisualEQ.Views
         private const float MinWidth = 180f;
         private const float MinRightGutter = 200f; // leave at least this many px for the 3D view
         private const float WidthSaveDebounceSec = 0.5f;
-        // Sidebar height reserves this many pixels at the bottom of the client area so
-        // the OS taskbar (which can overlap the app on some Windows setups, especially
-        // maximized-over-work-area quirks in Parallels) doesn't cover the last row of
-        // scrollable content. Users on setups without this issue lose a small amount of
-        // vertical space — trade for reliable "scroll reaches the end" behavior.
-        private const float BottomSafeAreaPx = 60f;
+        // Small aesthetic bottom gap. Was 60px to reserve space against a taskbar
+        // that could overlap the app on Parallels ARM64 setups, but EngineCore's
+        // TryFitToWorkArea now sizes the OS window to Win32's work-area rect
+        // (screen minus taskbar/etc.) explicitly, so we no longer need to leave a
+        // huge buffer inside the sidebar. 4px keeps the last row from touching the
+        // bottom pixel; anything more is wasted usable height.
+        private const float BottomSafeAreaPx = 4f;
 
         private float _width;
         private readonly List<string> _order;
