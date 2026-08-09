@@ -349,6 +349,7 @@ namespace VisualEQ.SpawnSystem
             SpawnPoint sp,
             VisualEQ.Database.Models.NpcTypeFull effective,
             EngineCore engine,
+            List<AniModelInstance> characterModels,
             Dictionary<string, AniModel> modelCache,
             Dictionary<string, string> availableModels,
             AniModel fallback)
@@ -428,12 +429,20 @@ namespace VisualEQ.SpawnSystem
                 Scale     = newScale,
             };
 
-            // Swap in the scene: remove old, add new. Preserve selection so the sidebar
-            // stays pointing at the same SpawnPoint (its Model reference just changed
-            // underneath).
+            // Swap in the scene: remove old, add new. Two lists have to stay in sync —
+            // engine.AniModels drives rendering, and Controller.CharacterModels drives
+            // ModelSelector's ray-cast picking (see Controller ctor). Skipping the second
+            // one leaves the picker holding a stale AniModelInstance whose SpawnPoint's
+            // Model no longer matches, so clicks silently fail SpawnManager.Select's
+            // FirstOrDefault(p.Model == model) lookup.
             var wasSelected = Selected == sp;
-            if (oldModel != null) engine.Remove(oldModel);
+            if (oldModel != null)
+            {
+                engine.Remove(oldModel);
+                characterModels?.Remove(oldModel);
+            }
             engine.Add(newInstance);
+            characterModels?.Add(newInstance);
             sp.Model = newInstance;
             sp.IsPlaceholder = isPlaceholder;
             if (wasSelected) Selected = sp; // no-op assignment, kept for clarity

@@ -1157,7 +1157,7 @@ namespace VisualEQ
                     .FirstOrDefault();
                 if (primary?.Npc == null || primary.Npc.Id != npcId) continue;
 
-                if (SpawnManager.RebuildInstanceForNpc(sp, effective, Engine, _modelCache, _availableModels, LastModelLoaded))
+                if (SpawnManager.RebuildInstanceForNpc(sp, effective, Engine, CharacterModels, _modelCache, _availableModels, LastModelLoaded))
                     anyChanged = true;
             }
             return anyChanged;
