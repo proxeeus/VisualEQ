@@ -3453,9 +3453,13 @@ namespace VisualEQ.Views
         }
 
         // Renders a typed integer input via InputText + parse (see _npcNumBufs comment
-        // for why not InputInt). Buffer resyncs from the current value whenever this field
-        // isn't the actively-edited one, so undo/redo and cross-NPC selection keep the
-        // widget in sync. Typed values outside [minValue, maxValue] clamp on write.
+        // for why not InputInt). The buffer→model write only fires while the widget is
+        // still actively focused AFTER InputText renders — that's the guard against
+        // ImGui 0.4.6's post-Enter buffer state (which can revert to whatever the buffer
+        // held when the field first focused, propagating a false "revert" write on the
+        // defocus frame). On the Enter/defocus frame, we skip the write and let
+        // HandleNpcActivation's flush record the already-committed _displayedNpc value
+        // via its captured read lambda.
         void NpcInt(int npcId, string field, string label,
             System.Func<int> read, System.Action<int> write, bool editable,
             int minValue = int.MinValue, int maxValue = int.MaxValue)
@@ -3467,22 +3471,30 @@ namespace VisualEQ.Views
                 return;
             }
             var buf = GetNumBuffer(field, 20);
-            var bufStr = ReadBuffer(buf);
             var expectedStr = current.ToString(System.Globalization.CultureInfo.InvariantCulture);
             var isMe = _npcActiveEditForId == npcId && _npcActiveEditField == field;
-            if (!isMe && bufStr != expectedStr)
+            // Not our active field → always resync buffer to expected. Cheap; also
+            // corrects any post-defocus buffer corruption from ImGui.
+            if (!isMe)
                 WriteStringToBuffer(buf, expectedStr);
 
             ImGui.Text(label);
             ImGui.InputText($"###{Id}ni{field}", buf, (uint)buf.Length, InputTextFlags.Default, null);
-            var typed = ReadBuffer(buf);
-            if (typed != bufStr &&
-                int.TryParse(typed, System.Globalization.NumberStyles.Integer,
-                             System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+
+            // Only propagate buffer→model while the widget is STILL focused. On the
+            // Enter/defocus frame, IsAnyItemActive() returns false and we skip — the
+            // committed value is already on _displayedNpc from prior frames' writes
+            // and will be picked up by HandleNpcActivation's flush via read().
+            if (ImGui.IsAnyItemActive())
             {
-                if (parsed < minValue) parsed = minValue;
-                if (parsed > maxValue) parsed = maxValue;
-                if (parsed != current) write(parsed);
+                var typed = ReadBuffer(buf);
+                if (int.TryParse(typed, System.Globalization.NumberStyles.Integer,
+                                 System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                {
+                    if (parsed < minValue) parsed = minValue;
+                    if (parsed > maxValue) parsed = maxValue;
+                    if (parsed != current) write(parsed);
+                }
             }
             HandleNpcActivation(npcId, field, (int)current, () => (object)read());
         }
@@ -3497,21 +3509,22 @@ namespace VisualEQ.Views
                 return;
             }
             var buf = GetNumBuffer(field, 24);
-            var bufStr = ReadBuffer(buf);
             var expectedStr = current.ToString(System.Globalization.CultureInfo.InvariantCulture);
             var isMe = _npcActiveEditForId == npcId && _npcActiveEditField == field;
-            if (!isMe && bufStr != expectedStr)
+            if (!isMe)
                 WriteStringToBuffer(buf, expectedStr);
 
             ImGui.Text(label);
             ImGui.InputText($"###{Id}nl{field}", buf, (uint)buf.Length, InputTextFlags.Default, null);
-            var typed = ReadBuffer(buf);
-            if (typed != bufStr &&
-                long.TryParse(typed, System.Globalization.NumberStyles.Integer,
-                              System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+            if (ImGui.IsAnyItemActive())
             {
-                if (parsed < 0) parsed = 0;
-                if (parsed != current) write(parsed);
+                var typed = ReadBuffer(buf);
+                if (long.TryParse(typed, System.Globalization.NumberStyles.Integer,
+                                  System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                {
+                    if (parsed < 0) parsed = 0;
+                    if (parsed != current) write(parsed);
+                }
             }
             HandleNpcActivation(npcId, field, (long)current, () => (object)read());
         }
@@ -3527,19 +3540,20 @@ namespace VisualEQ.Views
                 return;
             }
             var buf = GetNumBuffer(field, 24);
-            var bufStr = ReadBuffer(buf);
             var isMe = _npcActiveEditForId == npcId && _npcActiveEditField == field;
-            if (!isMe && bufStr != display)
+            if (!isMe)
                 WriteStringToBuffer(buf, display);
 
             ImGui.Text(label);
             ImGui.InputText($"###{Id}nf{field}", buf, (uint)buf.Length, InputTextFlags.Default, null);
-            var typed = ReadBuffer(buf);
-            if (typed != bufStr &&
-                float.TryParse(typed, System.Globalization.NumberStyles.Float,
-                               System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+            if (ImGui.IsAnyItemActive())
             {
-                if (System.Math.Abs(parsed - current) > 0.0001f) write(parsed);
+                var typed = ReadBuffer(buf);
+                if (float.TryParse(typed, System.Globalization.NumberStyles.Float,
+                                   System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                {
+                    if (System.Math.Abs(parsed - current) > 0.0001f) write(parsed);
+                }
             }
             HandleNpcActivation(npcId, field, (float)current, () => (object)read());
         }
@@ -3663,19 +3677,20 @@ namespace VisualEQ.Views
             {
                 var cur = current ?? 0;
                 var buf = GetNumBuffer(field, 20);
-                var bufStr = ReadBuffer(buf);
                 var expectedStr = cur.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 var isMe = _npcActiveEditForId == npcId && _npcActiveEditField == field;
-                if (!isMe && bufStr != expectedStr)
+                if (!isMe)
                     WriteStringToBuffer(buf, expectedStr);
 
                 ImGui.InputText($"  {label}###{Id}nni{field}", buf, (uint)buf.Length, InputTextFlags.Default, null);
-                var typed = ReadBuffer(buf);
-                if (typed != bufStr &&
-                    int.TryParse(typed, System.Globalization.NumberStyles.Integer,
-                                 System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                if (ImGui.IsAnyItemActive())
                 {
-                    if (parsed != cur) write(parsed);
+                    var typed = ReadBuffer(buf);
+                    if (int.TryParse(typed, System.Globalization.NumberStyles.Integer,
+                                     System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                    {
+                        if (parsed != cur) write(parsed);
+                    }
                 }
                 HandleNpcActivation(npcId, field, current ?? 0, () => (object)(read() ?? 0));
             }
