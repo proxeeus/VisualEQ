@@ -315,9 +315,9 @@ namespace VisualEQ.EditSystem
     // read-side model (schema drift on either side stays independent).
     public class NpcFactionEntrySnapshot
     {
-        public int  Value    { get; set; }
-        public byte NpcValue { get; set; }
-        public byte Temp     { get; set; }
+        public int   Value    { get; set; }
+        public sbyte NpcValue { get; set; }
+        public sbyte Temp     { get; set; }
     }
 
     // A brand-new trilogy_zone_points row waiting to be INSERTed on commit. Holds every

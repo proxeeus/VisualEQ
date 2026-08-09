@@ -334,6 +334,18 @@ namespace VisualEQ.Database.Constants
             FROM faction_list
             ORDER BY name";
 
+        // One npc_faction (set) row. Holds set-wide metadata: display name, the
+        // primary faction id (fk to faction_list) this NPC belongs to, and whether
+        // the primary is excluded from assist aggro.
+        public const string GetNpcFactionById = @"
+            SELECT
+                id                     AS Id,
+                name                   AS Name,
+                primaryfaction         AS PrimaryFaction,
+                ignore_primary_assist  AS IgnorePrimaryAssist
+            FROM npc_faction
+            WHERE id = @Id";
+
         // Entries in a specific npc_faction set. Composite PK is
         // (npc_faction_id, faction_id) — one row per faction that dying to this NPC
         // affects. `value` = client-visible hit amount, `npc_value` = NPC-side hit

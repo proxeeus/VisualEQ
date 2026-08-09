@@ -346,11 +346,31 @@ namespace VisualEQ.Views
         // Faction-entries fetch state (Slice 5). Keyed by npc_faction_id (from the
         // currently-selected NPC's NpcTypeFull.NpcFactionId). Cache is npc_faction-
         // scoped so switching NPCs that share a faction set is free.
+        //
+        // Two fetches run in parallel per set: the entries list (rows in
+        // npc_faction_entries) and the parent set metadata (name / primaryfaction /
+        // ignore_primary_assist from npc_faction). Both must complete before the
+        // editor renders; we wait for the entries task and then just read whatever
+        // the set task has produced (name/primary lookup is cosmetic — if the parent
+        // row is missing we still render entries).
         private int? _factionEntriesFetchedFor;
         private int? _factionEntriesInFlightFor;
         private System.Threading.Tasks.Task<System.Collections.Generic.List<VisualEQ.Database.Models.NpcFactionEntry>> _factionEntriesTask;
         private System.Collections.Generic.List<VisualEQ.Database.Models.NpcFactionEntry> _factionEntriesData;
+        private System.Threading.Tasks.Task<VisualEQ.Database.Models.NpcFactionSet> _factionSetTask;
+        private VisualEQ.Database.Models.NpcFactionSet _factionSetData;
         private string _factionEntriesError;
+
+        // Enum labels for npc_value (reaction) and temp — mirrors peqphpeditor's
+        // faction_values / tmpfaction dicts so DB values render as human labels.
+        //   npc_value: -1 = Aggressive, 0 = Passive, 1 = Assist (signed tinyint on wire)
+        //   temp:       0 = Perm, 1 = Temp/NoMsg, 2 = Perm/NoMsg, 3 = Temp
+        static readonly int[]    _reactionVals   = { -1, 0, 1 };
+        static readonly string[] _reactionLabels = { "Aggressive", "Passive", "Assist" };
+        // Kept short — the sidebar column is tight and peqphpeditor's tmpfacshort
+        // uses the same abbreviations in its per-row rendering.
+        static readonly int[]    _tempVals   = { 0, 1, 2, 3 };
+        static readonly string[] _tempLabels = { "Perm", "Temp/NM", "Perm/NM", "Temp" };
 
         public SidebarWidget(SidebarView view)
         {
@@ -565,6 +585,7 @@ namespace VisualEQ.Views
                     {
                         _factionEntriesFetchedFor = null;
                         _factionEntriesData       = null;
+                        _factionSetData           = null;
                     }
                 }
                 _commitPhase = CommitPhase.Result;
@@ -3782,13 +3803,24 @@ namespace VisualEQ.Views
         //
         // Every change re-serializes the whole entries dict and fires one
         // NpcFieldEditAction — same commit path as any other npc_types field.
-        // Faction-entries editor (Slice 5). Renders the entries of the NPC's
-        // assigned npc_faction set — each row is one faction the NPC hits on
-        // death, with value / npc_value / temp editable inline. Fetch is
-        // per-npc_faction_id and cached; overlay applies pending buffer ops
-        // (inserts / updates / deletes from NpcFactionEntryEditAction) on top
-        // of the DB baseline before render, so the UI reflects unsaved edits
-        // exactly like the npc_types field widgets do.
+        // Faction-entries editor (Slice 5). Modeled on peqphpeditor's npc/faction
+        // view — a compact header (set name + primary faction + assist flag) over
+        // a fixed-column table of hits: Faction | Value | Reaction | Temp | X.
+        //
+        // Column widths are absolute pixels via igSetNextItemWidth so the columns
+        // line up regardless of the widest faction name. The name column truncates
+        // if the sidebar is narrower than expected — full name is on the row's
+        // tooltip via ImGui.Text (implicit hover doesn't kick in here, so it's
+        // shown inline).
+        //
+        // npc_value is a tri-state enum (Aggressive / Passive / Assist), not a
+        // signed byte editable via drag. temp is a 4-state enum (Perm / Temp / …),
+        // not a boolean checkbox. This corrects two guesses from the initial cut.
+        //
+        // Fetch runs two queries in parallel: npc_faction_entries (the rows) and
+        // npc_faction (the parent set metadata). FactionList reference cache is
+        // force-warmed here so the very first render already has names — no more
+        // "you see just IDs until the async fetch lands" flash.
         //
         // Requires npc_faction_id > 0. NPCs without a faction set get a hint
         // pointing to the References section where the FK picker is.
@@ -3796,9 +3828,15 @@ namespace VisualEQ.Views
         {
             if (npcFactionId <= 0)
             {
-                ImGui.Text("(no faction set assigned — pick one in References)");
+                ImGui.Text("(no faction set assigned — pick one in the References section)");
                 return;
             }
+
+            // Force-warm the FactionList reference cache so row rendering has names
+            // on the very first frame after the entries fetch lands.
+            var cache = _view.Controller.ReferenceData;
+            if (cache != null)
+                cache.GetItems(VisualEQ.SpawnSystem.ReferenceDataCache.Table.FactionList);
 
             MaintainFactionEntriesFetch(npcFactionId);
             if (_factionEntriesInFlightFor == npcFactionId)
@@ -3817,32 +3855,94 @@ namespace VisualEQ.Views
                 return;
             }
 
-            // Compute effective entries = baseline + pending overlay.
+            // ── Header: set name + primary faction + ignore-assist flag ──────
+            var setName = _factionSetData?.Name;
+            if (string.IsNullOrWhiteSpace(setName)) setName = "(unnamed set)";
+            ImGui.Text($"Set #{npcFactionId} — \"{setName}\"");
+
+            var primaryName = _factionSetData != null && cache != null
+                ? cache.ResolveLabel(VisualEQ.SpawnSystem.ReferenceDataCache.Table.FactionList, _factionSetData.PrimaryFaction)
+                : "(unknown)";
+            ImGui.Text($"Primary faction: {primaryName}");
+
+            var ignoreAssist = _factionSetData != null && _factionSetData.IgnorePrimaryAssist != 0;
+            ImGui.Text($"Ignore primary assist: {(ignoreAssist ? "Yes" : "No")}");
+
+            ImGui.Separator();
+
+            // ── Table: hit rows ───────────────────────────────────────────
             var effective = ComputeEffectiveFactionEntries(npcFactionId);
-            var cache = _view.Controller.ReferenceData;
 
-            ImGui.Text($"Entries: {effective.Count}");
+            // Column geometry, sized to the actual content region so the layout
+            // adapts when the user widens the sidebar. Widget widths are fixed
+            // (combos need to fit their widest label — "Aggressive"); the faction
+            // name column absorbs whatever's left. Minimums stop things from
+            // collapsing at the ~320px minimum sidebar width.
+            var contentW = ImGui.GetContentRegionAvailable().X;
+            if (contentW < 320f) contentW = 320f;
+
+            const float wValue    = 55f;    // "-2000" fits
+            const float wReaction = 100f;   // "Aggressive" + arrow
+            const float wTemp     = 85f;    // "Perm/NM" + arrow
+            const float wRemove   = 22f;    // small "X" button
+            const float colGap    = 6f;
+
+            var xRemove   = contentW - wRemove;
+            var xTemp     = xRemove - colGap - wTemp;
+            var xReaction = xTemp   - colGap - wReaction;
+            var xValue    = xReaction - colGap - wValue;
+            // Minimum faction-name column width so ultra-narrow sidebars don't
+            // squeeze names into 20px. If we ever hit this, columns overflow to
+            // the right (still readable, just no longer perfectly aligned).
+            if (xValue < 90f) xValue = 90f;
+
+            // Header row.
+            ImGui.Text("Faction");
+            ImGui.SameLine(xValue);    ImGui.Text("Adj.");
+            ImGui.SameLine(xReaction); ImGui.Text("Reaction");
+            ImGui.SameLine(xTemp);     ImGui.Text("Temp");
+            ImGui.Separator();
+
             if (effective.Count == 0)
-                ImGui.Text("  (no entries in this faction set)");
+            {
+                ImGui.Text("  (no faction hits in this set)");
+            }
 
-            foreach (var entry in effective.OrderBy(e => e.FactionId))
+            foreach (var entry in effective.OrderBy(e =>
+                cache != null
+                    ? cache.ResolveLabel(VisualEQ.SpawnSystem.ReferenceDataCache.Table.FactionList, e.FactionId)
+                    : e.FactionId.ToString()))
             {
                 var factionName = cache != null
                     ? cache.ResolveLabel(VisualEQ.SpawnSystem.ReferenceDataCache.Table.FactionList, entry.FactionId)
                     : entry.FactionId.ToString();
+
+                // Faction name column — plain text; ID is in the label already
+                // (ResolveLabel returns "{id} — {name}"). If the name is longer than
+                // the value column start, ImGui just wraps — SameLine still snaps to
+                // the fixed x-position.
                 ImGui.Text(factionName);
 
                 if (!editable)
                 {
-                    ImGui.Text($"  value {entry.Value}  npc_value {entry.NpcValue}  temp {entry.Temp}");
+                    // Read-only view: same columns, just labels.
+                    ImGui.SameLine(xValue);
+                    ImGui.Text(entry.Value.ToString());
+
+                    ImGui.SameLine(xReaction);
+                    ImGui.Text(ReactionLabel(entry.NpcValue));
+
+                    ImGui.SameLine(xTemp);
+                    ImGui.Text(TempLabel(entry.Temp));
                     continue;
                 }
 
-                // Value edit (int, DragFloat speed=1 so Ctrl+Click text works —
-                // the recurring ImGui.NET 0.4.6 pattern).
+                // Value: numeric input, ~70px wide.
+                ImGui.SameLine(xValue);
+                NsimGui.CimguiRaw.igSetNextItemWidth(wValue);
                 var val = (float)entry.Value;
-                var vChanged = ImGui.DragFloat($"value###{Id}nfeV{npcFactionId}_{entry.FactionId}",
-                    ref val, 0f, 0f, 1f, "%.0f", 1f);
+                var vChanged = ImGui.DragFloat($"##{Id}nfeV{npcFactionId}_{entry.FactionId}",
+                    ref val, 0f, 0f, 0f, "%.0f", 1f);
                 if (vChanged)
                 {
                     var newVal = (int)System.Math.Round(val);
@@ -3850,46 +3950,57 @@ namespace VisualEQ.Views
                         RecordFactionEntryEdit(entry, e => e.Value = newVal, factionName);
                 }
 
-                var nv = (float)entry.NpcValue;
-                var nvChanged = ImGui.DragFloat($"npc_value###{Id}nfeN{npcFactionId}_{entry.FactionId}",
-                    ref nv, 0f, 0f, 1f, "%.0f", 1f);
-                if (nvChanged)
+                // Reaction: tri-state combo. Fall back to first slot if the DB has
+                // an out-of-range value (shouldn't happen, but keeps the combo sane).
+                ImGui.SameLine(xReaction);
+                NsimGui.CimguiRaw.igSetNextItemWidth(wReaction);
+                var reactionIdx = System.Array.IndexOf(_reactionVals, (int)entry.NpcValue);
+                if (reactionIdx < 0) reactionIdx = 1; // default to Passive
+                var refReactionIdx = reactionIdx;
+                if (ImGui.Combo($"##{Id}nfeR{npcFactionId}_{entry.FactionId}", ref refReactionIdx, _reactionLabels))
                 {
-                    var newNv = (byte)System.Math.Max(0, System.Math.Min(255, (int)System.Math.Round(nv)));
+                    var newNv = (sbyte)_reactionVals[refReactionIdx];
                     if (newNv != entry.NpcValue)
                         RecordFactionEntryEdit(entry, e => e.NpcValue = newNv, factionName);
                 }
 
-                var tempOn = entry.Temp != 0;
-                if (ImGui.Checkbox($"temp###{Id}nfeT{npcFactionId}_{entry.FactionId}", ref tempOn))
+                // Temp: 4-state combo.
+                ImGui.SameLine(xTemp);
+                NsimGui.CimguiRaw.igSetNextItemWidth(wTemp);
+                var tempIdx = System.Array.IndexOf(_tempVals, (int)entry.Temp);
+                if (tempIdx < 0) tempIdx = 0;
+                var refTempIdx = tempIdx;
+                if (ImGui.Combo($"##{Id}nfeT{npcFactionId}_{entry.FactionId}", ref refTempIdx, _tempLabels))
                 {
-                    byte newTemp = (byte)(tempOn ? 1 : 0);
+                    var newTemp = (sbyte)_tempVals[refTempIdx];
                     if (newTemp != entry.Temp)
                         RecordFactionEntryEdit(entry, e => e.Temp = newTemp, factionName);
                 }
 
-                ImGui.SameLine();
-                if (ImGui.Button($"Remove###{Id}nfeR{npcFactionId}_{entry.FactionId}", new Vector2(80, 22)))
+                // Remove button.
+                ImGui.SameLine(xRemove);
+                if (ImGui.Button($"X##{Id}nfeX{npcFactionId}_{entry.FactionId}", new Vector2(24, 22)))
                     RecordFactionEntryDelete(npcFactionId, entry, factionName);
             }
 
             if (editable)
             {
                 ImGui.Separator();
-                if (ImGui.Button($"Add faction…###{Id}nfeAdd{npcFactionId}", new Vector2(140, 24)))
+                if (ImGui.Button($"+ Add faction hit…###{Id}nfeAdd{npcFactionId}", new Vector2(160, 24)))
                 {
                     // Open the FK picker over faction_list with a callback that inserts
                     // a new entry (value=0 defaults) instead of writing an NpcFieldEditAction.
+                    var currentEffective = effective;
                     BeginFkPicker(
                         VisualEQ.SpawnSystem.ReferenceDataCache.Table.FactionList,
-                        "faction_entry_add", "Add faction to set",
+                        "faction_entry_add", "Add faction hit to set",
                         npcId, 0,
                         onPicked: pickedFactionId =>
                         {
                             // Guard against re-adding an existing faction (composite PK
                             // is (npc_faction_id, faction_id) — a duplicate would fail
                             // the commit's INSERT).
-                            if (effective.Any(e => e.FactionId == pickedFactionId)) return;
+                            if (currentEffective.Any(e => e.FactionId == pickedFactionId)) return;
                             var newSnap = new NpcFactionEntrySnapshot { Value = 0, NpcValue = 0, Temp = 0 };
                             var cache2 = _view.Controller.ReferenceData;
                             var picked = cache2?.ResolveLabel(
@@ -3902,10 +4013,33 @@ namespace VisualEQ.Views
             }
         }
 
-        // Kick a lazy fetch of npc_faction_entries for the given set. Cached against
-        // the last-fetched id so switching NPCs that share a faction set is free.
+        static string ReactionLabel(sbyte npcValue)
+        {
+            var idx = System.Array.IndexOf(_reactionVals, (int)npcValue);
+            return idx >= 0 ? _reactionLabels[idx] : $"({npcValue})";
+        }
+
+        static string TempLabel(sbyte temp)
+        {
+            var idx = System.Array.IndexOf(_tempVals, (int)temp);
+            return idx >= 0 ? _tempLabels[idx] : $"({temp})";
+        }
+
+        // Kick lazy fetches for both npc_faction_entries AND the parent npc_faction
+        // set row. Cached against the last-fetched id so switching NPCs that share
+        // a faction set is free. The set-metadata task is fire-and-forget: renders
+        // "(unknown)" gracefully if it hasn't landed yet, and always polls-in on
+        // the same tick as the entries task.
         void MaintainFactionEntriesFetch(int npcFactionId)
         {
+            // Reap set-metadata task first (independent of entries task; both were
+            // spawned together but land in whatever order the DB replies).
+            if (_factionSetTask != null && _factionSetTask.IsCompleted)
+            {
+                _factionSetData = _factionSetTask.IsFaulted ? null : _factionSetTask.Result;
+                _factionSetTask = null;
+            }
+
             if (_factionEntriesTask != null && _factionEntriesTask.IsCompleted)
             {
                 if (_factionEntriesTask.IsFaulted)
@@ -3933,9 +4067,12 @@ namespace VisualEQ.Views
                     return;
                 }
                 _factionEntriesInFlightFor = npcFactionId;
+                _factionSetData            = null;
                 var repo = new VisualEQ.Database.Repositories.FactionRepository(factory);
                 _factionEntriesTask = System.Threading.Tasks.Task.Run(async () =>
                     (await repo.GetNpcFactionEntriesAsync(npcFactionId)).ToList());
+                _factionSetTask     = System.Threading.Tasks.Task.Run(async () =>
+                    await repo.GetNpcFactionSetAsync(npcFactionId));
             }
         }
 

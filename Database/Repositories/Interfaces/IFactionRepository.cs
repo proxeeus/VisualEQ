@@ -9,5 +9,6 @@ namespace VisualEQ.Database.Repositories.Interfaces
     public interface IFactionRepository
     {
         Task<IEnumerable<NpcFactionEntry>> GetNpcFactionEntriesAsync(int npcFactionId);
+        Task<NpcFactionSet> GetNpcFactionSetAsync(int npcFactionId);
     }
 }

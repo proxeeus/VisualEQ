@@ -22,5 +22,12 @@ namespace VisualEQ.Database.Repositories
                 return await connection.QueryAsync<NpcFactionEntry>(
                     SqlQueries.GetNpcFactionEntries, new { NpcFactionId = npcFactionId });
         }
+
+        public async Task<NpcFactionSet> GetNpcFactionSetAsync(int npcFactionId)
+        {
+            using (var connection = CreateConnection())
+                return await connection.QuerySingleOrDefaultAsync<NpcFactionSet>(
+                    SqlQueries.GetNpcFactionById, new { Id = npcFactionId });
+        }
     }
 }

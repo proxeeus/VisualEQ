@@ -9,10 +9,10 @@ namespace VisualEQ.Database.Models
     // that faction. Temp is a legacy flag; kept editable but rarely non-zero.
     public class NpcFactionEntry
     {
-        public int  NpcFactionId { get; set; }
-        public int  FactionId    { get; set; }
-        public int  Value        { get; set; }
-        public byte NpcValue     { get; set; }
-        public byte Temp         { get; set; }
+        public int   NpcFactionId { get; set; }
+        public int   FactionId    { get; set; }
+        public int   Value        { get; set; }
+        public sbyte NpcValue     { get; set; }
+        public sbyte Temp         { get; set; }
     }
 }

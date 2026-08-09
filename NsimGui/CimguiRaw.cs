@@ -47,5 +47,14 @@ namespace NsimGui
 
         [DllImport("cimgui")]
         public static extern void igSetScrollY(float scroll_y);
+
+        // Constrain the width of the NEXT item (input, combo, drag, etc.). Positive
+        // values are absolute pixels; negative values are "window-content-width plus
+        // this value" so -1 fills-to-end-of-line. Persists for one item only — call
+        // once per widget you want to size. Fills the wrapper gap for a common need
+        // in tabular editors (fixed-column widths without pushing / popping global
+        // item widths).
+        [DllImport("cimgui")]
+        public static extern void igSetNextItemWidth(float item_width);
     }
 }
