@@ -1389,6 +1389,27 @@ namespace VisualEQ
                     if (invalidated > 0)
                         Console.WriteLine($"[Controller] Zone-point row cache invalidated on {invalidated} snapshot(s) after commit.");
                 }
+
+                // NPC field commits mutate npc_types rows that live inside every
+                // snapshot's SpawnRecords (each SpawnRecord.Entries[].Npc holds the
+                // NpcType fetched at load time). An npc_types row can be referenced by
+                // spawns in multiple zones, so we can't scope this to just the current
+                // zone — drop SpawnRecords on every cached snapshot so the next zone
+                // load re-queries and gets the committed values instead of showing the
+                // pre-commit face/helm/texture/race/gender.
+                if (result.NpcRowsWritten > 0)
+                {
+                    int invalidated = 0;
+                    foreach (var kv in _zoneSnapshots)
+                    {
+                        var s = kv.Value;
+                        if (s.SpawnRecords == null) continue;
+                        s.SpawnRecords = null;
+                        invalidated++;
+                    }
+                    if (invalidated > 0)
+                        Console.WriteLine($"[Controller] SpawnRecords cache invalidated on {invalidated} snapshot(s) after NPC commit.");
+                }
             }
 
             // Hidden SpawnPoints held pending-delete rows for revert. After a successful
