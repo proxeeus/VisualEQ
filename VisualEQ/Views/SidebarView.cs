@@ -391,15 +391,17 @@ namespace VisualEQ.Views
 
             RenderModeBanner();
 
-            // Wrap all sections in a scrollable child. The outer BeginWindow's own
-            // scroll behavior in ImGui.NET 0.4.6 caps content at ~one window-height,
-            // making tall sidebars unreachable regardless of AlwaysVerticalScrollbar
-            // (see prior sidebar-scroll attempts in this file's history). A child
-            // window scrollbar handles arbitrary content height correctly — same
-            // pattern the Spawn List / Grid List / Zone Points sections already use
-            // internally for their lists. Height=0 makes the child fill remaining
-            // vertical space in the outer window; width=0 fills horizontally.
-            ImGui.BeginChild($"###{Id}scroll", new Vector2(0, 0), false, WindowFlags.Default);
+            // Query the remaining space AFTER the banner draws, then size the child
+            // to fill it explicitly. Passing 0 (fill-parent) in ImGui.NET 0.4.6
+            // miscalculates when the parent's own content-region tracking is off,
+            // silently clipping bottom content without exposing a scrollbar.
+            var avail  = ImGui.GetContentRegionAvailable();
+            var childH = System.Math.Max(50f, avail.Y - 4f); // small footer margin
+
+            // AlwaysVerticalScrollbar so the scrollbar is visible even when content
+            // fits (users know they CAN scroll — no confusion about missing widgets).
+            ImGui.BeginChild($"###{Id}scroll", new Vector2(0, childH), false,
+                WindowFlags.AlwaysVerticalScrollbar);
 
             for (int i = 0; i < _order.Count; i++)
                 RenderSectionById(_order[i], i);
