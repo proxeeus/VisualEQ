@@ -4080,7 +4080,7 @@ namespace VisualEQ.Views
             // the noisier full-schema sections start collapsed.
 
             // ── Combat ─────────────────────────────────────────────
-            if (ImGui.CollapsingHeader($"Combat###{Id}ndCombat", TreeNodeFlags.DefaultOpen))
+            if (ImGui.CollapsingHeader($"Combat###{Id}ndCombat", 0))
             {
             NpcLong(npcId, "hp",   "HP",   () => n.Hp,   v => n.Hp   = v, editable);
             NpcLong(npcId, "mana", "Mana", () => n.Mana, v => n.Mana = v, editable);
@@ -4129,7 +4129,7 @@ namespace VisualEQ.Views
             // triggers Controller.RefreshNpcVisualForNpc which cache-swaps the AniModel
             // on every scene instance backed by this npc_types row. Focusing any of
             // these fields also auto-frames the camera (see HandleNpcActivation).
-            if (ImGui.CollapsingHeader($"Visual###{Id}ndVis", TreeNodeFlags.DefaultOpen))
+            if (ImGui.CollapsingHeader($"Visual###{Id}ndVis", 0))
             {
             NpcInt(npcId, "texture",     "Body texture", () => n.Texture,     v => n.Texture     = v, editable, 0, 15);
             NpcInt(npcId, "helmtexture", "Helm texture", () => n.HelmTexture, v => n.HelmTexture = v, editable, 0, 15);
@@ -4190,7 +4190,7 @@ namespace VisualEQ.Views
             }
 
             // ── Special abilities (Slice 4 — friendly checkbox editor) ─────
-            if (ImGui.CollapsingHeader($"Special Abilities###{Id}ndSA", TreeNodeFlags.DefaultOpen))
+            if (ImGui.CollapsingHeader($"Special Abilities###{Id}ndSA", 0))
             {
             NpcSpecialAbilitiesEditor(npcId, () => n.SpecialAbilities, v => n.SpecialAbilities = v, editable);
 
