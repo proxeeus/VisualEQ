@@ -22,7 +22,21 @@ namespace VisualEQ.EditSystem
         {
             public int    Id { get; }
             public string Name { get; }
-            public Entry(int id, string name) { Id = id; Name = name; }
+            // True for abilities where the "value" field is a pure on/off flag
+            // (checkbox is sufficient — enabled ↔ value=1). False for abilities
+            // where the value carries meaningful magnitude that the OP needs to
+            // dial in (chance %, HP threshold, distance, etc.).
+            //
+            // Conservative: only the abilities where server code clearly reads
+            // the value as magnitude are flagged non-boolean. If a fork uses
+            // value for a currently-boolean ability, params 0..8 still ride
+            // along in the wire format — a future revision can add a per-ability
+            // "advanced" expander to expose value + params.
+            public bool   IsBoolean { get; }
+            public Entry(int id, string name, bool isBoolean = true)
+            {
+                Id = id; Name = name; IsBoolean = isBoolean;
+            }
         }
 
         // Max ability id (SpecialAbility::Max in server = 58, one past the last).
@@ -34,14 +48,14 @@ namespace VisualEQ.EditSystem
 
         public static readonly IReadOnlyList<Entry> All = new List<Entry>
         {
-            new Entry( 1, "Summon"),
+            new Entry( 1, "Summon",           isBoolean: false), // value = HP threshold %
             new Entry( 2, "Enrage"),
-            new Entry( 3, "Rampage"),
-            new Entry( 4, "Area Rampage"),
-            new Entry( 5, "Flurry"),
-            new Entry( 6, "Triple Attack"),
-            new Entry( 7, "Quadruple Attack"),
-            new Entry( 8, "Dual Wield"),
+            new Entry( 3, "Rampage",          isBoolean: false), // value = chance %
+            new Entry( 4, "Area Rampage",     isBoolean: false), // value = chance %
+            new Entry( 5, "Flurry",           isBoolean: false), // value = chance %
+            new Entry( 6, "Triple Attack",    isBoolean: false), // value = chance %
+            new Entry( 7, "Quadruple Attack", isBoolean: false), // value = chance %
+            new Entry( 8, "Dual Wield",       isBoolean: false), // value = chance %
             new Entry( 9, "Bane Attack"),
             new Entry(10, "Magical Attack"),
             new Entry(11, "Ranged Attack"),
@@ -70,21 +84,21 @@ namespace VisualEQ.EditSystem
             new Entry(34, "Destructible Object"),
             new Entry(35, "Immune to Harm from Client"),
             new Entry(36, "Always Flees"),
-            new Entry(37, "Flee Percentage"),
+            new Entry(37, "Flee Percentage",           isBoolean: false), // value = HP % to flee at
             new Entry(38, "Allows Beneficial Spells"),
             new Entry(39, "Melee is Disabled"),
-            new Entry(40, "Chase Distance"),
+            new Entry(40, "Chase Distance",            isBoolean: false), // params carry min/max
             new Entry(41, "Allowed to Tank"),
             new Entry(42, "Ignores Root Aggro"),
-            new Entry(43, "Casting Resist Difficulty"),
-            new Entry(44, "Counter Damage Avoidance"),
-            new Entry(45, "Proximity Aggro"),
+            new Entry(43, "Casting Resist Difficulty", isBoolean: false), // value = difficulty
+            new Entry(44, "Counter Damage Avoidance",  isBoolean: false), // params 0-4 counters
+            new Entry(45, "Proximity Aggro",           isBoolean: false), // value = distance
             new Entry(46, "Immune to Ranged Attacks"),
             new Entry(47, "Immune to Client Damage"),
             new Entry(48, "Immune to NPC Damage"),
             new Entry(49, "Immune to Client Aggro"),
             new Entry(50, "Immune to NPC Aggro"),
-            new Entry(51, "Modify Damage Avoidance"),
+            new Entry(51, "Modify Damage Avoidance",   isBoolean: false), // params 0-4 modifiers
             new Entry(52, "Immune to Memory Fades"),
             new Entry(53, "Immune to Open"),
             new Entry(54, "Immune to Assassinate"),

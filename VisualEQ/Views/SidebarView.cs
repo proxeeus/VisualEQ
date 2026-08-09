@@ -3780,8 +3780,10 @@ namespace VisualEQ.Views
                 ImGui.SameLine();
                 ImGui.Text(abilityEntry.Name);
 
-                if (hasEntry)
+                if (hasEntry && !abilityEntry.IsBoolean)
                 {
+                    // Non-boolean ability — value carries magnitude (chance %, HP
+                    // threshold, distance, etc. depending on ability). Expose input.
                     ImGui.SameLine();
                     ImGui.Text("value");
                     ImGui.SameLine();
@@ -3797,11 +3799,16 @@ namespace VisualEQ.Views
                             dirty = true;
                         }
                     }
+                }
+                // Boolean abilities: checkbox alone is enough. Value stays 1 when
+                // enabled (set by the checkbox path above), 0 when disabled (entry
+                // removed from `parsed`).
 
-                    // Read-only inline params. Rare enough that MVP surfaces them as
-                    // text; full param editor is a follow-up if the OP asks for it.
-                    if (HasAnyParam(e.Params))
-                        ImGui.Text($"    params:{FormatSaParams(e.Params)}");
+                if (hasEntry && HasAnyParam(e.Params))
+                {
+                    // Read-only inline params for any ability with non-zero params.
+                    // Rare — MVP surfaces them as text; per-param editor is deferred.
+                    ImGui.Text($"    params:{FormatSaParams(e.Params)}");
                 }
             }
 
@@ -4049,9 +4056,14 @@ namespace VisualEQ.Views
                 _npcGenderVals, _npcGenderLabels, editable);
             NpcFloat(npcId, "size", "Size", () => n.Size, v => n.Size = v, editable);
 
+            // Sub-sections wrapped in CollapsingHeader so the sidebar's scrollable
+            // content stays under ImGui.NET 0.4.6's ~one-page scroll cap. Defaults
+            // biased toward the fields OPs edit most (Combat, Visual, Special abilities);
+            // the noisier full-schema sections start collapsed.
+
             // ── Combat ─────────────────────────────────────────────
-            ImGui.Separator();
-            ImGui.Text("Combat");
+            if (ImGui.CollapsingHeader($"Combat###{Id}ndCombat", TreeNodeFlags.DefaultOpen))
+            {
             NpcLong(npcId, "hp",   "HP",   () => n.Hp,   v => n.Hp   = v, editable);
             NpcLong(npcId, "mana", "Mana", () => n.Mana, v => n.Mana = v, editable);
             NpcInt(npcId, "AC",   "AC",           () => n.Ac,        v => n.Ac        = v, editable);
@@ -4068,10 +4080,11 @@ namespace VisualEQ.Views
             NpcLong(npcId, "hp_regen_rate",       "HP regen (per tick)",   () => n.HpRegenRate,      v => n.HpRegenRate      = v, editable);
             NpcLong(npcId, "hp_regen_per_second", "HP regen (per second)", () => n.HpRegenPerSecond, v => n.HpRegenPerSecond = v, editable);
             NpcLong(npcId, "mana_regen_rate",     "Mana regen (per tick)", () => n.ManaRegenRate,    v => n.ManaRegenRate    = v, editable);
+            }
 
             // ── Stats ──────────────────────────────────────────────
-            ImGui.Separator();
-            ImGui.Text("Stats");
+            if (ImGui.CollapsingHeader($"Stats###{Id}ndStats", 0))
+            {
             NpcInt(npcId, "STR",  "STR", () => n.Str,  v => n.Str  = v, editable, 0);
             NpcInt(npcId, "STA",  "STA", () => n.Sta,  v => n.Sta  = v, editable, 0);
             NpcInt(npcId, "DEX",  "DEX", () => n.Dex,  v => n.Dex  = v, editable, 0);
@@ -4079,10 +4092,11 @@ namespace VisualEQ.Views
             NpcInt(npcId, "_INT", "INT", () => n.Int_, v => n.Int_ = v, editable, 0);
             NpcInt(npcId, "WIS",  "WIS", () => n.Wis,  v => n.Wis  = v, editable, 0);
             NpcInt(npcId, "CHA",  "CHA", () => n.Cha,  v => n.Cha  = v, editable, 0);
+            }
 
             // ── Resistances ────────────────────────────────────────
-            ImGui.Separator();
-            ImGui.Text("Resistances");
+            if (ImGui.CollapsingHeader($"Resistances###{Id}ndRes", 0))
+            {
             NpcInt(npcId, "MR", "MR", () => n.MR, v => n.MR = v, editable);
             NpcInt(npcId, "CR", "CR", () => n.CR, v => n.CR = v, editable);
             NpcInt(npcId, "DR", "DR", () => n.DR, v => n.DR = v, editable);
@@ -4090,14 +4104,15 @@ namespace VisualEQ.Views
             NpcInt(npcId, "PR", "PR", () => n.PR, v => n.PR = v, editable);
             NpcInt(npcId, "Corrup", "Corrup", () => n.Corrup, v => n.Corrup = v, editable);
             NpcInt(npcId, "PhR",    "PhR",    () => n.PhR,    v => n.PhR    = v, editable, 0);
+            }
 
             // ── Visual ─────────────────────────────────────────────
             // Texture / helm / face are the "live preview" trio — editing any of them
             // triggers Controller.RefreshNpcVisualForNpc which cache-swaps the AniModel
             // on every scene instance backed by this npc_types row. Focusing any of
             // these fields also auto-frames the camera (see HandleNpcActivation).
-            ImGui.Separator();
-            ImGui.Text("Visual");
+            if (ImGui.CollapsingHeader($"Visual###{Id}ndVis", TreeNodeFlags.DefaultOpen))
+            {
             NpcInt(npcId, "texture",     "Body texture", () => n.Texture,     v => n.Texture     = v, editable, 0, 15);
             NpcInt(npcId, "helmtexture", "Helm texture", () => n.HelmTexture, v => n.HelmTexture = v, editable, 0, 15);
             NpcInt(npcId, "face",        "Face",         () => n.Face,        v => n.Face        = v, editable, 0, 15);
@@ -4113,10 +4128,11 @@ namespace VisualEQ.Views
             ImGui.Text($"  Luclin: hair {n.LuclinHairstyle}/{n.LuclinHaircolor}   eyes {n.LuclinEyecolor}/{n.LuclinEyecolor2}   beard {n.LuclinBeard}/{n.LuclinBeardcolor}");
             ImGui.Text($"  Drakkin: heritage {n.DrakkinHeritage}  tattoo {n.DrakkinTattoo}  details {n.DrakkinDetails}");
             ImGui.Text($"  Armor tint: id {n.ArmortintId}   RGB ({n.ArmortintRed},{n.ArmortintGreen},{n.ArmortintBlue})");
+            }
 
             // ── AI & Behavior ──────────────────────────────────────
-            ImGui.Separator();
-            ImGui.Text("AI & Behavior");
+            if (ImGui.CollapsingHeader($"AI & Behavior###{Id}ndAI", 0))
+            {
             NpcInt(npcId, "aggroradius",  "Aggro radius",  () => n.AggroRadius,  v => n.AggroRadius  = v, editable, 0);
             NpcInt(npcId, "assistradius", "Assist radius", () => n.AssistRadius, v => n.AssistRadius = v, editable, 0);
             NpcInt(npcId, "npc_aggro",    "npc_aggro",     () => n.NpcAggro,     v => n.NpcAggro     = v, editable);
@@ -4153,13 +4169,11 @@ namespace VisualEQ.Views
             NpcCheckbox(npcId, "isbot",                 "isbot",                 () => n.IsBot,              v => n.IsBot              = v, editable);
             NpcCheckbox(npcId, "isquest",               "isquest",               () => n.IsQuest,            v => n.IsQuest            = v, editable);
             NpcCheckbox(npcId, "exclude",               "exclude",               () => n.Exclude,            v => n.Exclude            = v, editable);
+            }
 
             // ── Special abilities (Slice 4 — friendly checkbox editor) ─────
-            // Placed right after AI & Behavior because that's where OPs look for
-            // combat/behavior toggles (Summon, Rampage, Flurry etc. are ability-like
-            // combat mods). Previously buried at the very bottom after Charm Overrides
-            // + Provenance where nobody would find it.
-            ImGui.Separator();
+            if (ImGui.CollapsingHeader($"Special Abilities###{Id}ndSA", TreeNodeFlags.DefaultOpen))
+            {
             NpcSpecialAbilitiesEditor(npcId, () => n.SpecialAbilities, v => n.SpecialAbilities = v, editable);
 
             // npcspecialattks is the legacy per-letter format (S=Summon, E=Enrage,
@@ -4168,10 +4182,11 @@ namespace VisualEQ.Views
             // fork that still writes to it can add editing later; the mainstream path
             // is special_abilities.
             ImGui.Text($"npcspecialattks (legacy): {(string.IsNullOrEmpty(n.NpcSpecialAttks) ? "(none)" : n.NpcSpecialAttks)}");
+            }
 
             // ── References (typeahead pickers for the FK fields) ───
-            ImGui.Separator();
-            ImGui.Text("References");
+            if (ImGui.CollapsingHeader($"References###{Id}ndRef", 0))
+            {
             NpcIdPicker(npcId, "loottable_id",          "Loot table",
                 VisualEQ.SpawnSystem.ReferenceDataCache.Table.LootTable,
                 () => n.LoottableId, editable);
@@ -4196,19 +4211,21 @@ namespace VisualEQ.Views
             NpcCheckbox(npcId, "is_parcel_merchant",   "is_parcel_merchant", () => n.IsParcelMerchant,   v => n.IsParcelMerchant   = v, editable);
             NpcCheckbox(npcId, "multiquest_enabled",   "multiquest_enabled", () => n.MultiquestEnabled,  v => n.MultiquestEnabled  = v, editable);
             NpcNullableInt(npcId, "skip_global_loot",  "Skip global loot",   () => n.SkipGlobalLoot,     v => n.SkipGlobalLoot     = v, editable);
+            }
 
             // ── Scaling ────────────────────────────────────────────
-            ImGui.Separator();
-            ImGui.Text("Scaling");
+            if (ImGui.CollapsingHeader($"Scaling###{Id}ndScale", 0))
+            {
             NpcInt(npcId, "scalerate",  "Scale rate", () => n.Scalerate,  v => n.Scalerate  = v, editable);
             NpcFloat(npcId, "spellscale", "Spell scale", () => n.Spellscale, v => n.Spellscale = v, editable, "F1");
             NpcFloat(npcId, "healscale",  "Heal scale",  () => n.Healscale,  v => n.Healscale  = v, editable, "F1");
             NpcInt(npcId, "exp_mod",    "Exp mod",   () => n.ExpMod,   v => n.ExpMod   = v, editable);
             NpcInt(npcId, "maxlevel",   "Max level", () => n.Maxlevel, v => n.Maxlevel = v, editable, 0, 127);
+            }
 
             // ── Charm overrides ────────────────────────────────────
-            ImGui.Separator();
-            ImGui.Text("Charm overrides (null = use base stat)");
+            if (ImGui.CollapsingHeader($"Charm overrides (null = use base stat)###{Id}ndCharm", 0))
+            {
             NpcNullableInt(npcId, "charm_ac",               "Charm AC",                () => n.CharmAc,               v => n.CharmAc               = v, editable);
             NpcNullableInt(npcId, "charm_atk",              "Charm ATK",               () => n.CharmAtk,              v => n.CharmAtk              = v, editable);
             NpcNullableInt(npcId, "charm_min_dmg",          "Charm min damage",        () => n.CharmMinDmg,           v => n.CharmMinDmg           = v, editable);
@@ -4216,10 +4233,13 @@ namespace VisualEQ.Views
             NpcNullableInt(npcId, "charm_attack_delay",     "Charm attack delay",      () => n.CharmAttackDelay,      v => n.CharmAttackDelay      = v, editable);
             NpcNullableInt(npcId, "charm_accuracy_rating", "Charm accuracy rating",    () => n.CharmAccuracyRating,   v => n.CharmAccuracyRating   = v, editable);
             NpcNullableInt(npcId, "charm_avoidance_rating","Charm avoidance rating",   () => n.CharmAvoidanceRating,  v => n.CharmAvoidanceRating  = v, editable);
+            }
 
             // ── Provenance ─────────────────────────────────────────
-            ImGui.Separator();
+            if (ImGui.CollapsingHeader($"Provenance###{Id}ndProv", 0))
+            {
             ImGui.Text($"Version {n.Version}   PEQ id {n.PeqId}");
+            }
         }
 
         void RenderModelEditorSection(int index)
