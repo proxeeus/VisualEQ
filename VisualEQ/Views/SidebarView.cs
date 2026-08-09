@@ -3449,19 +3449,19 @@ namespace VisualEQ.Views
             _npcActiveEditReader      = null;
         }
 
-        // Numeric widgets use DragFloat (with drag disabled — speed=0 so an accidental
-        // click-drag doesn't nudge the value). Users click to focus, then type. Same
-        // widget the waypoint inspector uses reliably. This replaces an earlier attempt
-        // with raw InputText + byte buffer + parse — that approach fought ImGui.NET
-        // 0.4.6's inconsistent InputText state semantics (IsAnyItemActive flickers
-        // between key events, buffer restored on Enter, WantCaptureKeyboard is global)
-        // and lost user input on virtually every commit path.
+        // Numeric widgets use DragFloat with dragSpeed=0 (drag disabled — users
+        // click and type, no accidental drag). Recording is INLINE: DragFloat returns
+        // `changed=true` only for the widget the user actually interacted with, so we
+        // record one action per commit without the HandleNpcActivation state-tracking
+        // dance that cross-contaminated fields via IsAnyItemActive's global scope.
         //
-        // DragFloat's `ref float` owns the display state internally, so we don't need
-        // to shadow-buffer-sync anything. The value we pass in is the source of truth
-        // this frame; ImGui writes back through the ref on user edit, we read it, and
-        // if it changed we push to the model. HandleNpcActivation still records one
-        // NpcFieldEditAction per focus/defocus cycle for the undo stack + visual refresh.
+        // The earlier state-tracking approach (isMe / _npcActiveEditForId flushed per
+        // field) fell apart because IsAnyItemActive is not scoped to the last-rendered
+        // widget — every field's HandleNpcActivation saw isActive=true whenever ANY
+        // widget was active, treated itself as "just activated", and thrashed the
+        // state slot. That let a subsequent field's flush read a WRONG reader lambda
+        // and record spurious walk-back actions, which in turn cleaned up
+        // buffer.Npcs entries mid-edit — reverting previously-committed field values.
         void NpcInt(int npcId, string field, string label,
             System.Func<int> read, System.Action<int> write, bool editable,
             int minValue = int.MinValue, int maxValue = int.MaxValue)
@@ -3474,18 +3474,18 @@ namespace VisualEQ.Views
             }
             ImGui.Text(label);
             var val = (float)current;
-            // dragSpeed=0 disables drag entirely; users Ctrl+Click OR just click to type.
-            // Range 0/0 removes DragFloat's clamping — we clamp ourselves after write so
-            // callers' minValue/maxValue apply to typed values too.
             var changed = ImGui.DragFloat($"###{Id}ni{field}", ref val, 0f, 0f, 0f, "%.0f", 1f);
             if (changed)
             {
                 var asInt = (int)System.Math.Round(val);
                 if (asInt < minValue) asInt = minValue;
                 if (asInt > maxValue) asInt = maxValue;
-                if (asInt != current) write(asInt);
+                if (asInt != current)
+                {
+                    write(asInt);
+                    RecordNpcFieldEdit(npcId, field, current, asInt, _displayedNpc?.Name ?? "?");
+                }
             }
-            HandleNpcActivation(npcId, field, (int)current, () => (object)read());
         }
 
         void NpcLong(int npcId, string field, string label,
@@ -3498,20 +3498,20 @@ namespace VisualEQ.Views
                 return;
             }
             ImGui.Text(label);
-            // DragFloat only carries ~7 significant digits. Values in the Int32-plus
-            // range (rare for HP but possible for extreme raid mobs) lose precision on
-            // the low bits when edited. Practical HP/mana/regen ranges (<10^7) round-trip
-            // cleanly. If precision matters for a specific field, we'd need a dedicated
-            // large-int input; not worth building for the edge case.
+            // DragFloat carries ~7 significant digits; values > ~10^7 lose low-bit
+            // precision on edit. Practical HP/mana/regen ranges fit fine.
             var val = (float)current;
             var changed = ImGui.DragFloat($"###{Id}nl{field}", ref val, 0f, 0f, 0f, "%.0f", 1f);
             if (changed)
             {
                 var asLong = (long)System.Math.Round((double)val);
                 if (asLong < 0) asLong = 0;
-                if (asLong != current) write(asLong);
+                if (asLong != current)
+                {
+                    write(asLong);
+                    RecordNpcFieldEdit(npcId, field, current, asLong, _displayedNpc?.Name ?? "?");
+                }
             }
-            HandleNpcActivation(npcId, field, (long)current, () => (object)read());
         }
 
         void NpcFloat(int npcId, string field, string label,
@@ -3526,13 +3526,15 @@ namespace VisualEQ.Views
             }
             ImGui.Text(label);
             var val = current;
-            // DragFloat format uses printf syntax — translate "F2"/"F1" etc. to "%.Nf".
             var dfFmt = fmt.StartsWith("F", System.StringComparison.Ordinal)
                 ? "%." + fmt.Substring(1) + "f"
                 : "%.2f";
             var changed = ImGui.DragFloat($"###{Id}nf{field}", ref val, 0f, 0f, 0f, dfFmt, 1f);
-            if (changed && System.Math.Abs(val - current) > 0.0001f) write(val);
-            HandleNpcActivation(npcId, field, (float)current, () => (object)read());
+            if (changed && System.Math.Abs(val - current) > 0.0001f)
+            {
+                write(val);
+                RecordNpcFieldEdit(npcId, field, current, val, _displayedNpc?.Name ?? "?");
+            }
         }
 
         void NpcText(int npcId, string field, string label,
@@ -3658,9 +3660,12 @@ namespace VisualEQ.Views
                 if (changed)
                 {
                     var asInt = (int)System.Math.Round(val);
-                    if (asInt != cur) write(asInt);
+                    if (asInt != cur)
+                    {
+                        write(asInt);
+                        RecordNpcFieldEdit(npcId, field, cur, asInt, _displayedNpc?.Name ?? "?");
+                    }
                 }
-                HandleNpcActivation(npcId, field, current ?? 0, () => (object)(read() ?? 0));
             }
         }
 
