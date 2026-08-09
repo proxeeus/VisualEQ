@@ -154,13 +154,15 @@ namespace VisualEQ.Views
 
         // Resize IS allowed — ResizeFromAnySide lets the user drag the right edge directly.
         // Height is forced to full window height each frame via SetWindowSize.
+        // Scroll is handled by a BeginChild inside the window (the outer window's
+        // scroll in ImGui.NET 0.4.6 caps at ~one page of content); NoScrollbar +
+        // NoScrollWithMouse make sure the OUTER window doesn't try to compete with
+        // or eat wheel input meant for the inner child.
         private const WindowFlags PinnedPanel =
             WindowFlags.NoTitleBar | WindowFlags.NoMove |
             WindowFlags.NoCollapse | WindowFlags.NoBringToFrontOnFocus |
             WindowFlags.NoSavedSettings | WindowFlags.ResizeFromAnySide |
-            // Always-visible right-side scrollbar so users know they CAN scroll when
-            // stacked sections push content off the bottom (inspector fields especially).
-            WindowFlags.AlwaysVerticalScrollbar;
+            WindowFlags.NoScrollbar    | WindowFlags.NoScrollWithMouse;
 
         private const float DefaultWidth = 380f;
         private const float MinWidth = 180f;
@@ -389,9 +391,20 @@ namespace VisualEQ.Views
 
             RenderModeBanner();
 
+            // Wrap all sections in a scrollable child. The outer BeginWindow's own
+            // scroll behavior in ImGui.NET 0.4.6 caps content at ~one window-height,
+            // making tall sidebars unreachable regardless of AlwaysVerticalScrollbar
+            // (see prior sidebar-scroll attempts in this file's history). A child
+            // window scrollbar handles arbitrary content height correctly — same
+            // pattern the Spawn List / Grid List / Zone Points sections already use
+            // internally for their lists. Height=0 makes the child fill remaining
+            // vertical space in the outer window; width=0 fills horizontally.
+            ImGui.BeginChild($"###{Id}scroll", new Vector2(0, 0), false, WindowFlags.Default);
+
             for (int i = 0; i < _order.Count; i++)
                 RenderSectionById(_order[i], i);
 
+            ImGui.EndChild();
             ImGui.EndWindow();
 
             // Draw the edit-mode viewport border AFTER EndWindow so it sits above everything.
