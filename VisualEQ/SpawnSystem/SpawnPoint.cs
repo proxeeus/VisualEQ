@@ -8,8 +8,15 @@ namespace VisualEQ.SpawnSystem
     public class SpawnPoint
     {
         public SpawnRecord Record { get; }
-        public AniModelInstance Model { get; }
-        public bool IsPlaceholder { get; }
+
+        // AniModelInstance is replaced (not mutated in-place) when a visual-affecting
+        // NPC field edit fires — race/gender changes need a whole new AniModel from a
+        // different chr code, so Controller.RefreshNpcVisualForNpc removes the old
+        // instance from the engine, builds a new one, and swaps this reference. The
+        // internal setter keeps the "external readers only read" contract while letting
+        // the refresh path inside the same assembly rewire.
+        public AniModelInstance Model { get; internal set; }
+        public bool IsPlaceholder { get; internal set; }
 
         public bool IsDirty { get; private set; }
 

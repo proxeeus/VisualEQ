@@ -3042,6 +3042,11 @@ namespace VisualEQ.Views
                     _npcDisplayedVersion = e0.LastModifiedAt.Ticks;
                 }
                 SyncNpcTextBuffers(_displayedNpc);
+                // Selecting a different NPC while the camera is locked to the previous
+                // one's head/torso would leave the camera pointing at empty space (the
+                // lock target is a fixed world point). Release the lock so mouse-look
+                // control returns to the user until they focus a visual field again.
+                Camera.ClearLookLock();
                 return;
             }
 
@@ -3292,6 +3297,90 @@ namespace VisualEQ.Views
 
         // ───────── NPC field widget helpers ───────────────────────────
 
+        // Visual-affecting fields — the ones whose edits should trigger a live model
+        // rebuild via Controller.RefreshNpcVisualForNpc. Race + gender rebuild the
+        // AniModel from a new chr code; size rebuilds Scale on the same instance;
+        // texture/helm/face swap the material variant on the same code.
+        static readonly System.Collections.Generic.HashSet<string> _npcVisualFields =
+            new System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase)
+            {
+                "race", "gender", "size", "texture", "helmtexture", "face",
+            };
+
+        static bool IsNpcVisualField(string field) => _npcVisualFields.Contains(field);
+
+        // Single funnel for every NPC-field edit action. Records the action AND, for
+        // visual-affecting fields, immediately re-runs Controller.RefreshNpcVisualForNpc
+        // so the on-screen model reflects the new value without waiting for save. If the
+        // instance actually got a new AniModel or a new Scale, re-frames the camera so
+        // the look-lock targets the new head/torso positions instead of the pre-swap ones.
+        void RecordNpcFieldEdit(int npcId, string field, object from, object to, string display)
+        {
+            _view.Controller.RecordAction(
+                new VisualEQ.EditSystem.NpcFieldEditAction(npcId, field, from, to, display));
+            if (IsNpcVisualField(field) && _displayedNpc != null && _displayedNpc.Id == npcId)
+            {
+                var changed = _view.Controller.RefreshNpcVisualForNpc(npcId, _displayedNpc);
+                if (changed)
+                {
+                    var sp = _view.SelectedSpawn;
+                    if (sp != null) FrameNpcForField(sp, field);
+                }
+            }
+        }
+
+        // Framing hints for the auto-camera. FullBody pulls back so the whole silhouette
+        // is in frame; Face zooms into the head; UpperBody is a middle ground for helm
+        // edits where you want to see head + shoulders.
+        enum NpcFramingHint { Face, UpperBody, FullBody }
+
+        static NpcFramingHint FramingHintForField(string field)
+        {
+            switch (field)
+            {
+                case "face":         return NpcFramingHint.Face;
+                case "helmtexture":  return NpcFramingHint.UpperBody;
+                default:             return NpcFramingHint.FullBody; // texture, size, race, gender
+            }
+        }
+
+        // Compute a "in-front-of-NPC" camera pose for the given hint and fly there with
+        // a look-lock so scrubbing texture/face/helm keeps the camera on the subject.
+        // Face-height / torso-height offsets match the spine-cylinder heuristic used by
+        // ModelSelector.
+        void FrameNpcForField(SpawnPoint sp, string field)
+        {
+            if (sp?.Model == null) return;
+            var hint  = FramingHintForField(field);
+            var pos   = sp.Model.Position;
+            var scale = System.Math.Max(0.1f, sp.Model.Scale);
+            var head  = pos + new Vector3(0, 0, 6f * scale);
+            var torso = pos + new Vector3(0, 0, 4f * scale);
+
+            Vector3 target;
+            float distance;
+            switch (hint)
+            {
+                case NpcFramingHint.Face:      target = head;  distance = 4f  + 2f * scale; break;
+                case NpcFramingHint.UpperBody: target = head;  distance = 8f  + 3f * scale; break;
+                default:                       target = torso; distance = 12f + 5f * scale; break;
+            }
+
+            // NPC's forward vector — camera sits in front of the face, looking back.
+            var facing = Vector3.Transform(new Vector3(0, 1, 0), sp.Model.Rotation);
+            facing.Z = 0;
+            if (facing.LengthSquared() < 0.0001f) facing = new Vector3(0, 1, 0);
+            facing = Vector3.Normalize(facing);
+
+            var cameraPos = target + facing * distance;
+            // FpsCamera.Update adds CameraHeight to Position before the LookAt matrix, so
+            // pre-subtract it here to land the eye AT target-height (not target + 5.5).
+            cameraPos.Z -= VisualEQ.Engine.FpsCamera.CameraHeight;
+
+            Camera.FlyToLookAt(cameraPos, target, 0.35f);
+        }
+
+
         // Records the from/to values via NpcFieldEditAction on widget deactivation.
         // Single-slot activation tracker — ImGui only allows one active item at a time so
         // a stale field's flush fires whenever focus moves to another field. beforeValueIfStarting
@@ -3315,6 +3404,13 @@ namespace VisualEQ.Views
                 _npcActiveEditField      = field;
                 _npcActiveEditBeforeValue = beforeValueIfStarting;
                 _npcActiveEditReader      = readCurrent;
+
+                // Auto-frame when focus first lands on a visual field, so the user sees
+                // what they're editing before typing anything. The look-lock stays active
+                // until the user drags mouse-look (FpsCamera.Look clears it).
+                var sp = _view.SelectedSpawn;
+                if (sp != null && IsNpcVisualField(field))
+                    FrameNpcForField(sp, field);
             }
             else if (!isActive && wasThisFieldActive)
             {
@@ -3339,8 +3435,7 @@ namespace VisualEQ.Views
             if (changed)
             {
                 var display = _displayedNpc?.Name ?? "?";
-                _view.Controller.RecordAction(
-                    new VisualEQ.EditSystem.NpcFieldEditAction(npcId, field, before, after, display));
+                RecordNpcFieldEdit(npcId, field, before, after, display);
             }
 
             _npcActiveEditForId       = null;
@@ -3477,12 +3572,11 @@ namespace VisualEQ.Views
                 if (before != after)
                 {
                     // Checkbox activation is instantaneous — no drag-then-release cycle to
-                    // coalesce over, so record the action inline instead of routing through
-                    // HandleNpcActivation.
+                    // coalesce over, so record inline (still routed through the visual-
+                    // refresh funnel).
                     write(after);
                     var display = _displayedNpc?.Name ?? "?";
-                    _view.Controller.RecordAction(
-                        new VisualEQ.EditSystem.NpcFieldEditAction(npcId, field, before, after, display));
+                    RecordNpcFieldEdit(npcId, field, before, after, display);
                 }
             }
         }
@@ -3522,8 +3616,7 @@ namespace VisualEQ.Views
                 {
                     write(after);
                     var display = _displayedNpc?.Name ?? "?";
-                    _view.Controller.RecordAction(
-                        new VisualEQ.EditSystem.NpcFieldEditAction(npcId, field, current, after, display));
+                    RecordNpcFieldEdit(npcId, field, current, after, display);
                 }
             }
         }
@@ -3548,16 +3641,14 @@ namespace VisualEQ.Views
                 {
                     write(0);
                     var display = _displayedNpc?.Name ?? "?";
-                    _view.Controller.RecordAction(
-                        new VisualEQ.EditSystem.NpcFieldEditAction(npcId, field, (int?)null, (int?)0, display));
+                    RecordNpcFieldEdit(npcId, field, (int?)null, (int?)0, display);
                 }
                 else if (!isSet && current.HasValue)
                 {
                     var before = current;
                     write(null);
                     var display = _displayedNpc?.Name ?? "?";
-                    _view.Controller.RecordAction(
-                        new VisualEQ.EditSystem.NpcFieldEditAction(npcId, field, before, (int?)null, display));
+                    RecordNpcFieldEdit(npcId, field, before, (int?)null, display);
                 }
             }
             if (isSet)
@@ -3606,8 +3697,7 @@ namespace VisualEQ.Views
             {
                 // Explicit clear sets the FK to 0 (EQEmu's "no assignment" sentinel).
                 var display = _displayedNpc?.Name ?? "?";
-                _view.Controller.RecordAction(
-                    new VisualEQ.EditSystem.NpcFieldEditAction(npcId, field, current, 0, display));
+                RecordNpcFieldEdit(npcId, field, current, 0, display);
             }
         }
 
@@ -3728,11 +3818,10 @@ namespace VisualEQ.Views
                     var picked = filtered[_fkPickerSelectedIdx];
                     if (picked.Id != _fkPickerCurrentValue)
                     {
-                        _view.Controller.RecordAction(
-                            new VisualEQ.EditSystem.NpcFieldEditAction(
-                                _fkPickerNpcId, _fkPickerFieldName,
-                                _fkPickerCurrentValue, picked.Id,
-                                _fkPickerNpcDisplayName));
+                        RecordNpcFieldEdit(
+                            _fkPickerNpcId, _fkPickerFieldName,
+                            _fkPickerCurrentValue, picked.Id,
+                            _fkPickerNpcDisplayName);
                     }
                     EndFkPicker();
                 }
@@ -3851,10 +3940,21 @@ namespace VisualEQ.Views
             NpcInt(npcId, "Corrup", "Corrup", () => n.Corrup, v => n.Corrup = v, editable);
             NpcInt(npcId, "PhR",    "PhR",    () => n.PhR,    v => n.PhR    = v, editable, 0);
 
-            // ── Visual (read-only in Slice 2 — Slice 3 owns live preview) ───
+            // ── Visual ─────────────────────────────────────────────
+            // Texture / helm / face are the "live preview" trio — editing any of them
+            // triggers Controller.RefreshNpcVisualForNpc which cache-swaps the AniModel
+            // on every scene instance backed by this npc_types row. Focusing any of
+            // these fields also auto-frames the camera (see HandleNpcActivation).
             ImGui.Separator();
-            ImGui.Text("Visual (read-only — Slice 3 adds editing + live preview)");
-            ImGui.Text($"  Body texture {n.Texture}   Helm {n.HelmTexture}   Face {n.Face}");
+            ImGui.Text("Visual");
+            NpcInt(npcId, "texture",     "Body texture", () => n.Texture,     v => n.Texture     = v, editable, 0, 15);
+            NpcInt(npcId, "helmtexture", "Helm texture", () => n.HelmTexture, v => n.HelmTexture = v, editable, 0, 15);
+            NpcInt(npcId, "face",        "Face",         () => n.Face,        v => n.Face        = v, editable, 0, 15);
+
+            // Cosmetic / luclin / drakkin fields — not wired into the live-preview
+            // refresh (RaceModelMapper doesn't consult them for the Trilogy client this
+            // editor targets). Kept read-only for now; a later slice can turn them on
+            // if a Luclin-era fork wires them into model resolution.
             ImGui.Text($"  Extra: arm {n.ArmTexture}  bracer {n.BracerTexture}  hand {n.HandTexture}  leg {n.LegTexture}  feet {n.FeetTexture}");
             ImGui.Text($"  Weapons: d_melee1 {n.DMeleeTexture1}   d_melee2 {n.DMeleeTexture2}   ammo {n.AmmoIdfile ?? ""}");
             ImGui.Text($"  Melee types: prim {SpawnInfoLookups.MeleeTypeName(n.PrimMeleeType)} ({n.PrimMeleeType})  sec {SpawnInfoLookups.MeleeTypeName(n.SecMeleeType)} ({n.SecMeleeType})  ranged {SpawnInfoLookups.MeleeTypeName(n.RangedType)} ({n.RangedType})");

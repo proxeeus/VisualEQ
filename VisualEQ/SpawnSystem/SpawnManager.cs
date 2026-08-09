@@ -322,6 +322,118 @@ namespace VisualEQ.SpawnSystem
             FinishLoad();
         }
 
+        // Rebuild the AniModelInstance backing a SpawnPoint after a visual-affecting edit
+        // (race / gender / size / texture / helm / face). Re-runs the same resolution
+        // pipeline used at load time — RaceModelMapper.ResolveCandidates → availableModels
+        // filter → modelCache lookup or Loader.LoadCharacter — and swaps the whole
+        // AniModelInstance on the SpawnPoint (position, rotation, and now-recomputed scale
+        // carry over). Also updates the engine's live instance list so the new model
+        // actually renders. Idempotent per (sp, effective) — safe to call on every edit
+        // even when the field didn't change race/gender/etc., though the caller should
+        // filter to avoid the unnecessary cache lookup.
+        //
+        // MUST be called on the GL thread (Loader.LoadCharacter builds meshes + textures).
+        // See CLAUDE.md §7.
+        //
+        // Returns true if the visual actually changed (new AniModel or new scale), false
+        // if we ended up with the same instance the SpawnPoint already had — lets callers
+        // skip camera re-framing when nothing moved.
+        public bool RebuildInstanceForNpc(
+            SpawnPoint sp,
+            VisualEQ.Database.Models.NpcTypeFull effective,
+            EngineCore engine,
+            Dictionary<string, AniModel> modelCache,
+            Dictionary<string, string> availableModels,
+            AniModel fallback)
+        {
+            if (sp == null || effective == null) return false;
+
+            // Re-resolve chr code from the (possibly-changed) race + gender.
+            var triedCodes = RaceModelMapper.ResolveCandidates(effective.Race, effective.Gender).ToList();
+            string chosenCode = null;
+            foreach (var candidate in triedCodes)
+            {
+                if (availableModels.ContainsKey(candidate))
+                {
+                    chosenCode = candidate;
+                    break;
+                }
+            }
+
+            AniModel newAniModel = null;
+            bool isPlaceholder = false;
+
+            if (chosenCode != null)
+            {
+                var textureIdx = effective.Texture;
+                var helmIdx    = effective.HelmTexture;
+                var faceIdx    = effective.Face;
+                var cacheKey = (textureIdx | helmIdx | faceIdx) == 0
+                    ? chosenCode
+                    : $"{chosenCode}#{textureIdx}#{helmIdx}#{faceIdx}";
+                if (!modelCache.TryGetValue(cacheKey, out newAniModel))
+                {
+                    try
+                    {
+                        newAniModel = Loader.LoadCharacter(
+                            availableModels[chosenCode], chosenCode, SpawnAnimations,
+                            singleFrame: true,
+                            textureIndex: textureIdx,
+                            helmTextureIndex: helmIdx,
+                            faceIndex: faceIdx);
+                        modelCache[cacheKey] = newAniModel;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[SpawnManager] Refresh failed for '{chosenCode}' (t={textureIdx} h={helmIdx} f={faceIdx}): {ex.Message}");
+                    }
+                }
+            }
+
+            if (newAniModel == null)
+            {
+                newAniModel = fallback;
+                isPlaceholder = true;
+            }
+            if (newAniModel == null) return false; // nothing to render — keep the old instance visible
+
+            var newScale = (effective.Size > 0f)
+                ? effective.Size / MeshAuthoredHeightForRace(effective.Race)
+                : 1f;
+
+            // Short-circuit when the resolved instance is functionally the same (same
+            // AniModel, same scale) — happens if the edit only touched a field the model
+            // resolution ignores. Caller uses this to skip camera reframe.
+            var oldModel = sp.Model;
+            var oldAniModel = oldModel?.Model;
+            var oldScale = oldModel?.Scale ?? 1f;
+            if (ReferenceEquals(oldAniModel, newAniModel) && Math.Abs(oldScale - newScale) < 0.0001f)
+                return false;
+
+            // Build the replacement instance carrying over position + rotation (and the
+            // dirty-move state on SpawnPoint is unaffected since we don't touch Record).
+            var idle = SpawnAnimationCandidates.FirstOrDefault(a => newAniModel.AvailableAnimations.Contains(a)) ?? "";
+            var newInstance = new AniModelInstance(newAniModel)
+            {
+                Animation = idle,
+                Rotation  = oldModel?.Rotation ?? Quaternion.Identity,
+                Position  = oldModel?.Position ?? new Vector3(0, 0, 0),
+                Scale     = newScale,
+            };
+
+            // Swap in the scene: remove old, add new. Preserve selection so the sidebar
+            // stays pointing at the same SpawnPoint (its Model reference just changed
+            // underneath).
+            var wasSelected = Selected == sp;
+            if (oldModel != null) engine.Remove(oldModel);
+            engine.Add(newInstance);
+            sp.Model = newInstance;
+            sp.IsPlaceholder = isPlaceholder;
+            if (wasSelected) Selected = sp; // no-op assignment, kept for clarity
+
+            return true;
+        }
+
         // Called by ModelSelector.OnSelectionChanged — maps the raw instance to a SpawnPoint.
         public void Select(AniModelInstance model)
         {

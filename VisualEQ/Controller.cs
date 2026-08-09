@@ -1135,6 +1135,34 @@ namespace VisualEQ
             UndoStack.Record(action);
         }
 
+        // Live visual refresh for every scene instance backed by npc_types.id == npcId.
+        // Called by the NPC editor's sidebar widget after a visual-affecting field edit
+        // (race / gender / size / texture / helmtexture / face) fires. Delegates the
+        // per-spawn re-resolution to SpawnManager.RebuildInstanceForNpc; the sidebar's
+        // _displayedNpc is the source of the effective post-edit values.
+        //
+        // Multiple spawns can reference the same npc_types row — this refreshes all of
+        // them so a race change on a shared NPC updates every visible copy in one call.
+        //
+        // Returns true if at least one spawn actually got a new instance (used by the
+        // camera-framing hook to decide whether to re-frame after the swap).
+        public bool RefreshNpcVisualForNpc(int npcId, VisualEQ.Database.Models.NpcTypeFull effective)
+        {
+            if (effective == null || _availableModels == null) return false;
+            bool anyChanged = false;
+            foreach (var sp in SpawnManager.SpawnPoints)
+            {
+                var primary = sp.Record.Entries
+                    .OrderByDescending(e => e.Entry.Chance)
+                    .FirstOrDefault();
+                if (primary?.Npc == null || primary.Npc.Id != npcId) continue;
+
+                if (SpawnManager.RebuildInstanceForNpc(sp, effective, Engine, _modelCache, _availableModels, LastModelLoaded))
+                    anyChanged = true;
+            }
+            return anyChanged;
+        }
+
         // Public wrappers for hotkey / sidebar button use. Return true if something changed.
         public bool TryUndo()
         {
