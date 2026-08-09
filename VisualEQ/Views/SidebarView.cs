@@ -197,6 +197,7 @@ namespace VisualEQ.Views
         private int _commitGridDeleteCountSnapshot;
         private int _commitGridMetaCountSnapshot;
         private int _commitGridWholeInsertsSnapshot;
+        private int _commitNpcCountSnapshot;
 
         // Simple confirm modals — no extra state beyond "is it open?" + a snapshot count
         // so the dialog can display consistent numbers even if the buffer mutates while
@@ -302,6 +303,35 @@ namespace VisualEQ.Views
         private VisualEQ.Database.Models.NpcTypeFull _npcDetailsData;
         private string _npcDetailsError;
 
+        // Displayed NPC = clone of the DB row with any pending buffer edits overlaid. Widgets
+        // mutate this directly for live drag feedback; the buffer entry is only touched at
+        // widget-release time by NpcFieldEditAction. Rebuilt from baseline + overlay whenever
+        // the fetched id changes or the pending-edit version bumps (undo/redo/commit paths).
+        private VisualEQ.Database.Models.NpcTypeFull _displayedNpc;
+        private long _npcDisplayedVersion;
+        private bool _npcDisplayedHadEdit;
+
+        // Activation-transition tracker for NPC field widgets. Single-slot like the WP one
+        // — ImGui only permits one active item per frame. FromValue is captured on rising
+        // edge; reader lambda produces the post-mutation value at release for the diff.
+        private int? _npcActiveEditForId;
+        private string _npcActiveEditField;
+        private object _npcActiveEditBeforeValue;
+        private Func<object> _npcActiveEditReader;
+
+        // FK-picker modal state. One instance shared across every FK field (loottable,
+        // faction, merchant, spells, spells_effects) — only one can be open at a time.
+        // Filter buffer + selection index reset per open.
+        private bool _fkPickerActive;
+        private VisualEQ.SpawnSystem.ReferenceDataCache.Table _fkPickerTable;
+        private string _fkPickerFieldName;
+        private string _fkPickerLabel;
+        private int _fkPickerNpcId;
+        private int _fkPickerCurrentValue;
+        private string _fkPickerNpcDisplayName;
+        private readonly byte[] _fkPickerFilterBuf = new byte[64];
+        private int _fkPickerSelectedIdx = -1;
+
         public SidebarWidget(SidebarView view)
         {
             _view = view;
@@ -362,9 +392,9 @@ namespace VisualEQ.Views
             RenderCoordinateHud(gui);
 
             // Modal precedence: commit dialog first, then discard confirm, then F10 warning,
-            // then NPC picker. Only one shows at a time; NPC picker sits last so the more
-            // important buffer-lifecycle modals always win when the user Ctrl+double-clicks
-            // during e.g. a commit prompt.
+            // then NPC picker, then FK picker. Only one shows at a time; NPC / FK pickers
+            // sit last so the more important buffer-lifecycle modals always win when the
+            // user Ctrl+double-clicks during e.g. a commit prompt.
             if (_commitPhase != CommitPhase.None)
                 RenderCommitDialog(gui);
             else if (_discardConfirmActive)
@@ -382,6 +412,8 @@ namespace VisualEQ.Views
                 }
                 if (_npcPickerActive)
                     RenderNpcPickerDialog(gui);
+                else if (_fkPickerActive)
+                    RenderFkPickerDialog(gui);
             }
         }
 
@@ -447,6 +479,7 @@ namespace VisualEQ.Views
             _commitGridDeleteCountSnapshot  = buffer.GridEntryDeletes.Count;
             _commitGridMetaCountSnapshot    = buffer.Grids.Count;
             _commitGridWholeInsertsSnapshot = buffer.GridInserts.Count;
+            _commitNpcCountSnapshot         = buffer.Npcs.Count;
             _commitPhase = CommitPhase.Confirm;
             _commitResult = null;
         }
@@ -459,7 +492,18 @@ namespace VisualEQ.Views
                 _commitResult = _commitTask.Result;
                 _commitTask   = null;
                 if (_commitResult.Success)
+                {
                     _view.Controller.OnCommitSucceeded(_commitResult);
+                    // NPC edits landed in the DB — the cached NpcTypeFull we fetched pre-
+                    // commit is now stale (any subsequent selection would fall back to it
+                    // and hide the just-saved values). Drop the cache so the next render
+                    // triggers a fresh fetch of the committed row.
+                    if (_commitResult.NpcRowsWritten > 0)
+                    {
+                        _npcDetailsFetchedForId = null;
+                        _displayedNpc           = null;
+                    }
+                }
                 _commitPhase = CommitPhase.Result;
             }
 
@@ -506,6 +550,8 @@ namespace VisualEQ.Views
                 ImGui.Text($"  {_commitGridMetaCountSnapshot} grid metadata edit(s)");
             if (_commitGridWholeInsertsSnapshot > 0)
                 ImGui.Text($"  {_commitGridWholeInsertsSnapshot} new grid(s)");
+            if (_commitNpcCountSnapshot > 0)
+                ImGui.Text($"  {_commitNpcCountSnapshot} NPC edit(s)");
             ImGui.Separator();
             ImGui.Text($"Target: {db.Server}/{db.Database}");
             ImGui.Text("Runs as a single transaction — all-or-nothing.");
@@ -563,6 +609,8 @@ namespace VisualEQ.Views
                     ImGui.Text($"  {r.ZonePointInsertsWritten} trilogy_zone_points row(s) inserted");
                 if (r.ZonePointDeletesWritten > 0)
                     ImGui.Text($"  {r.ZonePointDeletesWritten} trilogy_zone_points row(s) deleted");
+                if (r.NpcRowsWritten > 0)
+                    ImGui.Text($"  {r.NpcRowsWritten} npc_types row(s) updated");
                 ImGui.Separator();
                 ImGui.Text("Buffer + undo history cleared.");
                 var touchedZonePoints = r.ZonePointRowsWritten + r.ZonePointInsertsWritten + r.ZonePointDeletesWritten;
@@ -2867,12 +2915,18 @@ namespace VisualEQ.Views
             _zpActiveEditReader      = null;
         }
 
-        // Full-fidelity NPC row inspector (Slice 1 — read-only). Later slices turn this
-        // into the tabbed NPC editor per VisualEQ-NpcEditor-Plan.md. The section is a flat
-        // layout with Separator-delimited categories rather than nested CollapsingHeaders
-        // — matches the existing sidebar style (see RenderSpawnInfoSection) and keeps
-        // everything scannable in one pass. Data flows: SelectedSpawn → primary NPC id →
-        // async fetch via NpcRepository → cached NpcTypeFull → rendered here.
+        // Full-fidelity NPC row inspector. Slice 2 turns Slice 1's read-only view into
+        // a full editor — every non-visual, non-special-abilities column is editable in
+        // edit mode. Foreign-key int fields (loottable, faction, merchant, spells,
+        // effects) render with resolved names via ReferenceDataCache and open a modal
+        // typeahead picker for edits.
+        //
+        // Data flow:
+        //   SelectedSpawn → primary NPC id → async fetch via NpcRepository → NpcTypeFull
+        //   → clone into _displayedNpc + overlay pending buffer edits → widgets read/write
+        //   _displayedNpc for live feedback → activation-transition flush records one
+        //   NpcFieldEditAction per widget-release cycle → PendingBuffer.Npcs → EditCommitter
+        //   → UPDATE npc_types on Save.
         void RenderNpcDetailsSection(int index)
         {
             RenderReorderHandles(index, "nd");
@@ -2916,7 +2970,11 @@ namespace VisualEQ.Views
                 return;
             }
 
-            RenderNpcDetailsBody(_npcDetailsData);
+            MaintainDisplayedNpc(npcId);
+            if (_displayedNpc == null) return;
+
+            var editable = _view.Controller.EditModeEnabled;
+            RenderNpcDetailsBody(_displayedNpc, editable);
         }
 
         void MaintainNpcDetailsFetch(int npcId)
@@ -2959,44 +3017,847 @@ namespace VisualEQ.Views
             }
         }
 
-        void RenderNpcDetailsBody(VisualEQ.Database.Models.NpcTypeFull n)
+        // Rebuild _displayedNpc from baseline + pending overlay when either changes.
+        // Widgets mutate _displayedNpc directly during a drag/type interaction for live
+        // feedback; those mutations DON'T touch the buffer (that's action-flush's job on
+        // release). So the rebuild trigger has to skip mid-drag frames — we key it on the
+        // buffer entry's LastModifiedAt Ticks + presence bit, which only advance when an
+        // action actually fires. That way a slider drag keeps its intermediate value across
+        // frames without getting clobbered by an idle overlay rebuild.
+        void MaintainDisplayedNpc(int npcId)
         {
+            if (_npcDetailsData == null || _npcDetailsData.Id != npcId) return;
+
+            // Baseline swap (new NPC selected, or post-commit refetch reset _displayedNpc).
+            if (_displayedNpc == null || _displayedNpc.Id != npcId)
+            {
+                _displayedNpc = CloneNpcTypeFull(_npcDetailsData);
+                _npcDisplayedHadEdit = false;
+                _npcDisplayedVersion = 0;
+                OverlayPendingEdits(_displayedNpc, npcId);
+                var b0 = _view.Controller.PendingBuffer;
+                if (b0 != null && b0.Npcs.TryGetValue(npcId, out var e0))
+                {
+                    _npcDisplayedHadEdit = true;
+                    _npcDisplayedVersion = e0.LastModifiedAt.Ticks;
+                }
+                SyncNpcTextBuffers(_displayedNpc);
+                return;
+            }
+
+            // Version-drift check — only rebuild if the pending buffer's entry changed
+            // since the last overlay pass. Slider drags don't move the version because
+            // the widget's write callback goes to _displayedNpc, not to the buffer.
+            var buffer = _view.Controller.PendingBuffer;
+            var hasEdit = buffer != null && buffer.Npcs.ContainsKey(npcId);
+            long currentVer = 0;
+            if (hasEdit) currentVer = buffer.Npcs[npcId].LastModifiedAt.Ticks;
+
+            if (hasEdit != _npcDisplayedHadEdit || currentVer != _npcDisplayedVersion)
+            {
+                _displayedNpc = CloneNpcTypeFull(_npcDetailsData);
+                OverlayPendingEdits(_displayedNpc, npcId);
+                _npcDisplayedHadEdit = hasEdit;
+                _npcDisplayedVersion = currentVer;
+                SyncNpcTextBuffers(_displayedNpc);
+            }
+        }
+
+        // Shallow-clone helper (NpcTypeFull is a flat property bag — no references to
+        // copy defensively). Emitted per-property to survive future column additions
+        // via compile-time errors rather than silently missing fields.
+        static VisualEQ.Database.Models.NpcTypeFull CloneNpcTypeFull(VisualEQ.Database.Models.NpcTypeFull s) =>
+            new VisualEQ.Database.Models.NpcTypeFull
+            {
+                Id = s.Id, Name = s.Name, LastName = s.LastName, Level = s.Level,
+                Race = s.Race, Class = s.Class, BodyType = s.BodyType, Gender = s.Gender, Size = s.Size,
+                Hp = s.Hp, Mana = s.Mana, Ac = s.Ac, MinDmg = s.MinDmg, MaxDmg = s.MaxDmg,
+                Atk = s.Atk, Accuracy = s.Accuracy, Avoidance = s.Avoidance, SlowMitigation = s.SlowMitigation,
+                AttackSpeed = s.AttackSpeed, AttackDelay = s.AttackDelay, AttackCount = s.AttackCount,
+                HeroicStrikethrough = s.HeroicStrikethrough,
+                HpRegenRate = s.HpRegenRate, HpRegenPerSecond = s.HpRegenPerSecond, ManaRegenRate = s.ManaRegenRate,
+                Str = s.Str, Sta = s.Sta, Dex = s.Dex, Agi = s.Agi, Int_ = s.Int_, Wis = s.Wis, Cha = s.Cha,
+                MR = s.MR, CR = s.CR, DR = s.DR, FR = s.FR, PR = s.PR, Corrup = s.Corrup, PhR = s.PhR,
+                Texture = s.Texture, HelmTexture = s.HelmTexture, Face = s.Face,
+                HerosForgeModel = s.HerosForgeModel, ArmTexture = s.ArmTexture, BracerTexture = s.BracerTexture,
+                HandTexture = s.HandTexture, LegTexture = s.LegTexture, FeetTexture = s.FeetTexture,
+                Light = s.Light, Model = s.Model, DMeleeTexture1 = s.DMeleeTexture1, DMeleeTexture2 = s.DMeleeTexture2,
+                AmmoIdfile = s.AmmoIdfile, PrimMeleeType = s.PrimMeleeType, SecMeleeType = s.SecMeleeType,
+                RangedType = s.RangedType,
+                LuclinHairstyle = s.LuclinHairstyle, LuclinHaircolor = s.LuclinHaircolor,
+                LuclinEyecolor = s.LuclinEyecolor, LuclinEyecolor2 = s.LuclinEyecolor2,
+                LuclinBeardcolor = s.LuclinBeardcolor, LuclinBeard = s.LuclinBeard,
+                DrakkinHeritage = s.DrakkinHeritage, DrakkinTattoo = s.DrakkinTattoo, DrakkinDetails = s.DrakkinDetails,
+                ArmortintId = s.ArmortintId, ArmortintRed = s.ArmortintRed,
+                ArmortintGreen = s.ArmortintGreen, ArmortintBlue = s.ArmortintBlue,
+                AggroRadius = s.AggroRadius, AssistRadius = s.AssistRadius,
+                Runspeed = s.Runspeed, Walkspeed = s.Walkspeed,
+                SeeInvis = s.SeeInvis, SeeInvisUndead = s.SeeInvisUndead,
+                SeeHide = s.SeeHide, SeeImprovedHide = s.SeeImprovedHide,
+                NpcAggro = s.NpcAggro, AlwaysAggro = s.AlwaysAggro,
+                Findable = s.Findable, Trackable = s.Trackable,
+                RaidTarget = s.RaidTarget, NoTargetHotkey = s.NoTargetHotkey,
+                Untargetable = s.Untargetable, ShowName = s.ShowName,
+                PrivateCorpse = s.PrivateCorpse, UniqueSpawnByName = s.UniqueSpawnByName,
+                Unique = s.Unique, Fixed = s.Fixed, IgnoreDespawn = s.IgnoreDespawn,
+                StuckBehavior = s.StuckBehavior, Flymode = s.Flymode,
+                RareSpawn = s.RareSpawn, Exclude = s.Exclude, IsBot = s.IsBot, IsQuest = s.IsQuest,
+                Qglobal = s.Qglobal, EmoteId = s.EmoteId, Underwater = s.Underwater, SpawnLimit = s.SpawnLimit,
+                LoottableId = s.LoottableId, MerchantId = s.MerchantId, Greed = s.Greed,
+                AltCurrencyId = s.AltCurrencyId, NpcSpellsId = s.NpcSpellsId,
+                NpcSpellsEffectsId = s.NpcSpellsEffectsId, NpcFactionId = s.NpcFactionId,
+                AdventureTemplateId = s.AdventureTemplateId, TrapTemplate = s.TrapTemplate,
+                FactionAmount = s.FactionAmount, KeepsSoldItems = s.KeepsSoldItems,
+                IsParcelMerchant = s.IsParcelMerchant, MultiquestEnabled = s.MultiquestEnabled,
+                SkipGlobalLoot = s.SkipGlobalLoot,
+                Scalerate = s.Scalerate, Spellscale = s.Spellscale, Healscale = s.Healscale,
+                ExpMod = s.ExpMod, Maxlevel = s.Maxlevel,
+                CharmAc = s.CharmAc, CharmMinDmg = s.CharmMinDmg, CharmMaxDmg = s.CharmMaxDmg,
+                CharmAttackDelay = s.CharmAttackDelay, CharmAccuracyRating = s.CharmAccuracyRating,
+                CharmAvoidanceRating = s.CharmAvoidanceRating, CharmAtk = s.CharmAtk,
+                NpcSpecialAttks = s.NpcSpecialAttks, SpecialAbilities = s.SpecialAbilities,
+                Version = s.Version, PeqId = s.PeqId,
+            };
+
+        // Walk pending NpcEdit.CurrentValues and write each into the corresponding
+        // property on _displayedNpc. Unknown fields (schema drift, legacy buffers) are
+        // silently skipped rather than crashing the display.
+        void OverlayPendingEdits(VisualEQ.Database.Models.NpcTypeFull dest, int npcId)
+        {
+            var buffer = _view.Controller.PendingBuffer;
+            if (buffer == null) return;
+            if (!buffer.Npcs.TryGetValue(npcId, out var edit)) return;
+            foreach (var kv in edit.CurrentValues)
+                ApplyNpcFieldValue(dest, kv.Key, kv.Value);
+        }
+
+        // Parses a stringified value from the buffer catalog and writes it onto the
+        // matching NpcTypeFull property. Kept as a switch rather than reflection so a
+        // typo caught by the compiler and per-field bug fixes don't need dynamic dispatch.
+        static void ApplyNpcFieldValue(VisualEQ.Database.Models.NpcTypeFull dest, string field, string stringValue)
+        {
+            var def = VisualEQ.EditSystem.NpcFieldCatalog.Get(field);
+            if (def == null) return;
+            object v = VisualEQ.EditSystem.NpcFieldCatalog.ParseValue(stringValue, def.Kind);
+            switch (field)
+            {
+                case "name":                   dest.Name = (string)v; break;
+                case "lastname":               dest.LastName = (string)v; break;
+                case "level":                  dest.Level = (int)v; break;
+                case "race":                   dest.Race = (int)v; break;
+                case "class":                  dest.Class = (int)v; break;
+                case "bodytype":               dest.BodyType = (int)v; break;
+                case "gender":                 dest.Gender = (int)v; break;
+                case "size":                   dest.Size = (float)v; break;
+                case "hp":                     dest.Hp = (long)v; break;
+                case "mana":                   dest.Mana = (long)v; break;
+                case "AC":                     dest.Ac = (int)v; break;
+                case "mindmg":                 dest.MinDmg = (int)v; break;
+                case "maxdmg":                 dest.MaxDmg = (int)v; break;
+                case "ATK":                    dest.Atk = (int)v; break;
+                case "Accuracy":               dest.Accuracy = (int)v; break;
+                case "Avoidance":              dest.Avoidance = (int)v; break;
+                case "slow_mitigation":        dest.SlowMitigation = (int)v; break;
+                case "attack_speed":           dest.AttackSpeed = (float)v; break;
+                case "attack_delay":           dest.AttackDelay = (int)v; break;
+                case "attack_count":           dest.AttackCount = (int)v; break;
+                case "heroic_strikethrough":   dest.HeroicStrikethrough = (int)v; break;
+                case "hp_regen_rate":          dest.HpRegenRate = (long)v; break;
+                case "hp_regen_per_second":    dest.HpRegenPerSecond = (long)v; break;
+                case "mana_regen_rate":        dest.ManaRegenRate = (long)v; break;
+                case "STR":                    dest.Str = (int)v; break;
+                case "STA":                    dest.Sta = (int)v; break;
+                case "DEX":                    dest.Dex = (int)v; break;
+                case "AGI":                    dest.Agi = (int)v; break;
+                case "_INT":                   dest.Int_ = (int)v; break;
+                case "WIS":                    dest.Wis = (int)v; break;
+                case "CHA":                    dest.Cha = (int)v; break;
+                case "MR":                     dest.MR = (int)v; break;
+                case "CR":                     dest.CR = (int)v; break;
+                case "DR":                     dest.DR = (int)v; break;
+                case "FR":                     dest.FR = (int)v; break;
+                case "PR":                     dest.PR = (int)v; break;
+                case "Corrup":                 dest.Corrup = (int)v; break;
+                case "PhR":                    dest.PhR = (int)v; break;
+                case "aggroradius":            dest.AggroRadius = (int)v; break;
+                case "assistradius":           dest.AssistRadius = (int)v; break;
+                case "runspeed":               dest.Runspeed = (float)v; break;
+                case "walkspeed":              dest.Walkspeed = (int)v; break;
+                case "see_invis":              dest.SeeInvis = (int)v; break;
+                case "see_invis_undead":       dest.SeeInvisUndead = (int)v; break;
+                case "see_hide":               dest.SeeHide = (int)v; break;
+                case "see_improved_hide":      dest.SeeImprovedHide = (int)v; break;
+                case "npc_aggro":              dest.NpcAggro = (int)v; break;
+                case "always_aggro":           dest.AlwaysAggro = (int)v; break;
+                case "findable":               dest.Findable = (int)v; break;
+                case "trackable":              dest.Trackable = (int)v; break;
+                case "raid_target":            dest.RaidTarget = (int)v; break;
+                case "no_target_hotkey":       dest.NoTargetHotkey = (int)v; break;
+                case "untargetable":           dest.Untargetable = (int)v; break;
+                case "show_name":              dest.ShowName = (int)v; break;
+                case "private_corpse":         dest.PrivateCorpse = (int)v; break;
+                case "unique_spawn_by_name":   dest.UniqueSpawnByName = (int)v; break;
+                case "unique_":                dest.Unique = (int)v; break;
+                case "fixed":                  dest.Fixed = (int)v; break;
+                case "ignore_despawn":         dest.IgnoreDespawn = (int)v; break;
+                case "stuck_behavior":         dest.StuckBehavior = (int)v; break;
+                case "flymode":                dest.Flymode = (int)v; break;
+                case "rare_spawn":             dest.RareSpawn = (int?)v; break;
+                case "exclude":                dest.Exclude = (int)v; break;
+                case "isbot":                  dest.IsBot = (int)v; break;
+                case "isquest":                dest.IsQuest = (int)v; break;
+                case "qglobal":                dest.Qglobal = (int)v; break;
+                case "emoteid":                dest.EmoteId = (int)v; break;
+                case "underwater":             dest.Underwater = (int)v; break;
+                case "spawn_limit":            dest.SpawnLimit = (int)v; break;
+                case "loottable_id":           dest.LoottableId = (int)v; break;
+                case "merchant_id":            dest.MerchantId = (int)v; break;
+                case "greed":                  dest.Greed = (int)v; break;
+                case "alt_currency_id":        dest.AltCurrencyId = (int)v; break;
+                case "npc_spells_id":          dest.NpcSpellsId = (int)v; break;
+                case "npc_spells_effects_id":  dest.NpcSpellsEffectsId = (int)v; break;
+                case "npc_faction_id":         dest.NpcFactionId = (int)v; break;
+                case "adventure_template_id":  dest.AdventureTemplateId = (int)v; break;
+                case "trap_template":          dest.TrapTemplate = (int?)v; break;
+                case "faction_amount":         dest.FactionAmount = (int)v; break;
+                case "keeps_sold_items":       dest.KeepsSoldItems = (int)v; break;
+                case "is_parcel_merchant":     dest.IsParcelMerchant = (int)v; break;
+                case "multiquest_enabled":     dest.MultiquestEnabled = (int)v; break;
+                case "skip_global_loot":       dest.SkipGlobalLoot = (int?)v; break;
+                case "scalerate":              dest.Scalerate = (int)v; break;
+                case "spellscale":             dest.Spellscale = (float)v; break;
+                case "healscale":              dest.Healscale = (float)v; break;
+                case "exp_mod":                dest.ExpMod = (int)v; break;
+                case "maxlevel":               dest.Maxlevel = (int)v; break;
+                case "charm_ac":               dest.CharmAc = (int?)v; break;
+                case "charm_min_dmg":          dest.CharmMinDmg = (int?)v; break;
+                case "charm_max_dmg":          dest.CharmMaxDmg = (int?)v; break;
+                case "charm_attack_delay":     dest.CharmAttackDelay = (int?)v; break;
+                case "charm_accuracy_rating":  dest.CharmAccuracyRating = (int?)v; break;
+                case "charm_avoidance_rating": dest.CharmAvoidanceRating = (int?)v; break;
+                case "charm_atk":              dest.CharmAtk = (int?)v; break;
+            }
+        }
+
+        // Text-field byte buffers. InputText writes into these directly; we mirror to
+        // _displayedNpc each frame so the widget-driven changes flow through the same
+        // overlay/activation-flush path as the numeric fields. Buffer sizes match the
+        // schema varchar caps with a little slack for the null terminator.
+        private readonly byte[] _npcNameBuf     = new byte[128];
+        private readonly byte[] _npcLastNameBuf = new byte[64];
+        private readonly byte[] _npcAmmoIdBuf   = new byte[32];
+        private int? _npcTextBuffersForId;
+
+        void SyncNpcTextBuffers(VisualEQ.Database.Models.NpcTypeFull n)
+        {
+            WriteStringToBuffer(_npcNameBuf, n.Name);
+            WriteStringToBuffer(_npcLastNameBuf, n.LastName);
+            WriteStringToBuffer(_npcAmmoIdBuf, n.AmmoIdfile);
+            _npcTextBuffersForId = n.Id;
+        }
+
+        static void WriteStringToBuffer(byte[] dst, string s)
+        {
+            System.Array.Clear(dst, 0, dst.Length);
+            if (string.IsNullOrEmpty(s)) return;
+            var bytes = System.Text.Encoding.UTF8.GetBytes(s);
+            var n = System.Math.Min(bytes.Length, dst.Length - 1); // reserve null terminator
+            System.Array.Copy(bytes, dst, n);
+        }
+
+        // Per-field numeric-input byte buffers. ImGui.NET 0.4.6 doesn't expose InputInt /
+        // InputFloat in the C# wrapper (only the native cimgui bindings), so the numeric
+        // widgets fall back to InputText with a byte buffer + parse. Buffers are keyed by
+        // field name and reset when the selected NPC changes so a stale value from a
+        // previous NPC's HP doesn't leak into the newly-selected NPC's field.
+        private readonly Dictionary<string, byte[]> _npcNumBufs = new Dictionary<string, byte[]>();
+        private int? _npcNumBufsForId;
+
+        void ResetNpcNumBufsIfNpcChanged(int npcId)
+        {
+            if (_npcNumBufsForId == npcId) return;
+            _npcNumBufs.Clear();
+            _npcNumBufsForId = npcId;
+        }
+
+        byte[] GetNumBuffer(string field, int size)
+        {
+            if (!_npcNumBufs.TryGetValue(field, out var buf))
+            {
+                buf = new byte[size];
+                _npcNumBufs[field] = buf;
+            }
+            return buf;
+        }
+
+        // ───────── NPC field widget helpers ───────────────────────────
+
+        // Records the from/to values via NpcFieldEditAction on widget deactivation.
+        // Single-slot activation tracker — ImGui only allows one active item at a time so
+        // a stale field's flush fires whenever focus moves to another field. beforeValueIfStarting
+        // is the value at the *start* of the interaction; the reader lambda produces the
+        // value at flush time (usually the current displayed-npc property).
+        void HandleNpcActivation(int npcId, string field, object beforeValueIfStarting, Func<object> readCurrent)
+        {
+            var isActive = ImGui.IsAnyItemActive();
+            var wasThisFieldActive =
+                _npcActiveEditForId == npcId &&
+                _npcActiveEditField == field;
+
+            if (isActive && !wasThisFieldActive)
+            {
+                // Focus moved onto this field. If some other field was mid-flush, flush it
+                // first with its own reader (matches the WP pattern — never fire an action
+                // for field A using field B's reader).
+                if (_npcActiveEditForId.HasValue)
+                    FlushNpcActiveEditIfChanged();
+                _npcActiveEditForId      = npcId;
+                _npcActiveEditField      = field;
+                _npcActiveEditBeforeValue = beforeValueIfStarting;
+                _npcActiveEditReader      = readCurrent;
+            }
+            else if (!isActive && wasThisFieldActive)
+            {
+                FlushNpcActiveEditIfChanged();
+            }
+        }
+
+        void FlushNpcActiveEditIfChanged()
+        {
+            if (!_npcActiveEditForId.HasValue || _npcActiveEditReader == null) return;
+            var npcId  = _npcActiveEditForId.Value;
+            var field  = _npcActiveEditField;
+            var before = _npcActiveEditBeforeValue;
+            var after  = _npcActiveEditReader();
+
+            bool changed;
+            if (before is float bf && after is float af) changed = System.Math.Abs(bf - af) > 0.0001f;
+            else if (before is int bi && after is int ai) changed = bi != ai;
+            else if (before is long bl && after is long al) changed = bl != al;
+            else changed = !object.Equals(before ?? "", after ?? "");
+
+            if (changed)
+            {
+                var display = _displayedNpc?.Name ?? "?";
+                _view.Controller.RecordAction(
+                    new VisualEQ.EditSystem.NpcFieldEditAction(npcId, field, before, after, display));
+            }
+
+            _npcActiveEditForId       = null;
+            _npcActiveEditField       = null;
+            _npcActiveEditBeforeValue = null;
+            _npcActiveEditReader      = null;
+        }
+
+        // Renders a typed integer input via InputText + parse (see _npcNumBufs comment
+        // for why not InputInt). Buffer resyncs from the current value whenever this field
+        // isn't the actively-edited one, so undo/redo and cross-NPC selection keep the
+        // widget in sync. Typed values outside [minValue, maxValue] clamp on write.
+        void NpcInt(int npcId, string field, string label,
+            System.Func<int> read, System.Action<int> write, bool editable,
+            int minValue = int.MinValue, int maxValue = int.MaxValue)
+        {
+            var current = read();
+            if (!editable)
+            {
+                ImGui.Text($"  {label}: {current}");
+                return;
+            }
+            var buf = GetNumBuffer(field, 20);
+            var bufStr = ReadBuffer(buf);
+            var expectedStr = current.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var isMe = _npcActiveEditForId == npcId && _npcActiveEditField == field;
+            if (!isMe && bufStr != expectedStr)
+                WriteStringToBuffer(buf, expectedStr);
+
+            ImGui.Text(label);
+            ImGui.InputText($"###{Id}ni{field}", buf, (uint)buf.Length, InputTextFlags.Default, null);
+            var typed = ReadBuffer(buf);
+            if (typed != bufStr &&
+                int.TryParse(typed, System.Globalization.NumberStyles.Integer,
+                             System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+            {
+                if (parsed < minValue) parsed = minValue;
+                if (parsed > maxValue) parsed = maxValue;
+                if (parsed != current) write(parsed);
+            }
+            HandleNpcActivation(npcId, field, (int)current, () => (object)read());
+        }
+
+        void NpcLong(int npcId, string field, string label,
+            System.Func<long> read, System.Action<long> write, bool editable)
+        {
+            var current = read();
+            if (!editable)
+            {
+                ImGui.Text($"  {label}: {current}");
+                return;
+            }
+            var buf = GetNumBuffer(field, 24);
+            var bufStr = ReadBuffer(buf);
+            var expectedStr = current.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var isMe = _npcActiveEditForId == npcId && _npcActiveEditField == field;
+            if (!isMe && bufStr != expectedStr)
+                WriteStringToBuffer(buf, expectedStr);
+
+            ImGui.Text(label);
+            ImGui.InputText($"###{Id}nl{field}", buf, (uint)buf.Length, InputTextFlags.Default, null);
+            var typed = ReadBuffer(buf);
+            if (typed != bufStr &&
+                long.TryParse(typed, System.Globalization.NumberStyles.Integer,
+                              System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+            {
+                if (parsed < 0) parsed = 0;
+                if (parsed != current) write(parsed);
+            }
+            HandleNpcActivation(npcId, field, (long)current, () => (object)read());
+        }
+
+        void NpcFloat(int npcId, string field, string label,
+            System.Func<float> read, System.Action<float> write, bool editable, string fmt = "F2")
+        {
+            var current = read();
+            var display = current.ToString(fmt, System.Globalization.CultureInfo.InvariantCulture);
+            if (!editable)
+            {
+                ImGui.Text($"  {label}: {display}");
+                return;
+            }
+            var buf = GetNumBuffer(field, 24);
+            var bufStr = ReadBuffer(buf);
+            var isMe = _npcActiveEditForId == npcId && _npcActiveEditField == field;
+            if (!isMe && bufStr != display)
+                WriteStringToBuffer(buf, display);
+
+            ImGui.Text(label);
+            ImGui.InputText($"###{Id}nf{field}", buf, (uint)buf.Length, InputTextFlags.Default, null);
+            var typed = ReadBuffer(buf);
+            if (typed != bufStr &&
+                float.TryParse(typed, System.Globalization.NumberStyles.Float,
+                               System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+            {
+                if (System.Math.Abs(parsed - current) > 0.0001f) write(parsed);
+            }
+            HandleNpcActivation(npcId, field, (float)current, () => (object)read());
+        }
+
+        void NpcText(int npcId, string field, string label,
+            byte[] buffer, System.Func<string> read, System.Action<string> write, bool editable)
+        {
+            var current = read() ?? "";
+            if (!editable)
+            {
+                ImGui.Text($"  {label}: {current}");
+                return;
+            }
+            ImGui.Text(label);
+            ImGui.InputText($"###{Id}nt{field}", buffer, (uint)buffer.Length, InputTextFlags.Default, null);
+            var bufStr = ReadBuffer(buffer);
+            if (!string.Equals(bufStr, current, System.StringComparison.Ordinal))
+                write(bufStr);
+            HandleNpcActivation(npcId, field, (string)current, () => (object)read());
+        }
+
+        // 0/1 int rendered as checkbox. On write, the widget flips between 0 and 1 —
+        // matches how findable / trackable / show_name etc. are stored in npc_types.
+        void NpcCheckbox(int npcId, string field, string label,
+            System.Func<int> read, System.Action<int> write, bool editable)
+        {
+            var current = read();
+            if (!editable)
+            {
+                ImGui.Text($"  {label}: {(current != 0 ? "yes" : "no")}");
+                return;
+            }
+            var val = current != 0;
+            if (ImGui.Checkbox($"{label}###{Id}nc{field}", ref val))
+            {
+                var before = current;
+                var after  = val ? 1 : 0;
+                if (before != after)
+                {
+                    // Checkbox activation is instantaneous — no drag-then-release cycle to
+                    // coalesce over, so record the action inline instead of routing through
+                    // HandleNpcActivation.
+                    write(after);
+                    var display = _displayedNpc?.Name ?? "?";
+                    _view.Controller.RecordAction(
+                        new VisualEQ.EditSystem.NpcFieldEditAction(npcId, field, before, after, display));
+                }
+            }
+        }
+
+        // Combo over an int → label dict. Options are keys of `labels` in insertion order.
+        // Unknown current values render an extra "(current N)" note above the combo so a
+        // legacy DB value still shows something rather than being silently reset to the
+        // first option.
+        void NpcEnumCombo(int npcId, string field, string label,
+            System.Func<int> read, System.Action<int> write,
+            IList<int> optionValues, IList<string> optionLabels, bool editable)
+        {
+            var current = read();
+            var currentIdx = -1;
+            for (int i = 0; i < optionValues.Count; i++)
+                if (optionValues[i] == current) { currentIdx = i; break; }
+
+            if (!editable)
+            {
+                var name = currentIdx >= 0 ? optionLabels[currentIdx] : $"({current})";
+                ImGui.Text($"  {label}: {name} ({current})");
+                return;
+            }
+            ImGui.Text(label);
+            if (currentIdx < 0)
+            {
+                ImGui.Text($"  (current DB value {current} is outside preset list — pick to change)");
+                currentIdx = 0;
+            }
+            var refIdx = currentIdx;
+            var arr = new string[optionLabels.Count];
+            for (int i = 0; i < arr.Length; i++) arr[i] = optionLabels[i];
+            if (ImGui.Combo($"###{Id}ne{field}", ref refIdx, arr))
+            {
+                var after = optionValues[refIdx];
+                if (after != current)
+                {
+                    write(after);
+                    var display = _displayedNpc?.Name ?? "?";
+                    _view.Controller.RecordAction(
+                        new VisualEQ.EditSystem.NpcFieldEditAction(npcId, field, current, after, display));
+                }
+            }
+        }
+
+        // Nullable int — checkbox toggles between "null" and a numeric value. When checked
+        // for the first time, initial value is 0. Uncheck → set to null. Numeric drag
+        // routes through the standard activation-flush pattern.
+        void NpcNullableInt(int npcId, string field, string label,
+            System.Func<int?> read, System.Action<int?> write, bool editable)
+        {
+            var current = read();
+            if (!editable)
+            {
+                ImGui.Text($"  {label}: {(current?.ToString() ?? "(null)")}");
+                return;
+            }
+
+            var isSet = current.HasValue;
+            if (ImGui.Checkbox($"Set {label}###{Id}nnc{field}", ref isSet))
+            {
+                if (isSet && !current.HasValue)
+                {
+                    write(0);
+                    var display = _displayedNpc?.Name ?? "?";
+                    _view.Controller.RecordAction(
+                        new VisualEQ.EditSystem.NpcFieldEditAction(npcId, field, (int?)null, (int?)0, display));
+                }
+                else if (!isSet && current.HasValue)
+                {
+                    var before = current;
+                    write(null);
+                    var display = _displayedNpc?.Name ?? "?";
+                    _view.Controller.RecordAction(
+                        new VisualEQ.EditSystem.NpcFieldEditAction(npcId, field, before, (int?)null, display));
+                }
+            }
+            if (isSet)
+            {
+                var cur = current ?? 0;
+                var buf = GetNumBuffer(field, 20);
+                var bufStr = ReadBuffer(buf);
+                var expectedStr = cur.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                var isMe = _npcActiveEditForId == npcId && _npcActiveEditField == field;
+                if (!isMe && bufStr != expectedStr)
+                    WriteStringToBuffer(buf, expectedStr);
+
+                ImGui.InputText($"  {label}###{Id}nni{field}", buf, (uint)buf.Length, InputTextFlags.Default, null);
+                var typed = ReadBuffer(buf);
+                if (typed != bufStr &&
+                    int.TryParse(typed, System.Globalization.NumberStyles.Integer,
+                                 System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                {
+                    if (parsed != cur) write(parsed);
+                }
+                HandleNpcActivation(npcId, field, current ?? 0, () => (object)(read() ?? 0));
+            }
+        }
+
+        // FK picker — displays "<id> — <name>" resolved via cache, plus a Change button
+        // that opens the modal typeahead. Read-only mode renders just the resolved text.
+        void NpcIdPicker(int npcId, string field, string label,
+            VisualEQ.SpawnSystem.ReferenceDataCache.Table table,
+            System.Func<int> read, bool editable)
+        {
+            var cache = _view.Controller.ReferenceData;
+            var current = read();
+            var resolved = cache != null ? cache.ResolveLabel(table, current) : current.ToString();
+
+            if (!editable)
+            {
+                ImGui.Text($"  {label}: {resolved}");
+                return;
+            }
+            ImGui.Text($"{label}: {resolved}");
+            ImGui.SameLine();
+            if (ImGui.Button($"Change###{Id}nip{field}", new Vector2(90, 22)))
+                BeginFkPicker(table, field, label, npcId, current);
+            ImGui.SameLine();
+            if (current != 0 && ImGui.Button($"Clear###{Id}nipc{field}", new Vector2(60, 22)))
+            {
+                // Explicit clear sets the FK to 0 (EQEmu's "no assignment" sentinel).
+                var display = _displayedNpc?.Name ?? "?";
+                _view.Controller.RecordAction(
+                    new VisualEQ.EditSystem.NpcFieldEditAction(npcId, field, current, 0, display));
+            }
+        }
+
+        // ───────── FK picker modal ────────────────────────────────────
+
+        void BeginFkPicker(VisualEQ.SpawnSystem.ReferenceDataCache.Table table,
+            string fieldName, string label, int npcId, int currentValue)
+        {
+            _fkPickerActive       = true;
+            _fkPickerTable        = table;
+            _fkPickerFieldName    = fieldName;
+            _fkPickerLabel        = label;
+            _fkPickerNpcId        = npcId;
+            _fkPickerCurrentValue = currentValue;
+            _fkPickerNpcDisplayName = _displayedNpc?.Name ?? "?";
+            System.Array.Clear(_fkPickerFilterBuf, 0, _fkPickerFilterBuf.Length);
+            _fkPickerSelectedIdx = -1;
+        }
+
+        void EndFkPicker()
+        {
+            _fkPickerActive = false;
+            _fkPickerFieldName = null;
+        }
+
+        void RenderFkPickerDialog(Gui gui)
+        {
+            const float dlgW = 520f;
+            const float dlgH = 460f;
+            var pos = new Vector2((gui.Dimensions.X - dlgW) / 2, (gui.Dimensions.Y - dlgH) / 2);
+
+            ImGui.SetNextWindowPos(pos, Condition.Always, Vector2.Zero);
+            ImGui.SetNextWindowSize(new Vector2(dlgW, dlgH), Condition.Always);
+
+            const WindowFlags flags = WindowFlags.NoTitleBar | WindowFlags.NoMove
+                                    | WindowFlags.NoResize   | WindowFlags.NoCollapse
+                                    | WindowFlags.NoSavedSettings;
+
+            ImGui.BeginWindow($"###{Id}FkPickerDlg", flags);
+
+            var cache = _view.Controller.ReferenceData;
+            ImGui.Text($"Pick {_fkPickerLabel} for '{_fkPickerNpcDisplayName}'");
+            ImGui.Text($"Current: {(cache != null ? cache.ResolveLabel(_fkPickerTable, _fkPickerCurrentValue) : _fkPickerCurrentValue.ToString())}");
+            ImGui.Separator();
+
+            var state = cache?.GetState(_fkPickerTable) ?? VisualEQ.SpawnSystem.ReferenceDataCache.LoadState.NotLoaded;
+            if (cache == null)
+            {
+                ImGui.Text("No database connection is configured.", new Vector4(0.95f, 0.35f, 0.25f, 1f));
+                if (ImGui.Button($"Close###{Id}fkClose", new Vector2(120, 28)))
+                    EndFkPicker();
+                ImGui.EndWindow();
+                return;
+            }
+            if (state == VisualEQ.SpawnSystem.ReferenceDataCache.LoadState.Loading ||
+                state == VisualEQ.SpawnSystem.ReferenceDataCache.LoadState.NotLoaded)
+            {
+                ImGui.Text("Loading reference data…");
+                if (ImGui.Button($"Close###{Id}fkClose", new Vector2(120, 28)))
+                    EndFkPicker();
+                ImGui.EndWindow();
+                return;
+            }
+            if (state == VisualEQ.SpawnSystem.ReferenceDataCache.LoadState.Error)
+            {
+                ImGui.Text("Failed to load reference data.", new Vector4(0.95f, 0.35f, 0.25f, 1f));
+                if (ImGui.Button($"Close###{Id}fkClose", new Vector2(120, 28)))
+                    EndFkPicker();
+                ImGui.EndWindow();
+                return;
+            }
+
+            var items = cache.GetItems(_fkPickerTable);
+            ImGui.Text("Filter (id or name substring):");
+            ImGui.InputText($"###{Id}fkF", _fkPickerFilterBuf, (uint)_fkPickerFilterBuf.Length, InputTextFlags.Default, null);
+            var filter = ReadBuffer(_fkPickerFilterBuf).Trim();
+
+            var filtered = new List<VisualEQ.Database.Models.ReferenceItem>(256);
+            if (string.IsNullOrEmpty(filter))
+            {
+                // Empty filter: show first 250 items unfiltered so the list isn't overwhelming
+                // (loottable has 15k rows). Users typing a substring get an unbounded but
+                // usually-small result set.
+                for (int i = 0; i < items.Count && filtered.Count < 250; i++)
+                    filtered.Add(items[i]);
+            }
+            else
+            {
+                int filterId;
+                bool filterIsInt = int.TryParse(filter, out filterId);
+                foreach (var it in items)
+                {
+                    if (filterIsInt && it.Id == filterId) { filtered.Add(it); continue; }
+                    if (!string.IsNullOrEmpty(it.Name) &&
+                        it.Name.IndexOf(filter, System.StringComparison.OrdinalIgnoreCase) >= 0)
+                        filtered.Add(it);
+                    if (filtered.Count >= 500) break;
+                }
+            }
+
+            ImGui.Text($"{filtered.Count} match(es) shown");
+            ImGui.BeginChild($"###{Id}fkList", new Vector2(0, 260), true, WindowFlags.Default);
+            for (int i = 0; i < filtered.Count; i++)
+            {
+                var it = filtered[i];
+                var label = $"{it.Id}  {it.Name}###{Id}fkR{it.Id}";
+                if (ImGui.Selectable(label, i == _fkPickerSelectedIdx))
+                    _fkPickerSelectedIdx = i;
+            }
+            ImGui.EndChild();
+
+            ImGui.Separator();
+            var pickEnabled = _fkPickerSelectedIdx >= 0 && _fkPickerSelectedIdx < filtered.Count;
+            if (pickEnabled)
+            {
+                if (ImGui.Button($"Select###{Id}fkOk", new Vector2(140, 28)))
+                {
+                    var picked = filtered[_fkPickerSelectedIdx];
+                    if (picked.Id != _fkPickerCurrentValue)
+                    {
+                        _view.Controller.RecordAction(
+                            new VisualEQ.EditSystem.NpcFieldEditAction(
+                                _fkPickerNpcId, _fkPickerFieldName,
+                                _fkPickerCurrentValue, picked.Id,
+                                _fkPickerNpcDisplayName));
+                    }
+                    EndFkPicker();
+                }
+            }
+            else
+            {
+                ImGui.Text("(pick a row to enable Select)");
+            }
+            ImGui.SameLine();
+            if (ImGui.Button($"Cancel###{Id}fkX", new Vector2(140, 28)))
+                EndFkPicker();
+
+            ImGui.EndWindow();
+        }
+
+        // ───────── NPC Details body (editable) ────────────────────────
+
+        // Preset value/label pairs for enum-combo widgets. Kept as static readonly arrays
+        // so the combo doesn't reallocate every frame. Order = display order in the combo.
+        static readonly int[]    _npcGenderVals   = { 0, 1, 2 };
+        static readonly string[] _npcGenderLabels = { "Male", "Female", "Neuter" };
+
+        static readonly int[]    _npcStuckVals   = { 0, 1, 2, 3 };
+        static readonly string[] _npcStuckLabels = { "Run to target", "Warp to target", "Take no action", "Evade combat" };
+
+        static readonly int[]    _npcFlymodeVals   = { -1, 0, 1, 2, 3, 4, 5 };
+        static readonly string[] _npcFlymodeLabels = { "Default (race)", "Grounded", "Flying", "Levitating", "Water", "Floating (no gravity)", "Levitating over water" };
+
+        static readonly int[]    _npcMeleeVals   = { 0, 1, 2, 3, 7, 8, 10, 21, 23, 26, 28, 30, 36, 38, 45, 51 };
+        static readonly string[] _npcMeleeLabels = { "1H Blunt", "1H Slashing", "2H Blunt", "2H Slashing", "Archery", "Backstab", "Bash", "Dragon Punch", "Eagle Strike", "Flying Kick", "Hand to Hand", "Kick", "1H Piercing", "Round Kick", "2H Piercing", "Throwing" };
+
+        // Race / Class / BodyType combo options. Built once at class-init from the
+        // SpawnInfoLookups dicts, ordered by numeric id (server-side convention — race 1
+        // = Human, class 1 = Warrior, etc., so scanning by id is what OPs already know).
+        // Labels are formatted "Name (id)" so both are visible in the dropdown.
+        static readonly int[]    _npcRaceVals;
+        static readonly string[] _npcRaceLabels;
+        static readonly int[]    _npcClassVals;
+        static readonly string[] _npcClassLabels;
+        static readonly int[]    _npcBodyTypeVals;
+        static readonly string[] _npcBodyTypeLabels;
+
+        static SidebarWidget()
+        {
+            BuildEnumComboOptions(SpawnInfoLookups.AllRaces,     out _npcRaceVals,     out _npcRaceLabels);
+            BuildEnumComboOptions(SpawnInfoLookups.AllClasses,   out _npcClassVals,   out _npcClassLabels);
+            BuildEnumComboOptions(SpawnInfoLookups.AllBodyTypes, out _npcBodyTypeVals, out _npcBodyTypeLabels);
+        }
+
+        static void BuildEnumComboOptions(System.Collections.Generic.IReadOnlyDictionary<int, string> src,
+            out int[] values, out string[] labels)
+        {
+            var pairs = src.Select(kv => new { Id = kv.Key, Label = kv.Value })
+                           .OrderBy(p => p.Id)
+                           .ToArray();
+            values = pairs.Select(p => p.Id).ToArray();
+            labels = pairs.Select(p => $"{p.Label} ({p.Id})").ToArray();
+        }
+
+        void RenderNpcDetailsBody(VisualEQ.Database.Models.NpcTypeFull n, bool editable)
+        {
+            var npcId = n.Id;
+            ResetNpcNumBufsIfNpcChanged(npcId);
+
             // ── Identity ───────────────────────────────────────────
-            ImGui.Text($"{n.Name ?? "?"}   [id {n.Id}]");
-            if (!string.IsNullOrEmpty(n.LastName))
-                ImGui.Text($"  \"{n.LastName}\"");
-            ImGui.Text($"L{n.Level}  {SpawnInfoLookups.RaceName(n.Race)} ({n.Race})  {SpawnInfoLookups.GenderName(n.Gender)}");
-            ImGui.Text($"{SpawnInfoLookups.ClassName(n.Class)} ({n.Class})  ·  {SpawnInfoLookups.BodyTypeName(n.BodyType)} ({n.BodyType})");
-            ImGui.Text($"Size {n.Size:F2}");
+            ImGui.Text($"[id {n.Id}]");
+            NpcText(npcId, "name", "Name", _npcNameBuf, () => n.Name, v => n.Name = v, editable);
+            NpcText(npcId, "lastname", "Last name", _npcLastNameBuf, () => n.LastName, v => n.LastName = v, editable);
+            NpcInt(npcId, "level", "Level", () => n.Level, v => n.Level = v, editable, 1, 127);
+            NpcEnumCombo(npcId, "race",     "Race",      () => n.Race,     v => n.Race     = v, _npcRaceVals,     _npcRaceLabels,     editable);
+            NpcEnumCombo(npcId, "class",    "Class",     () => n.Class,    v => n.Class    = v, _npcClassVals,    _npcClassLabels,    editable);
+            NpcEnumCombo(npcId, "bodytype", "Body type", () => n.BodyType, v => n.BodyType = v, _npcBodyTypeVals, _npcBodyTypeLabels, editable);
+            NpcEnumCombo(npcId, "gender", "Gender", () => n.Gender, v => n.Gender = v,
+                _npcGenderVals, _npcGenderLabels, editable);
+            NpcFloat(npcId, "size", "Size", () => n.Size, v => n.Size = v, editable);
 
             // ── Combat ─────────────────────────────────────────────
             ImGui.Separator();
             ImGui.Text("Combat");
-            ImGui.Text($"  HP {n.Hp}   Mana {n.Mana}");
-            ImGui.Text($"  AC {n.Ac}   ATK {n.Atk}   Acc {n.Accuracy}   Avoid {n.Avoidance}");
-            ImGui.Text($"  Dmg {n.MinDmg}–{n.MaxDmg}   Delay {n.AttackDelay}   Speed {n.AttackSpeed:F2}   Count {n.AttackCount}");
-            ImGui.Text($"  Slow mitigation {n.SlowMitigation}   Heroic strikethrough {n.HeroicStrikethrough}");
-            ImGui.Text($"  Regen: HP {n.HpRegenRate} (+{n.HpRegenPerSecond}/s)   Mana {n.ManaRegenRate}");
+            NpcLong(npcId, "hp",   "HP",   () => n.Hp,   v => n.Hp   = v, editable);
+            NpcLong(npcId, "mana", "Mana", () => n.Mana, v => n.Mana = v, editable);
+            NpcInt(npcId, "AC",   "AC",           () => n.Ac,        v => n.Ac        = v, editable);
+            NpcInt(npcId, "ATK",  "ATK",          () => n.Atk,       v => n.Atk       = v, editable);
+            NpcInt(npcId, "Accuracy",  "Accuracy",  () => n.Accuracy,  v => n.Accuracy  = v, editable);
+            NpcInt(npcId, "Avoidance", "Avoidance", () => n.Avoidance, v => n.Avoidance = v, editable);
+            NpcInt(npcId, "mindmg", "Min damage", () => n.MinDmg, v => n.MinDmg = v, editable, 0);
+            NpcInt(npcId, "maxdmg", "Max damage", () => n.MaxDmg, v => n.MaxDmg = v, editable, 0);
+            NpcInt(npcId, "attack_delay", "Attack delay", () => n.AttackDelay, v => n.AttackDelay = v, editable, 0);
+            NpcInt(npcId, "attack_count", "Attack count", () => n.AttackCount, v => n.AttackCount = v, editable);
+            NpcFloat(npcId, "attack_speed", "Attack speed", () => n.AttackSpeed, v => n.AttackSpeed = v, editable);
+            NpcInt(npcId, "slow_mitigation", "Slow mitigation", () => n.SlowMitigation, v => n.SlowMitigation = v, editable);
+            NpcInt(npcId, "heroic_strikethrough", "Heroic strikethrough", () => n.HeroicStrikethrough, v => n.HeroicStrikethrough = v, editable);
+            NpcLong(npcId, "hp_regen_rate",       "HP regen (per tick)",   () => n.HpRegenRate,      v => n.HpRegenRate      = v, editable);
+            NpcLong(npcId, "hp_regen_per_second", "HP regen (per second)", () => n.HpRegenPerSecond, v => n.HpRegenPerSecond = v, editable);
+            NpcLong(npcId, "mana_regen_rate",     "Mana regen (per tick)", () => n.ManaRegenRate,    v => n.ManaRegenRate    = v, editable);
 
             // ── Stats ──────────────────────────────────────────────
             ImGui.Separator();
             ImGui.Text("Stats");
-            ImGui.Text($"  STR {n.Str}   STA {n.Sta}   DEX {n.Dex}   AGI {n.Agi}");
-            ImGui.Text($"  INT {n.Int_}   WIS {n.Wis}   CHA {n.Cha}");
+            NpcInt(npcId, "STR",  "STR", () => n.Str,  v => n.Str  = v, editable, 0);
+            NpcInt(npcId, "STA",  "STA", () => n.Sta,  v => n.Sta  = v, editable, 0);
+            NpcInt(npcId, "DEX",  "DEX", () => n.Dex,  v => n.Dex  = v, editable, 0);
+            NpcInt(npcId, "AGI",  "AGI", () => n.Agi,  v => n.Agi  = v, editable, 0);
+            NpcInt(npcId, "_INT", "INT", () => n.Int_, v => n.Int_ = v, editable, 0);
+            NpcInt(npcId, "WIS",  "WIS", () => n.Wis,  v => n.Wis  = v, editable, 0);
+            NpcInt(npcId, "CHA",  "CHA", () => n.Cha,  v => n.Cha  = v, editable, 0);
 
             // ── Resistances ────────────────────────────────────────
             ImGui.Separator();
             ImGui.Text("Resistances");
-            ImGui.Text($"  MR {n.MR}   CR {n.CR}   DR {n.DR}   FR {n.FR}   PR {n.PR}");
-            ImGui.Text($"  Corrup {n.Corrup}   PhR {n.PhR}");
+            NpcInt(npcId, "MR", "MR", () => n.MR, v => n.MR = v, editable);
+            NpcInt(npcId, "CR", "CR", () => n.CR, v => n.CR = v, editable);
+            NpcInt(npcId, "DR", "DR", () => n.DR, v => n.DR = v, editable);
+            NpcInt(npcId, "FR", "FR", () => n.FR, v => n.FR = v, editable);
+            NpcInt(npcId, "PR", "PR", () => n.PR, v => n.PR = v, editable);
+            NpcInt(npcId, "Corrup", "Corrup", () => n.Corrup, v => n.Corrup = v, editable);
+            NpcInt(npcId, "PhR",    "PhR",    () => n.PhR,    v => n.PhR    = v, editable, 0);
 
-            // ── Visual ─────────────────────────────────────────────
+            // ── Visual (read-only in Slice 2 — Slice 3 owns live preview) ───
             ImGui.Separator();
-            ImGui.Text("Visual");
+            ImGui.Text("Visual (read-only — Slice 3 adds editing + live preview)");
             ImGui.Text($"  Body texture {n.Texture}   Helm {n.HelmTexture}   Face {n.Face}");
             ImGui.Text($"  Extra: arm {n.ArmTexture}  bracer {n.BracerTexture}  hand {n.HandTexture}  leg {n.LegTexture}  feet {n.FeetTexture}");
             ImGui.Text($"  Weapons: d_melee1 {n.DMeleeTexture1}   d_melee2 {n.DMeleeTexture2}   ammo {n.AmmoIdfile ?? ""}");
-            ImGui.Text($"  Melee types: prim {n.PrimMeleeType}  sec {n.SecMeleeType}  ranged {n.RangedType}");
+            ImGui.Text($"  Melee types: prim {SpawnInfoLookups.MeleeTypeName(n.PrimMeleeType)} ({n.PrimMeleeType})  sec {SpawnInfoLookups.MeleeTypeName(n.SecMeleeType)} ({n.SecMeleeType})  ranged {SpawnInfoLookups.MeleeTypeName(n.RangedType)} ({n.RangedType})");
             ImGui.Text($"  Model {n.Model}   HerosForge {n.HerosForgeModel}   Light {n.Light}");
             ImGui.Text($"  Luclin: hair {n.LuclinHairstyle}/{n.LuclinHaircolor}   eyes {n.LuclinEyecolor}/{n.LuclinEyecolor2}   beard {n.LuclinBeard}/{n.LuclinBeardcolor}");
             ImGui.Text($"  Drakkin: heritage {n.DrakkinHeritage}  tattoo {n.DrakkinTattoo}  details {n.DrakkinDetails}");
@@ -3005,68 +3866,100 @@ namespace VisualEQ.Views
             // ── AI & Behavior ──────────────────────────────────────
             ImGui.Separator();
             ImGui.Text("AI & Behavior");
-            ImGui.Text($"  Aggro radius {n.AggroRadius}   Assist radius {n.AssistRadius}");
-            ImGui.Text($"  npc_aggro {n.NpcAggro}   always_aggro {n.AlwaysAggro}");
-            ImGui.Text($"  Runspeed {n.Runspeed:F2}   Walkspeed {n.Walkspeed}");
-            ImGui.Text($"  Sees: invis {n.SeeInvis}   invis-undead {n.SeeInvisUndead}   hide {n.SeeHide}   imp-hide {n.SeeImprovedHide}");
-            ImGui.Text($"  Stuck behavior {n.StuckBehavior}   Flymode {n.Flymode}   Underwater {n.Underwater}");
-            ImGui.Text($"  Rare spawn {(n.RareSpawn?.ToString() ?? "null")}   Spawn limit {n.SpawnLimit}");
-            ImGui.Text($"  Qglobal {n.Qglobal}   Emote id {n.EmoteId}");
-            ImGui.Text($"  Flags: {FormatNpcFlags(n)}");
+            NpcInt(npcId, "aggroradius",  "Aggro radius",  () => n.AggroRadius,  v => n.AggroRadius  = v, editable, 0);
+            NpcInt(npcId, "assistradius", "Assist radius", () => n.AssistRadius, v => n.AssistRadius = v, editable, 0);
+            NpcInt(npcId, "npc_aggro",    "npc_aggro",     () => n.NpcAggro,     v => n.NpcAggro     = v, editable);
+            NpcCheckbox(npcId, "always_aggro", "always_aggro", () => n.AlwaysAggro, v => n.AlwaysAggro = v, editable);
+            NpcFloat(npcId, "runspeed",  "Run speed",  () => n.Runspeed,  v => n.Runspeed  = v, editable);
+            NpcInt(npcId, "walkspeed", "Walk speed", () => n.Walkspeed, v => n.Walkspeed = v, editable, 0);
+            NpcInt(npcId, "see_invis",         "See invis",         () => n.SeeInvis,        v => n.SeeInvis        = v, editable);
+            NpcInt(npcId, "see_invis_undead",  "See invis undead",  () => n.SeeInvisUndead,  v => n.SeeInvisUndead  = v, editable);
+            NpcInt(npcId, "see_hide",          "See hide",          () => n.SeeHide,         v => n.SeeHide         = v, editable);
+            NpcInt(npcId, "see_improved_hide", "See improved hide", () => n.SeeImprovedHide, v => n.SeeImprovedHide = v, editable);
+            NpcEnumCombo(npcId, "stuck_behavior", "Stuck behavior",
+                () => n.StuckBehavior, v => n.StuckBehavior = v,
+                _npcStuckVals, _npcStuckLabels, editable);
+            NpcEnumCombo(npcId, "flymode", "Flymode",
+                () => n.Flymode, v => n.Flymode = v,
+                _npcFlymodeVals, _npcFlymodeLabels, editable);
+            NpcInt(npcId, "underwater", "Underwater", () => n.Underwater, v => n.Underwater = v, editable);
+            NpcNullableInt(npcId, "rare_spawn", "Rare spawn", () => n.RareSpawn, v => n.RareSpawn = v, editable);
+            NpcInt(npcId, "spawn_limit", "Spawn limit", () => n.SpawnLimit, v => n.SpawnLimit = v, editable, 0);
+            NpcInt(npcId, "qglobal",  "Qglobal",  () => n.Qglobal,  v => n.Qglobal  = v, editable);
+            NpcInt(npcId, "emoteid",  "Emote id", () => n.EmoteId,  v => n.EmoteId  = v, editable);
+            ImGui.Text("Flags");
+            NpcCheckbox(npcId, "findable",              "findable",              () => n.Findable,           v => n.Findable           = v, editable);
+            NpcCheckbox(npcId, "trackable",             "trackable",             () => n.Trackable,          v => n.Trackable          = v, editable);
+            NpcCheckbox(npcId, "show_name",             "show_name",             () => n.ShowName,           v => n.ShowName           = v, editable);
+            NpcCheckbox(npcId, "no_target_hotkey",      "no_target_hotkey",      () => n.NoTargetHotkey,     v => n.NoTargetHotkey     = v, editable);
+            NpcCheckbox(npcId, "untargetable",          "untargetable",          () => n.Untargetable,       v => n.Untargetable       = v, editable);
+            NpcCheckbox(npcId, "raid_target",           "raid_target",           () => n.RaidTarget,         v => n.RaidTarget         = v, editable);
+            NpcCheckbox(npcId, "private_corpse",        "private_corpse",        () => n.PrivateCorpse,      v => n.PrivateCorpse      = v, editable);
+            NpcCheckbox(npcId, "unique_spawn_by_name",  "unique_spawn_by_name",  () => n.UniqueSpawnByName,  v => n.UniqueSpawnByName  = v, editable);
+            NpcCheckbox(npcId, "unique_",               "unique",                () => n.Unique,             v => n.Unique             = v, editable);
+            NpcCheckbox(npcId, "fixed",                 "fixed",                 () => n.Fixed,              v => n.Fixed              = v, editable);
+            NpcCheckbox(npcId, "ignore_despawn",        "ignore_despawn",        () => n.IgnoreDespawn,      v => n.IgnoreDespawn      = v, editable);
+            NpcCheckbox(npcId, "isbot",                 "isbot",                 () => n.IsBot,              v => n.IsBot              = v, editable);
+            NpcCheckbox(npcId, "isquest",               "isquest",               () => n.IsQuest,            v => n.IsQuest            = v, editable);
+            NpcCheckbox(npcId, "exclude",               "exclude",               () => n.Exclude,            v => n.Exclude            = v, editable);
 
-            // ── References ─────────────────────────────────────────
+            // ── References (typeahead pickers for the FK fields) ───
             ImGui.Separator();
             ImGui.Text("References");
-            ImGui.Text($"  Loottable id: {n.LoottableId}");
-            ImGui.Text($"  Merchant id: {n.MerchantId}   Greed: {n.Greed}   Alt currency: {n.AltCurrencyId}");
-            ImGui.Text($"  Spells id: {n.NpcSpellsId}   Effects id: {n.NpcSpellsEffectsId}");
-            ImGui.Text($"  Faction id: {n.NpcFactionId}   Faction amount: {n.FactionAmount}");
-            ImGui.Text($"  Adventure template: {n.AdventureTemplateId}   Trap template: {(n.TrapTemplate?.ToString() ?? "null")}");
-            ImGui.Text($"  Keeps sold items: {n.KeepsSoldItems}   Parcel merchant: {n.IsParcelMerchant}   Multiquest: {n.MultiquestEnabled}");
-            ImGui.Text($"  Skip global loot: {(n.SkipGlobalLoot?.ToString() ?? "null")}");
+            NpcIdPicker(npcId, "loottable_id",          "Loot table",
+                VisualEQ.SpawnSystem.ReferenceDataCache.Table.LootTable,
+                () => n.LoottableId, editable);
+            NpcIdPicker(npcId, "npc_faction_id",        "Faction set",
+                VisualEQ.SpawnSystem.ReferenceDataCache.Table.NpcFaction,
+                () => n.NpcFactionId, editable);
+            NpcIdPicker(npcId, "merchant_id",           "Merchant",
+                VisualEQ.SpawnSystem.ReferenceDataCache.Table.Merchant,
+                () => n.MerchantId, editable);
+            NpcIdPicker(npcId, "npc_spells_id",         "Spell set",
+                VisualEQ.SpawnSystem.ReferenceDataCache.Table.NpcSpellSet,
+                () => n.NpcSpellsId, editable);
+            NpcIdPicker(npcId, "npc_spells_effects_id", "Spell effects set",
+                VisualEQ.SpawnSystem.ReferenceDataCache.Table.NpcSpellEffectSet,
+                () => n.NpcSpellsEffectsId, editable);
+            NpcInt(npcId, "greed",                 "Greed",                 () => n.Greed,               v => n.Greed               = v, editable);
+            NpcInt(npcId, "alt_currency_id",       "Alt currency id",       () => n.AltCurrencyId,       v => n.AltCurrencyId       = v, editable);
+            NpcInt(npcId, "adventure_template_id", "Adventure template id", () => n.AdventureTemplateId, v => n.AdventureTemplateId = v, editable);
+            NpcNullableInt(npcId, "trap_template", "Trap template",         () => n.TrapTemplate,        v => n.TrapTemplate        = v, editable);
+            NpcInt(npcId, "faction_amount",        "Faction amount",        () => n.FactionAmount,       v => n.FactionAmount       = v, editable);
+            NpcCheckbox(npcId, "keeps_sold_items",     "keeps_sold_items",   () => n.KeepsSoldItems,     v => n.KeepsSoldItems     = v, editable);
+            NpcCheckbox(npcId, "is_parcel_merchant",   "is_parcel_merchant", () => n.IsParcelMerchant,   v => n.IsParcelMerchant   = v, editable);
+            NpcCheckbox(npcId, "multiquest_enabled",   "multiquest_enabled", () => n.MultiquestEnabled,  v => n.MultiquestEnabled  = v, editable);
+            NpcNullableInt(npcId, "skip_global_loot",  "Skip global loot",   () => n.SkipGlobalLoot,     v => n.SkipGlobalLoot     = v, editable);
 
             // ── Scaling ────────────────────────────────────────────
             ImGui.Separator();
             ImGui.Text("Scaling");
-            ImGui.Text($"  Scalerate {n.Scalerate}   Spellscale {n.Spellscale:F1}   Healscale {n.Healscale:F1}");
-            ImGui.Text($"  Exp mod {n.ExpMod}   Max level {n.Maxlevel}");
+            NpcInt(npcId, "scalerate",  "Scale rate", () => n.Scalerate,  v => n.Scalerate  = v, editable);
+            NpcFloat(npcId, "spellscale", "Spell scale", () => n.Spellscale, v => n.Spellscale = v, editable, "F1");
+            NpcFloat(npcId, "healscale",  "Heal scale",  () => n.Healscale,  v => n.Healscale  = v, editable, "F1");
+            NpcInt(npcId, "exp_mod",    "Exp mod",   () => n.ExpMod,   v => n.ExpMod   = v, editable);
+            NpcInt(npcId, "maxlevel",   "Max level", () => n.Maxlevel, v => n.Maxlevel = v, editable, 0, 127);
 
             // ── Charm overrides ────────────────────────────────────
             ImGui.Separator();
-            ImGui.Text("Charm overrides");
-            ImGui.Text($"  AC {(n.CharmAc?.ToString() ?? "-")}   ATK {(n.CharmAtk?.ToString() ?? "-")}");
-            ImGui.Text($"  Dmg {(n.CharmMinDmg?.ToString() ?? "-")}–{(n.CharmMaxDmg?.ToString() ?? "-")}   Delay {(n.CharmAttackDelay?.ToString() ?? "-")}");
-            ImGui.Text($"  Accuracy {(n.CharmAccuracyRating?.ToString() ?? "-")}   Avoidance {(n.CharmAvoidanceRating?.ToString() ?? "-")}");
+            ImGui.Text("Charm overrides (null = use base stat)");
+            NpcNullableInt(npcId, "charm_ac",               "Charm AC",                () => n.CharmAc,               v => n.CharmAc               = v, editable);
+            NpcNullableInt(npcId, "charm_atk",              "Charm ATK",               () => n.CharmAtk,              v => n.CharmAtk              = v, editable);
+            NpcNullableInt(npcId, "charm_min_dmg",          "Charm min damage",        () => n.CharmMinDmg,           v => n.CharmMinDmg           = v, editable);
+            NpcNullableInt(npcId, "charm_max_dmg",          "Charm max damage",        () => n.CharmMaxDmg,           v => n.CharmMaxDmg           = v, editable);
+            NpcNullableInt(npcId, "charm_attack_delay",     "Charm attack delay",      () => n.CharmAttackDelay,      v => n.CharmAttackDelay      = v, editable);
+            NpcNullableInt(npcId, "charm_accuracy_rating", "Charm accuracy rating",    () => n.CharmAccuracyRating,   v => n.CharmAccuracyRating   = v, editable);
+            NpcNullableInt(npcId, "charm_avoidance_rating","Charm avoidance rating",   () => n.CharmAvoidanceRating,  v => n.CharmAvoidanceRating  = v, editable);
 
-            // ── Special abilities (raw — Slice 4 makes this friendly) ─
+            // ── Special abilities (read-only — Slice 4 adds friendly editor) ──
             ImGui.Separator();
-            ImGui.Text("Special abilities (raw)");
+            ImGui.Text("Special abilities (raw — Slice 4 makes this friendly)");
             ImGui.Text($"  npcspecialattks: {(string.IsNullOrEmpty(n.NpcSpecialAttks) ? "(none)" : n.NpcSpecialAttks)}");
             ImGui.Text($"  special_abilities: {(string.IsNullOrEmpty(n.SpecialAbilities) ? "(none)" : n.SpecialAbilities)}");
 
             // ── Provenance ─────────────────────────────────────────
             ImGui.Separator();
             ImGui.Text($"Version {n.Version}   PEQ id {n.PeqId}");
-        }
-
-        static string FormatNpcFlags(VisualEQ.Database.Models.NpcTypeFull n)
-        {
-            var flags = new List<string>();
-            if (n.Findable          != 0) flags.Add("findable");
-            if (n.Trackable         != 0) flags.Add("trackable");
-            if (n.ShowName          != 0) flags.Add("show_name");
-            if (n.NoTargetHotkey    != 0) flags.Add("no_target_hotkey");
-            if (n.Untargetable      != 0) flags.Add("untargetable");
-            if (n.RaidTarget        != 0) flags.Add("raid_target");
-            if (n.PrivateCorpse     != 0) flags.Add("private_corpse");
-            if (n.UniqueSpawnByName != 0) flags.Add("unique_spawn_by_name");
-            if (n.Unique            != 0) flags.Add("unique");
-            if (n.Fixed             != 0) flags.Add("fixed");
-            if (n.IgnoreDespawn     != 0) flags.Add("ignore_despawn");
-            if (n.IsBot             != 0) flags.Add("isbot");
-            if (n.IsQuest           != 0) flags.Add("isquest");
-            if (n.Exclude           != 0) flags.Add("exclude");
-            return flags.Count == 0 ? "(none)" : string.Join(", ", flags);
         }
 
         void RenderModelEditorSection(int index)

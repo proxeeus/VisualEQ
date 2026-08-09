@@ -294,6 +294,38 @@ namespace VisualEQ.Database.Constants
             FROM npc_types
             WHERE id = @NpcId";
 
+        // Reference-data queries for the NPC editor's typeahead pickers. Each returns
+        // {id, name} rows so ReferenceDataCache can hold one dict per table and any FK
+        // int column in the sidebar can resolve to a human label without a second query.
+        public const string GetAllLootTables = @"
+            SELECT id AS Id, name AS Name
+            FROM loottable
+            ORDER BY name";
+
+        public const string GetAllNpcFactions = @"
+            SELECT id AS Id, name AS Name
+            FROM npc_faction
+            ORDER BY name";
+
+        public const string GetAllNpcSpellSets = @"
+            SELECT id AS Id, name AS Name
+            FROM npc_spells
+            ORDER BY name";
+
+        public const string GetAllNpcSpellEffectSets = @"
+            SELECT id AS Id, name AS Name
+            FROM npc_spells_effects
+            ORDER BY name";
+
+        // Merchantlist has no name column — one row per (merchantid, slot). Aggregate by
+        // merchantid so each distinct merchant surfaces exactly once, with an item-count
+        // synthesized as the label so the picker isn't just naked ids.
+        public const string GetAllMerchants = @"
+            SELECT merchantid AS Id, CONCAT('merchant ', merchantid, ' (', COUNT(*), ' items)') AS Name
+            FROM merchantlist
+            GROUP BY merchantid
+            ORDER BY merchantid";
+
         // NPC picker search — substring match on npc_types.name. Caller passes @Filter
         // pre-wrapped with '%' wildcards (empty @Filter still returns rows, LIMIT
         // caps the load). Ordered by name so the UI list stays stable across
