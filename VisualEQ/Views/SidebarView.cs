@@ -400,6 +400,15 @@ namespace VisualEQ.Views
             var avail  = ImGui.GetContentRegionAvailable();
             var childH = System.Math.Max(50f, avail.Y - 4f); // small footer margin
 
+            // Hint a very large virtual content size to the NEXT (child) window
+            // via raw cimgui P/Invoke — ImGui.NET 0.4.6's C# wrapper never bound
+            // SetNextWindowContentSize, and without it the child's scroll extent
+            // caps at ~one page, making tall sidebars unreachable regardless of
+            // BeginChild flags. 20000 is safely larger than any realistic sidebar
+            // content height (all sections expanded totals well under that);
+            // scrollbar thumb will look small but the bar reaches the actual end.
+            NsimGui.CimguiRaw.igSetNextWindowContentSize(new NsimGui.CimguiRaw.ImVec2(0f, 20000f));
+
             // AlwaysVerticalScrollbar so the scrollbar is visible even when content
             // fits (users know they CAN scroll — no confusion about missing widgets).
             ImGui.BeginChild($"###{Id}scroll", new Vector2(0, childH), false,
@@ -4080,7 +4089,7 @@ namespace VisualEQ.Views
             // the noisier full-schema sections start collapsed.
 
             // ── Combat ─────────────────────────────────────────────
-            if (ImGui.CollapsingHeader($"Combat###{Id}ndCombat", 0))
+            if (ImGui.CollapsingHeader($"Combat###{Id}ndCombat", TreeNodeFlags.DefaultOpen))
             {
             NpcLong(npcId, "hp",   "HP",   () => n.Hp,   v => n.Hp   = v, editable);
             NpcLong(npcId, "mana", "Mana", () => n.Mana, v => n.Mana = v, editable);
@@ -4129,7 +4138,7 @@ namespace VisualEQ.Views
             // triggers Controller.RefreshNpcVisualForNpc which cache-swaps the AniModel
             // on every scene instance backed by this npc_types row. Focusing any of
             // these fields also auto-frames the camera (see HandleNpcActivation).
-            if (ImGui.CollapsingHeader($"Visual###{Id}ndVis", 0))
+            if (ImGui.CollapsingHeader($"Visual###{Id}ndVis", TreeNodeFlags.DefaultOpen))
             {
             NpcInt(npcId, "texture",     "Body texture", () => n.Texture,     v => n.Texture     = v, editable, 0, 15);
             NpcInt(npcId, "helmtexture", "Helm texture", () => n.HelmTexture, v => n.HelmTexture = v, editable, 0, 15);
@@ -4190,7 +4199,7 @@ namespace VisualEQ.Views
             }
 
             // ── Special abilities (Slice 4 — friendly checkbox editor) ─────
-            if (ImGui.CollapsingHeader($"Special Abilities###{Id}ndSA", 0))
+            if (ImGui.CollapsingHeader($"Special Abilities###{Id}ndSA", TreeNodeFlags.DefaultOpen))
             {
             NpcSpecialAbilitiesEditor(npcId, () => n.SpecialAbilities, v => n.SpecialAbilities = v, editable);
 
