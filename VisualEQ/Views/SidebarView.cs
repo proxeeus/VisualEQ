@@ -146,8 +146,9 @@ namespace VisualEQ.Views
         public const string SectionZonePoints   = "zone_points";
         public const string SectionTeleport     = "teleport";
         public const string SectionModelEditor  = "model_editor";
+        public const string SectionNpcDetails   = "npc_details";
 
-        static readonly string[] DefaultOrder = { SectionStatus, SectionPending, SectionSpawnInfo, SectionWaypointInfo, SectionSpawnList, SectionGridList, SectionZonePoints, SectionModelEditor, SectionTeleport };
+        static readonly string[] DefaultOrder = { SectionStatus, SectionPending, SectionSpawnInfo, SectionNpcDetails, SectionWaypointInfo, SectionSpawnList, SectionGridList, SectionZonePoints, SectionModelEditor, SectionTeleport };
 
         private readonly SidebarView _view;
 
@@ -290,6 +291,16 @@ namespace VisualEQ.Views
         // Debounced settings save — flush when width has been stable for a moment.
         private bool _widthDirty;
         private float _widthDirtyAt;
+
+        // NPC-details fetch state (Slice 1 read-side). Task fires whenever the primary NPC
+        // of the SelectedSpawn changes; result cached against that id so re-selecting the
+        // same spawn (or another spawn sharing the same npc_types row) is free. One in-flight
+        // fetch at a time — matches the NPC-picker pattern above.
+        private int? _npcDetailsFetchedForId;
+        private int? _npcDetailsInFlightForId;
+        private System.Threading.Tasks.Task<VisualEQ.Database.Models.NpcTypeFull> _npcDetailsFetchTask;
+        private VisualEQ.Database.Models.NpcTypeFull _npcDetailsData;
+        private string _npcDetailsError;
 
         public SidebarWidget(SidebarView view)
         {
@@ -842,6 +853,7 @@ namespace VisualEQ.Views
                 case SectionZonePoints:   RenderZonePointsSection(index); break;
                 case SectionTeleport:     RenderTeleportSection(index); break;
                 case SectionModelEditor:  RenderModelEditorSection(index); break;
+                case SectionNpcDetails:   RenderNpcDetailsSection(index); break;
             }
         }
 
@@ -2853,6 +2865,208 @@ namespace VisualEQ.Views
             _zpActiveEditZonePointId = null;
             _zpActiveEditBeforeValue = null;
             _zpActiveEditReader      = null;
+        }
+
+        // Full-fidelity NPC row inspector (Slice 1 — read-only). Later slices turn this
+        // into the tabbed NPC editor per VisualEQ-NpcEditor-Plan.md. The section is a flat
+        // layout with Separator-delimited categories rather than nested CollapsingHeaders
+        // — matches the existing sidebar style (see RenderSpawnInfoSection) and keeps
+        // everything scannable in one pass. Data flows: SelectedSpawn → primary NPC id →
+        // async fetch via NpcRepository → cached NpcTypeFull → rendered here.
+        void RenderNpcDetailsSection(int index)
+        {
+            RenderReorderHandles(index, "nd");
+            if (!ImGui.CollapsingHeader($"NPC Details###{Id}nd", TreeNodeFlags.DefaultOpen))
+                return;
+
+            var sp = _view.SelectedSpawn;
+            if (sp == null)
+            {
+                ImGui.Text("Click a spawn to view full NPC details.");
+                return;
+            }
+
+            var primary = sp.Record.Entries
+                .OrderByDescending(e => e.Entry.Chance)
+                .FirstOrDefault();
+            var npcId = primary?.Npc?.Id ?? 0;
+            if (npcId == 0)
+            {
+                ImGui.Text("(no primary NPC in spawngroup)");
+                return;
+            }
+
+            MaintainNpcDetailsFetch(npcId);
+
+            // Loading / error / not-found precede the data render so we don't flash a stale
+            // NPC's fields when the user selects a different spawn.
+            if (_npcDetailsInFlightForId == npcId)
+            {
+                ImGui.Text("Loading NPC details…");
+                return;
+            }
+            if (_npcDetailsFetchedForId == npcId && _npcDetailsError != null)
+            {
+                ImGui.Text($"Error: {_npcDetailsError}", new Vector4(0.95f, 0.35f, 0.25f, 1f));
+                return;
+            }
+            if (_npcDetailsData == null || _npcDetailsData.Id != npcId)
+            {
+                ImGui.Text("NPC row not found in database.");
+                return;
+            }
+
+            RenderNpcDetailsBody(_npcDetailsData);
+        }
+
+        void MaintainNpcDetailsFetch(int npcId)
+        {
+            // Reap in-flight fetch first so the switch below sees a settled state.
+            if (_npcDetailsFetchTask != null && _npcDetailsFetchTask.IsCompleted)
+            {
+                if (_npcDetailsFetchTask.IsFaulted)
+                {
+                    _npcDetailsError = _npcDetailsFetchTask.Exception?.GetBaseException().Message ?? "unknown error";
+                    _npcDetailsData  = null;
+                }
+                else
+                {
+                    _npcDetailsError = null;
+                    _npcDetailsData  = _npcDetailsFetchTask.Result;
+                }
+                _npcDetailsFetchedForId  = _npcDetailsInFlightForId;
+                _npcDetailsInFlightForId = null;
+                _npcDetailsFetchTask     = null;
+            }
+
+            // Kick off a new fetch when the target changed and nothing's in flight.
+            // Selecting the same NPC again (or another spawn sharing the same npc_types
+            // row) short-circuits — the cached row is reused.
+            if (_npcDetailsFetchTask == null && _npcDetailsFetchedForId != npcId)
+            {
+                var factory = _view.Controller.DbFactory;
+                if (factory == null)
+                {
+                    _npcDetailsError = "No database connection is configured.";
+                    _npcDetailsData  = null;
+                    _npcDetailsFetchedForId = npcId;
+                    return;
+                }
+                _npcDetailsInFlightForId = npcId;
+                var repo = new VisualEQ.Database.Repositories.NpcRepository(factory);
+                _npcDetailsFetchTask = System.Threading.Tasks.Task.Run(async () =>
+                    await repo.GetNpcByIdAsync(npcId));
+            }
+        }
+
+        void RenderNpcDetailsBody(VisualEQ.Database.Models.NpcTypeFull n)
+        {
+            // ── Identity ───────────────────────────────────────────
+            ImGui.Text($"{n.Name ?? "?"}   [id {n.Id}]");
+            if (!string.IsNullOrEmpty(n.LastName))
+                ImGui.Text($"  \"{n.LastName}\"");
+            ImGui.Text($"L{n.Level}  {SpawnInfoLookups.RaceName(n.Race)} ({n.Race})  {SpawnInfoLookups.GenderName(n.Gender)}");
+            ImGui.Text($"{SpawnInfoLookups.ClassName(n.Class)} ({n.Class})  ·  {SpawnInfoLookups.BodyTypeName(n.BodyType)} ({n.BodyType})");
+            ImGui.Text($"Size {n.Size:F2}");
+
+            // ── Combat ─────────────────────────────────────────────
+            ImGui.Separator();
+            ImGui.Text("Combat");
+            ImGui.Text($"  HP {n.Hp}   Mana {n.Mana}");
+            ImGui.Text($"  AC {n.Ac}   ATK {n.Atk}   Acc {n.Accuracy}   Avoid {n.Avoidance}");
+            ImGui.Text($"  Dmg {n.MinDmg}–{n.MaxDmg}   Delay {n.AttackDelay}   Speed {n.AttackSpeed:F2}   Count {n.AttackCount}");
+            ImGui.Text($"  Slow mitigation {n.SlowMitigation}   Heroic strikethrough {n.HeroicStrikethrough}");
+            ImGui.Text($"  Regen: HP {n.HpRegenRate} (+{n.HpRegenPerSecond}/s)   Mana {n.ManaRegenRate}");
+
+            // ── Stats ──────────────────────────────────────────────
+            ImGui.Separator();
+            ImGui.Text("Stats");
+            ImGui.Text($"  STR {n.Str}   STA {n.Sta}   DEX {n.Dex}   AGI {n.Agi}");
+            ImGui.Text($"  INT {n.Int_}   WIS {n.Wis}   CHA {n.Cha}");
+
+            // ── Resistances ────────────────────────────────────────
+            ImGui.Separator();
+            ImGui.Text("Resistances");
+            ImGui.Text($"  MR {n.MR}   CR {n.CR}   DR {n.DR}   FR {n.FR}   PR {n.PR}");
+            ImGui.Text($"  Corrup {n.Corrup}   PhR {n.PhR}");
+
+            // ── Visual ─────────────────────────────────────────────
+            ImGui.Separator();
+            ImGui.Text("Visual");
+            ImGui.Text($"  Body texture {n.Texture}   Helm {n.HelmTexture}   Face {n.Face}");
+            ImGui.Text($"  Extra: arm {n.ArmTexture}  bracer {n.BracerTexture}  hand {n.HandTexture}  leg {n.LegTexture}  feet {n.FeetTexture}");
+            ImGui.Text($"  Weapons: d_melee1 {n.DMeleeTexture1}   d_melee2 {n.DMeleeTexture2}   ammo {n.AmmoIdfile ?? ""}");
+            ImGui.Text($"  Melee types: prim {n.PrimMeleeType}  sec {n.SecMeleeType}  ranged {n.RangedType}");
+            ImGui.Text($"  Model {n.Model}   HerosForge {n.HerosForgeModel}   Light {n.Light}");
+            ImGui.Text($"  Luclin: hair {n.LuclinHairstyle}/{n.LuclinHaircolor}   eyes {n.LuclinEyecolor}/{n.LuclinEyecolor2}   beard {n.LuclinBeard}/{n.LuclinBeardcolor}");
+            ImGui.Text($"  Drakkin: heritage {n.DrakkinHeritage}  tattoo {n.DrakkinTattoo}  details {n.DrakkinDetails}");
+            ImGui.Text($"  Armor tint: id {n.ArmortintId}   RGB ({n.ArmortintRed},{n.ArmortintGreen},{n.ArmortintBlue})");
+
+            // ── AI & Behavior ──────────────────────────────────────
+            ImGui.Separator();
+            ImGui.Text("AI & Behavior");
+            ImGui.Text($"  Aggro radius {n.AggroRadius}   Assist radius {n.AssistRadius}");
+            ImGui.Text($"  npc_aggro {n.NpcAggro}   always_aggro {n.AlwaysAggro}");
+            ImGui.Text($"  Runspeed {n.Runspeed:F2}   Walkspeed {n.Walkspeed}");
+            ImGui.Text($"  Sees: invis {n.SeeInvis}   invis-undead {n.SeeInvisUndead}   hide {n.SeeHide}   imp-hide {n.SeeImprovedHide}");
+            ImGui.Text($"  Stuck behavior {n.StuckBehavior}   Flymode {n.Flymode}   Underwater {n.Underwater}");
+            ImGui.Text($"  Rare spawn {(n.RareSpawn?.ToString() ?? "null")}   Spawn limit {n.SpawnLimit}");
+            ImGui.Text($"  Qglobal {n.Qglobal}   Emote id {n.EmoteId}");
+            ImGui.Text($"  Flags: {FormatNpcFlags(n)}");
+
+            // ── References ─────────────────────────────────────────
+            ImGui.Separator();
+            ImGui.Text("References");
+            ImGui.Text($"  Loottable id: {n.LoottableId}");
+            ImGui.Text($"  Merchant id: {n.MerchantId}   Greed: {n.Greed}   Alt currency: {n.AltCurrencyId}");
+            ImGui.Text($"  Spells id: {n.NpcSpellsId}   Effects id: {n.NpcSpellsEffectsId}");
+            ImGui.Text($"  Faction id: {n.NpcFactionId}   Faction amount: {n.FactionAmount}");
+            ImGui.Text($"  Adventure template: {n.AdventureTemplateId}   Trap template: {(n.TrapTemplate?.ToString() ?? "null")}");
+            ImGui.Text($"  Keeps sold items: {n.KeepsSoldItems}   Parcel merchant: {n.IsParcelMerchant}   Multiquest: {n.MultiquestEnabled}");
+            ImGui.Text($"  Skip global loot: {(n.SkipGlobalLoot?.ToString() ?? "null")}");
+
+            // ── Scaling ────────────────────────────────────────────
+            ImGui.Separator();
+            ImGui.Text("Scaling");
+            ImGui.Text($"  Scalerate {n.Scalerate}   Spellscale {n.Spellscale:F1}   Healscale {n.Healscale:F1}");
+            ImGui.Text($"  Exp mod {n.ExpMod}   Max level {n.Maxlevel}");
+
+            // ── Charm overrides ────────────────────────────────────
+            ImGui.Separator();
+            ImGui.Text("Charm overrides");
+            ImGui.Text($"  AC {(n.CharmAc?.ToString() ?? "-")}   ATK {(n.CharmAtk?.ToString() ?? "-")}");
+            ImGui.Text($"  Dmg {(n.CharmMinDmg?.ToString() ?? "-")}–{(n.CharmMaxDmg?.ToString() ?? "-")}   Delay {(n.CharmAttackDelay?.ToString() ?? "-")}");
+            ImGui.Text($"  Accuracy {(n.CharmAccuracyRating?.ToString() ?? "-")}   Avoidance {(n.CharmAvoidanceRating?.ToString() ?? "-")}");
+
+            // ── Special abilities (raw — Slice 4 makes this friendly) ─
+            ImGui.Separator();
+            ImGui.Text("Special abilities (raw)");
+            ImGui.Text($"  npcspecialattks: {(string.IsNullOrEmpty(n.NpcSpecialAttks) ? "(none)" : n.NpcSpecialAttks)}");
+            ImGui.Text($"  special_abilities: {(string.IsNullOrEmpty(n.SpecialAbilities) ? "(none)" : n.SpecialAbilities)}");
+
+            // ── Provenance ─────────────────────────────────────────
+            ImGui.Separator();
+            ImGui.Text($"Version {n.Version}   PEQ id {n.PeqId}");
+        }
+
+        static string FormatNpcFlags(VisualEQ.Database.Models.NpcTypeFull n)
+        {
+            var flags = new List<string>();
+            if (n.Findable          != 0) flags.Add("findable");
+            if (n.Trackable         != 0) flags.Add("trackable");
+            if (n.ShowName          != 0) flags.Add("show_name");
+            if (n.NoTargetHotkey    != 0) flags.Add("no_target_hotkey");
+            if (n.Untargetable      != 0) flags.Add("untargetable");
+            if (n.RaidTarget        != 0) flags.Add("raid_target");
+            if (n.PrivateCorpse     != 0) flags.Add("private_corpse");
+            if (n.UniqueSpawnByName != 0) flags.Add("unique_spawn_by_name");
+            if (n.Unique            != 0) flags.Add("unique");
+            if (n.Fixed             != 0) flags.Add("fixed");
+            if (n.IgnoreDespawn     != 0) flags.Add("ignore_despawn");
+            if (n.IsBot             != 0) flags.Add("isbot");
+            if (n.IsQuest           != 0) flags.Add("isquest");
+            if (n.Exclude           != 0) flags.Add("exclude");
+            return flags.Count == 0 ? "(none)" : string.Join(", ", flags);
         }
 
         void RenderModelEditorSection(int index)
