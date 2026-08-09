@@ -12,5 +12,8 @@ namespace VisualEQ.Database.Models
         public string Name                  { get; set; }
         public int    PrimaryFaction        { get; set; }
         public sbyte  IgnorePrimaryAssist   { get; set; }
+        // Denormalized from faction_list.name via LEFT JOIN — see NpcFactionEntry
+        // for the rationale. Null when PrimaryFaction=0 or the fk is dangling.
+        public string PrimaryFactionName    { get; set; }
     }
 }

@@ -339,12 +339,14 @@ namespace VisualEQ.Database.Constants
         // the primary is excluded from assist aggro.
         public const string GetNpcFactionById = @"
             SELECT
-                id                     AS Id,
-                name                   AS Name,
-                primaryfaction         AS PrimaryFaction,
-                ignore_primary_assist  AS IgnorePrimaryAssist
-            FROM npc_faction
-            WHERE id = @Id";
+                nf.id                     AS Id,
+                nf.name                   AS Name,
+                nf.primaryfaction         AS PrimaryFaction,
+                nf.ignore_primary_assist  AS IgnorePrimaryAssist,
+                fl.name                   AS PrimaryFactionName
+            FROM npc_faction nf
+            LEFT JOIN faction_list fl ON fl.id = nf.primaryfaction
+            WHERE nf.id = @Id";
 
         // Entries in a specific npc_faction set. Composite PK is
         // (npc_faction_id, faction_id) — one row per faction that dying to this NPC
@@ -352,14 +354,16 @@ namespace VisualEQ.Database.Constants
         // amount used for aggro calc, `temp` = temporary faction flag.
         public const string GetNpcFactionEntries = @"
             SELECT
-                npc_faction_id  AS NpcFactionId,
-                faction_id      AS FactionId,
-                value           AS Value,
-                npc_value       AS NpcValue,
-                temp            AS Temp
-            FROM npc_faction_entries
-            WHERE npc_faction_id = @NpcFactionId
-            ORDER BY faction_id";
+                nfe.npc_faction_id  AS NpcFactionId,
+                nfe.faction_id      AS FactionId,
+                nfe.value           AS Value,
+                nfe.npc_value       AS NpcValue,
+                nfe.temp            AS Temp,
+                fl.name             AS FactionName
+            FROM npc_faction_entries nfe
+            LEFT JOIN faction_list fl ON fl.id = nfe.faction_id
+            WHERE nfe.npc_faction_id = @NpcFactionId
+            ORDER BY fl.name, nfe.faction_id";
 
         // Commit-path DML for per-entry edits. Composite PK on
         // (npc_faction_id, faction_id) — the (id, faction) pair must be unique.

@@ -308,6 +308,12 @@ namespace VisualEQ.EditSystem
         public NpcFactionEntrySnapshot Original { get; set; }
         public NpcFactionEntrySnapshot Current  { get; set; }
         public DateTime LastModifiedAt { get; set; }
+        // Display-only cache of the faction name captured at edit time (from the
+        // baseline row's LEFT JOIN, or from the FK picker's selection). Not
+        // written back to the DB — the commit path only touches nfe columns. Used
+        // by the sidebar overlay merge so newly-INSERTed rows still show a name
+        // in the editor before the next reload.
+        public string FactionName { get; set; }
     }
 
     // Flat serializable copy of one npc_faction_entries row. Kept separate from

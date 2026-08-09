@@ -3832,11 +3832,10 @@ namespace VisualEQ.Views
                 return;
             }
 
-            // Force-warm the FactionList reference cache so row rendering has names
-            // on the very first frame after the entries fetch lands.
+            // Faction names come inline via the LEFT JOIN on faction_list — no
+            // reliance on ReferenceDataCache for row rendering. Cache is still
+            // used by the Add-faction picker further down (its own concern).
             var cache = _view.Controller.ReferenceData;
-            if (cache != null)
-                cache.GetItems(VisualEQ.SpawnSystem.ReferenceDataCache.Table.FactionList);
 
             MaintainFactionEntriesFetch(npcFactionId);
             if (_factionEntriesInFlightFor == npcFactionId)
@@ -3860,10 +3859,18 @@ namespace VisualEQ.Views
             if (string.IsNullOrWhiteSpace(setName)) setName = "(unnamed set)";
             ImGui.Text($"Set #{npcFactionId} — \"{setName}\"");
 
-            var primaryName = _factionSetData != null && cache != null
-                ? cache.ResolveLabel(VisualEQ.SpawnSystem.ReferenceDataCache.Table.FactionList, _factionSetData.PrimaryFaction)
-                : "(unknown)";
-            ImGui.Text($"Primary faction: {primaryName}");
+            // Primary faction: JOIN-resolved name (empty when set has none or the fk
+            // is dangling). Format as "Name (#id)" — name first for scannability.
+            string primaryLine;
+            if (_factionSetData == null)
+                primaryLine = "(loading…)";
+            else if (_factionSetData.PrimaryFaction == 0)
+                primaryLine = "(none)";
+            else if (!string.IsNullOrWhiteSpace(_factionSetData.PrimaryFactionName))
+                primaryLine = $"{_factionSetData.PrimaryFactionName} (#{_factionSetData.PrimaryFaction})";
+            else
+                primaryLine = $"? (#{_factionSetData.PrimaryFaction})";
+            ImGui.Text($"Primary faction: {primaryLine}");
 
             var ignoreAssist = _factionSetData != null && _factionSetData.IgnorePrimaryAssist != 0;
             ImGui.Text($"Ignore primary assist: {(ignoreAssist ? "Yes" : "No")}");
@@ -3909,18 +3916,18 @@ namespace VisualEQ.Views
             }
 
             foreach (var entry in effective.OrderBy(e =>
-                cache != null
-                    ? cache.ResolveLabel(VisualEQ.SpawnSystem.ReferenceDataCache.Table.FactionList, e.FactionId)
-                    : e.FactionId.ToString()))
+                string.IsNullOrWhiteSpace(e.FactionName) ? "￿" + e.FactionId : e.FactionName))
             {
-                var factionName = cache != null
-                    ? cache.ResolveLabel(VisualEQ.SpawnSystem.ReferenceDataCache.Table.FactionList, entry.FactionId)
-                    : entry.FactionId.ToString();
+                // Format: "Name (#id)". Name from the LEFT JOIN, falls back to "?"
+                // when faction_list has no row for the id (dangling fk — user still
+                // sees the id, so they can look it up).
+                var factionName = !string.IsNullOrWhiteSpace(entry.FactionName)
+                    ? $"{entry.FactionName} (#{entry.FactionId})"
+                    : $"? (#{entry.FactionId})";
 
-                // Faction name column — plain text; ID is in the label already
-                // (ResolveLabel returns "{id} — {name}"). If the name is longer than
-                // the value column start, ImGui just wraps — SameLine still snaps to
-                // the fixed x-position.
+                // Faction name column — plain text; ID follows the name so the row
+                // reads at a glance and the id is available for anyone jumping into
+                // faction_list directly.
                 ImGui.Text(factionName);
 
                 if (!editable)
@@ -4097,6 +4104,7 @@ namespace VisualEQ.Views
                         Value        = e.Value,
                         NpcValue     = e.NpcValue,
                         Temp         = e.Temp,
+                        FactionName  = e.FactionName,
                     };
 
             var buffer = _view.Controller.PendingBuffer;
@@ -4112,6 +4120,13 @@ namespace VisualEQ.Views
                     }
                     else
                     {
+                        // Preserve baseline name on update; fall back to the op's
+                        // captured name (from picker or edit-time snapshot) so pure-
+                        // insert rows still display a name in the editor.
+                        byId.TryGetValue(op.FactionId, out var existing);
+                        var name = existing != null && !string.IsNullOrEmpty(existing.FactionName)
+                            ? existing.FactionName
+                            : op.FactionName;
                         byId[op.FactionId] = new VisualEQ.Database.Models.NpcFactionEntry
                         {
                             NpcFactionId = npcFactionId,
@@ -4119,6 +4134,7 @@ namespace VisualEQ.Views
                             Value        = op.Current.Value,
                             NpcValue     = op.Current.NpcValue,
                             Temp         = op.Current.Temp,
+                            FactionName  = name,
                         };
                     }
                 }

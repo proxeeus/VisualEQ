@@ -61,8 +61,13 @@ namespace VisualEQ.EditSystem
                     NpcFactionId = NpcFactionId,
                     FactionId    = FactionId,
                     Original     = FromValue,
+                    FactionName  = FactionName,
                 };
                 buffer.NpcFactionEntries[key] = op;
+            }
+            else if (string.IsNullOrEmpty(op.FactionName))
+            {
+                op.FactionName = FactionName;
             }
 
             op.Current = target;
