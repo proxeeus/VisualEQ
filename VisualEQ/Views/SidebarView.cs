@@ -3396,7 +3396,22 @@ namespace VisualEQ.Views
         // value at flush time (usually the current displayed-npc property).
         void HandleNpcActivation(int npcId, string field, object beforeValueIfStarting, Func<object> readCurrent)
         {
-            var isActive = ImGui.IsAnyItemActive();
+            // ImGui.NET 0.4.6's IsAnyItemActive is unreliable for InputText — it's true
+            // on the click frame + during actual keystroke frames, but returns false in
+            // between (while the InputText still holds focus). Using it as the sole
+            // defocus signal fires false flushes, which clear our tracking state, so
+            // the next frame's !isMe branch resyncs the buffer to expected and wipes
+            // whatever the user typed. Symptom: typed values silently revert to the
+            // pre-focus value.
+            //
+            // Fix: combine IsAnyItemActive (reliable rising-edge signal for "focus just
+            // captured this frame") with Gui.KeyboardWanted (reliable "some InputText
+            // is still receiving keyboard input"). Consider the field defocused only
+            // when BOTH are false — the keyboard-wanted bit stays true as long as any
+            // text input is focused, so transient IsAnyItemActive=false readings during
+            // idle-typing frames don't fire a false flush.
+            var isActive       = ImGui.IsAnyItemActive();
+            var keyboardWanted = _view.Controller.Engine.Gui.KeyboardWanted;
             var wasThisFieldActive =
                 _npcActiveEditForId == npcId &&
                 _npcActiveEditField == field;
@@ -3420,8 +3435,11 @@ namespace VisualEQ.Views
                 if (sp != null && IsNpcVisualField(field))
                     FrameNpcForField(sp, field);
             }
-            else if (!isActive && wasThisFieldActive)
+            else if (wasThisFieldActive && !isActive && !keyboardWanted)
             {
+                // Only flush when BOTH ImGui-item-active and keyboard-wanted are false —
+                // that's the real defocus. Transient !isActive during focused typing
+                // (with keyboardWanted still true) is ignored.
                 FlushNpcActiveEditIfChanged();
             }
         }
