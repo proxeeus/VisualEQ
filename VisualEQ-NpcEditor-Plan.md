@@ -1,0 +1,174 @@
+# VisualEQ NPC Editor — Design & Delivery Plan
+
+Companion to `VisualEQ-SpawnEditor-Plan.md`. This is the plan for the NPC content editor built on top of the shipped spawn viewer.
+
+## 1. Scope
+
+**In:**
+- Full edit surface for `npc_types` (combat stats, visuals, flags, AI, faction assignment, special abilities).
+- Faction assignment editor on the NPC (`npc_faction` / `npc_faction_entries`), plus a lightweight faction browser.
+- Loot editor: assign a `loottable` to an NPC, edit its `loottable_entries` (which `lootdrop`s + drop counts), edit `lootdrop_entries` (items + chances). **What the NPC drops / doesn't drop only — no item-table editing.**
+- Live visual preview for every field that changes what's rendered.
+- Undo everywhere, transactional save.
+- Read-only mode toggle to safely browse a prod DB.
+
+**Deferred (future milestones):**
+- Item editor (`items` table). Dedicated milestone later.
+- Faction hit editing on quests / kills.
+- Merchant / trader tables.
+
+## 2. UX doctrine ("minimal menu diving")
+
+1. **One panel, three tabs.** All editing in the right sidebar. Tabs: **Stats / Visual / Combat & AI**, plus collapsible **Factions** and **Loot** sections below.
+2. **Live preview by default; dirty-until-committed.** Visual fields update the model in-scene as you scrub. Save commits to DB; Escape/Ctrl-Z reverts.
+3. **Camera follows intent.** Editing "face" flies to head-height with look-at lock. "Helm" frames upper body. "Texture" frames full body. "Size" pulls camera back.
+4. **Inline pickers, not dropdowns of IDs.** Race/class/faction/loottable are searchable typeaheads.
+5. **Adjacent-value scrubbers.** Any small-N enum (texture 0–3, face 0–7, helm 0–N, gender 0–2) gets `◀ [current] ▶` arrows + numeric field. Arrow keys work when focused.
+
+## 3. UI layout
+
+```
+┌───────────────────── Scene ─────────────────────┬─ Editor ─┐
+│                                                  │ Guard    │
+│                                                  │ Kalen    │
+│                                                  │ HUM · M  │
+│                                                  │ Uses: 3  │  ← shared-npc warning
+│              [selected NPC framed]               │ 🔒 R/O   │  ← read-only toggle
+│                                                  │ ─────────│
+│                                                  │ [Stats][Vis][Combat]
+│                                                  │          │
+│                                                  │ Face: ◀ 3 ▶
+│                                                  │ Helm: ◀ 0 ▶
+│                                                  │ Texture: ◀ 1 ▶
+│                                                  │ Size: [ 6.0 ]
+│                                                  │          │
+│                                                  │ ▼ Factions (3)
+│                                                  │ ▼ Loot
+│                                                  │ ─────────│
+│                                                  │ [Save] [Revert]
+└──────────────────────────────────────────────────┴─────────┘
+```
+
+- Sidebar ~340 px wide, resizable, right side, always mounted (shows "Select an NPC" empty state).
+- Ctrl+S saves, Ctrl+Z undoes, Escape reverts un-saved field.
+- **Ctrl+D always clones**: creates a new `npc_types` row (copy of current) and re-points this spawn's `spawnentry.npcID` to it, so subsequent edits only affect this spawn. "Uses: N" indicator near NPC name shows when editing a shared record.
+
+## 4. Real-time preview mechanics
+
+Loader today bakes `(textureIndex, helmTextureIndex, faceIndex)` into the AniModel cache key ([Loader.cs](VisualEQ/Loader.cs)). No in-place buffer swap.
+
+**Approach — leverage the existing cache:**
+- On any visual-field change, call `Loader.LoadCharacter(..., tex, helm, face)` — shared `_meshGeometryCache` and `_textureCache` per CLAUDE.md §5/§11 — and swap the `AniModelInstance.Model` pointer.
+- First scrub uploads one PNG; warm scrubs are free.
+- When the Face/Helm/Texture tab opens, background-prime the cache by loading each variant's Materials (GL calls dispatched on the render thread).
+- **Preview vs commit:** `SpawnPoint` grows a `PendingNpcEdits` bag. Live-swapped instance uses pending values; DB and `SpawnPoint.Npc` snapshot untouched until Save. Revert restores the original AniModel pointer.
+
+**Camera framing** — extend `FpsCamera` ([Engine/FpsCamera.cs](Engine/FpsCamera.cs)):
+- `FrameSubject(instance, FramingHint)` — computes target position + orientation from instance bounds; reuses existing 0.25 s tween.
+- `LockLookAt(worldPoint)` — while active, rotation driven by look-at each frame; any keyboard/mouse-drag releases.
+- Head/torso points from spine cylinder in `ModelSelector`: head ≈ `Position + (0,0,6*Scale)`, torso ≈ `Position + (0,0,4*Scale)`.
+
+Wiring: focus on Face → `FrameSubject(Face)` + `LockLookAt(HeadPoint)`. Focus lost → release lock, camera stays put (don't yank back).
+
+## 5. Faction editor
+
+Rows in `npc_faction_entries` where `npc_faction_id = npc_types.npc_faction_id`. Two levels:
+
+- **Inline** (sidebar Faction section): current `npc_faction`'s entries — `faction_list.name` + hit value + temp flag. Add/remove/tweak inline. Global typeahead over `faction_list`.
+- **Pop-out browser** — "Manage Faction Sets" dockable window for creating/reusing `npc_faction` rows across NPCs. Deferred to polish slice.
+
+Out of scope for v1: editing `faction_list` itself, quest hits, `faction_association`.
+
+## 6. Loot editor
+
+Three-level hierarchy, all inline:
+
+1. **NPC → loottable** — dropdown: "None", "New (empty)", or typeahead over existing loottables.
+2. **Loottable → lootdrops** — rows in `loottable_entries` (multiplier, droplimit, mindrop, probability).
+3. **Lootdrop → items** — rows in `lootdrop_entries` (item + chance + multiplier + min/max). Item picker is typeahead over `items.name`.
+
+**Preview UX:** loottable rows show "% chance to actually drop"; item rows show `chance / sum(chance) × multiplier` estimate.
+
+**Copy-on-edit safety:** editing a shared loottable/lootdrop prompts "Shared with N other NPCs. Edit anyway / Clone for this NPC only." Prevents footgun.
+
+## 7. Special abilities editor
+
+`npc_types.special_abilities` is a delimited string (`^`-separated abilities, each `id,param1,param2,…`). Raw editing is a footgun; friendly editor lives on Combat & AI tab:
+
+```
+▼ Special Abilities
+  ☑ Summon         Range: [ 75 ]                    [?]
+  ☐ Enrage
+  ☑ Rampage        Chance: [ 20 ]%  Targets: [ 4 ]  [?]
+  ☑ Flurry         Chance: [ 30 ]%                  [?]
+  ...
+  ─────────────────────────────────
+  ▶ Advanced (raw string)
+    [ 1,1^7,20,4^11,30 ]
+```
+
+- One row per known ability; checkbox toggles inclusion; enabled rows expose only that ability's parameter fields (labeled, typed).
+- `[?]` tooltip shows the server-side description from the `SpecialAbility` enum.
+- **Advanced expander** shows raw serialized string, editable fallback. Unknown entries surface as read-only "Custom (id=99)" rows so we never silently drop data.
+- Live parse/serialize between checkboxes and raw. Save-time validation rejects unparseable strings, warns on out-of-range params.
+
+**Ability catalog** generated once from EQEmu server source (`/c/eqemu/source/Server` per user memory) — `SpecialAbility` enum + `ProcessSpecialAbilities` parser. Produces a static `SpecialAbilityCatalog`; no runtime dependency on the server tree.
+
+## 8. Data layer additions
+
+Following [Database/](Database/) conventions (SqlQueries constants + Dapper repos + record models).
+
+**New models** ([Database/Models/](Database/Models/))
+- `NpcTypeFull` (all editable columns).
+- `FactionListRecord`, `NpcFactionRecord`, `NpcFactionEntryRecord`.
+- `LootTableRecord`, `LootTableEntryRecord`, `LootDropRecord`, `LootDropEntryRecord`, `ItemBriefRecord` (picker only).
+
+**New repositories** ([Database/Repositories/](Database/Repositories/))
+- `INpcRepository` — `GetNpcByIdAsync`, `UpdateNpcAsync`, `DuplicateNpcAsync(int npcId) → int newId`, `RepointSpawnEntryAsync(int spawnEntryId, int newNpcId)`.
+- `IFactionRepository` — `GetAllFactionsAsync()` (cached), `GetNpcFactionAsync`, `UpsertNpcFactionAsync`, `DeleteNpcFactionEntryAsync`.
+- `ILootRepository` — read + write for loottable / entry / drop / drop-entry hierarchy. Shared-table detection helper.
+- `IItemRepository` — `SearchItemsAsync(prefix, limit)` picker only.
+
+All new SQL in [Constants/SqlQueries.cs](Database/Constants/SqlQueries.cs), `AS PascalCase` alias convention. Every write parameterized. Batch reads for list UIs.
+
+**Schema variance guardrail** (per CLAUDE.md §7): before wiring any UPDATE, run `SHOW COLUMNS FROM <table>` and select only columns that actually exist. Fail closed with clear "Your schema is missing column X, editing disabled for this field" toast, don't crash on write.
+
+## 9. Save & undo architecture
+
+**Dirty tracking** — `EditSession` per-selected-NPC in-memory delta. Sidebar shows unsaved-changes indicator on tab headers.
+
+**Undo stack** — `EditCommand` interface, one command per user action (`ChangeFieldCommand`, `AddFactionEntryCommand`, `RemoveLootRowCommand`, …). Do/Undo apply to `EditSession` and to live scene state (undoing a face change flips the AniModel back). Bounded to N=50.
+
+**Save transactionality**
+- NPC-only edits: single `UPDATE npc_types` in a transaction.
+- NPC + factions: transaction covers `npc_types` + `npc_faction_entries` upsert/delete.
+- Loot: transaction covers all three loot tables affected.
+- On failure: rollback DB, keep dirty state in editor, toast error. Do NOT auto-revert scene visuals — user chose those values, might want to retry.
+
+**No autosave.** Explicit Save button. Ctrl+S shortcut. Closing panel with unsaved edits prompts.
+
+## 10. Read-only mode
+
+`AppSettings.NpcEditorReadOnly` (persisted). Toggle in sidebar header (🔒 icon). When on:
+- All edit widgets render disabled (grayed).
+- Save button hidden.
+- Ctrl+D disabled.
+- Live-preview scrubbers still work (visual-only, don't touch DB).
+
+Intent: safe browsing of prod DB.
+
+## 11. Phased delivery
+
+Small, individually-usable slices. PR each. Pause between for real-world testing.
+
+| Slice | Delivers | Why this order |
+|---|---|---|
+| **1. NPC read-side + selection wiring** | Sidebar shows full npc_types read-only when a spawn is picked. New `NpcTypeFull` model + `GetNpcByIdAsync`. No editing. | Proves selection→panel wiring and model coverage. Useful even without editing. |
+| **2. Stats tab + Save** | Editable numeric/text fields (level, hp, damage, str/sta/…, name). `UpdateNpcAsync` + transaction. Per-field Ctrl+Z undo. Read-only mode toggle lands here. | Smallest useful edit path; validates DB write architecture before faction/loot complexity. |
+| **3. Visual tab + live preview + camera framing** | Face/helm/texture/size/gender scrubbers, cache-priming, `FrameSubject`/`LockLookAt`. | The QoL slice: high demo value. |
+| **4. Combat & AI tab + Special Abilities editor** | Remaining npc_types fields (aggro/assist ranges, runspeed, class, race, bodytype). Friendly special_abilities editor + catalog. | Rounds out npc_types coverage. |
+| **5. Faction editor** | Inline entries + global faction typeahead. Pop-out browser deferred. | Independent of loot; standalone value. |
+| **6. Loot editor** | Full 3-level editor + shared-table detection. | Biggest slice; save for last so UX patterns are settled. |
+| **7. Duplicate NPC + faction pop-out browser** | Ctrl+D `DuplicateNpcAsync` + re-point spawnentry + "Manage Faction Sets" window. | Polish once core flows proven. |
+
+Each slice is a PR against master, mergeable and demo-able on its own. Pause after each for real usage before starting the next.

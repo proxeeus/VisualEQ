@@ -137,6 +137,163 @@ namespace VisualEQ.Database.Constants
             FROM npc_types
             WHERE id IN @NpcIds";
 
+        // Full npc_types read — every column the NPC editor consumes, aliased so Dapper's
+        // strict-case matching populates NpcTypeFull deterministically. Kept as one query
+        // rather than several so a spawn selection incurs a single round-trip.
+        //
+        // Reserved words / special names:
+        //   class       → PickPascalCase can't hold `class`
+        //   _INT        → SQL column literally starts with an underscore; aliased to Int_
+        //                 (matches the C# property name we picked to sidestep the C# keyword)
+        //   STR/STA/... → all-caps DB names aliased to Pascal so callers don't need to shout
+        public const string GetNpcTypeById = @"
+            SELECT
+                id                     AS Id,
+                name                   AS Name,
+                lastname               AS LastName,
+                level                  AS Level,
+                race                   AS Race,
+                `class`                AS Class,
+                bodytype               AS BodyType,
+                gender                 AS Gender,
+                size                   AS Size,
+
+                hp                     AS Hp,
+                mana                   AS Mana,
+                AC                     AS Ac,
+                mindmg                 AS MinDmg,
+                maxdmg                 AS MaxDmg,
+                ATK                    AS Atk,
+                Accuracy               AS Accuracy,
+                Avoidance              AS Avoidance,
+                slow_mitigation        AS SlowMitigation,
+                attack_speed           AS AttackSpeed,
+                attack_delay           AS AttackDelay,
+                attack_count           AS AttackCount,
+                heroic_strikethrough   AS HeroicStrikethrough,
+
+                hp_regen_rate          AS HpRegenRate,
+                hp_regen_per_second    AS HpRegenPerSecond,
+                mana_regen_rate        AS ManaRegenRate,
+
+                STR                    AS Str,
+                STA                    AS Sta,
+                DEX                    AS Dex,
+                AGI                    AS Agi,
+                _INT                   AS Int_,
+                WIS                    AS Wis,
+                CHA                    AS Cha,
+
+                MR                     AS MR,
+                CR                     AS CR,
+                DR                     AS DR,
+                FR                     AS FR,
+                PR                     AS PR,
+                Corrup                 AS Corrup,
+                PhR                    AS PhR,
+
+                texture                AS Texture,
+                helmtexture            AS HelmTexture,
+                face                   AS Face,
+                herosforgemodel        AS HerosForgeModel,
+                armtexture             AS ArmTexture,
+                bracertexture          AS BracerTexture,
+                handtexture            AS HandTexture,
+                legtexture             AS LegTexture,
+                feettexture            AS FeetTexture,
+                light                  AS Light,
+                model                  AS Model,
+                d_melee_texture1       AS DMeleeTexture1,
+                d_melee_texture2       AS DMeleeTexture2,
+                ammo_idfile            AS AmmoIdfile,
+                prim_melee_type        AS PrimMeleeType,
+                sec_melee_type         AS SecMeleeType,
+                ranged_type            AS RangedType,
+
+                luclin_hairstyle       AS LuclinHairstyle,
+                luclin_haircolor       AS LuclinHaircolor,
+                luclin_eyecolor        AS LuclinEyecolor,
+                luclin_eyecolor2       AS LuclinEyecolor2,
+                luclin_beardcolor      AS LuclinBeardcolor,
+                luclin_beard           AS LuclinBeard,
+                drakkin_heritage       AS DrakkinHeritage,
+                drakkin_tattoo         AS DrakkinTattoo,
+                drakkin_details        AS DrakkinDetails,
+
+                armortint_id           AS ArmortintId,
+                armortint_red          AS ArmortintRed,
+                armortint_green        AS ArmortintGreen,
+                armortint_blue         AS ArmortintBlue,
+
+                aggroradius            AS AggroRadius,
+                assistradius           AS AssistRadius,
+                runspeed               AS Runspeed,
+                walkspeed              AS Walkspeed,
+                see_invis              AS SeeInvis,
+                see_invis_undead       AS SeeInvisUndead,
+                see_hide               AS SeeHide,
+                see_improved_hide      AS SeeImprovedHide,
+                npc_aggro              AS NpcAggro,
+                always_aggro           AS AlwaysAggro,
+                findable               AS Findable,
+                trackable              AS Trackable,
+                raid_target            AS RaidTarget,
+                no_target_hotkey       AS NoTargetHotkey,
+                untargetable           AS Untargetable,
+                show_name              AS ShowName,
+                private_corpse         AS PrivateCorpse,
+                unique_spawn_by_name   AS UniqueSpawnByName,
+                `unique_`              AS `Unique`,
+                `fixed`                AS `Fixed`,
+                ignore_despawn         AS IgnoreDespawn,
+                stuck_behavior         AS StuckBehavior,
+                flymode                AS Flymode,
+                rare_spawn             AS RareSpawn,
+                exclude                AS Exclude,
+                isbot                  AS IsBot,
+                isquest                AS IsQuest,
+                qglobal                AS Qglobal,
+                emoteid                AS EmoteId,
+                underwater             AS Underwater,
+                spawn_limit            AS SpawnLimit,
+
+                loottable_id           AS LoottableId,
+                merchant_id            AS MerchantId,
+                greed                  AS Greed,
+                alt_currency_id        AS AltCurrencyId,
+                npc_spells_id          AS NpcSpellsId,
+                npc_spells_effects_id  AS NpcSpellsEffectsId,
+                npc_faction_id         AS NpcFactionId,
+                adventure_template_id  AS AdventureTemplateId,
+                trap_template          AS TrapTemplate,
+                faction_amount         AS FactionAmount,
+                keeps_sold_items       AS KeepsSoldItems,
+                is_parcel_merchant     AS IsParcelMerchant,
+                multiquest_enabled     AS MultiquestEnabled,
+                skip_global_loot       AS SkipGlobalLoot,
+
+                scalerate              AS Scalerate,
+                spellscale             AS Spellscale,
+                healscale              AS Healscale,
+                exp_mod                AS ExpMod,
+                maxlevel               AS Maxlevel,
+
+                charm_ac               AS CharmAc,
+                charm_min_dmg          AS CharmMinDmg,
+                charm_max_dmg          AS CharmMaxDmg,
+                charm_attack_delay     AS CharmAttackDelay,
+                charm_accuracy_rating  AS CharmAccuracyRating,
+                charm_avoidance_rating AS CharmAvoidanceRating,
+                charm_atk              AS CharmAtk,
+
+                npcspecialattks        AS NpcSpecialAttks,
+                special_abilities      AS SpecialAbilities,
+
+                version                AS Version,
+                peqid                  AS PeqId
+            FROM npc_types
+            WHERE id = @NpcId";
+
         // NPC picker search — substring match on npc_types.name. Caller passes @Filter
         // pre-wrapped with '%' wildcards (empty @Filter still returns rows, LIMIT
         // caps the load). Ordered by name so the UI list stays stable across
