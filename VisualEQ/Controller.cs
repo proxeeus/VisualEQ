@@ -890,6 +890,41 @@ namespace VisualEQ
                 }
             }
 
+            // Restore on-scene AniModelInstance for any NPC that had visual edits — the
+            // per-field revert loops above only touch the buffer + spawn records; the
+            // AniModel (texture/helm/face-baked material variants and race/gender chr
+            // codes) needs an explicit rebuild against the DB-baseline NpcType stored on
+            // sp.Record.Entries. Otherwise Discard leaves the scene showing the edited
+            // face/helm/texture/race/gender even though the buffer is empty.
+            var npcIdsWithEdits = PendingBuffer.Npcs.Keys.ToList();
+            foreach (var npcId in npcIdsWithEdits)
+            {
+                foreach (var sp in SpawnManager.SpawnPoints)
+                {
+                    var primary = sp.Record.Entries
+                        .OrderByDescending(e => e.Entry.Chance)
+                        .FirstOrDefault();
+                    if (primary?.Npc == null || primary.Npc.Id != npcId) continue;
+
+                    // NpcType (the light DB-baseline record on the spawn) carries every
+                    // field RebuildInstanceForNpc needs (race/gender/size/texture/helm/
+                    // face). Wrap it into a minimal NpcTypeFull so the shared refresh
+                    // path doesn't need a NpcType overload.
+                    var baseline = new Database.Models.NpcTypeFull
+                    {
+                        Id          = primary.Npc.Id,
+                        Race        = primary.Npc.Race,
+                        Gender      = primary.Npc.Gender,
+                        Size        = primary.Npc.Size,
+                        Texture     = primary.Npc.Texture,
+                        HelmTexture = primary.Npc.HelmTexture,
+                        Face        = primary.Npc.Face,
+                    };
+                    SpawnManager.RebuildInstanceForNpc(sp, baseline, Engine, CharacterModels,
+                        _modelCache, _availableModels, LastModelLoaded);
+                }
+            }
+
             EditBufferManager.DeleteForZone(PendingBuffer.Zone);
             PendingBuffer = new EditBuffer { Zone = CurrentZoneName, CreatedAt = DateTime.UtcNow };
             _bufferDirty = false;

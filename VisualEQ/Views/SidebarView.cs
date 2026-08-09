@@ -3270,30 +3270,9 @@ namespace VisualEQ.Views
             System.Array.Copy(bytes, dst, n);
         }
 
-        // Per-field numeric-input byte buffers. ImGui.NET 0.4.6 doesn't expose InputInt /
-        // InputFloat in the C# wrapper (only the native cimgui bindings), so the numeric
-        // widgets fall back to InputText with a byte buffer + parse. Buffers are keyed by
-        // field name and reset when the selected NPC changes so a stale value from a
-        // previous NPC's HP doesn't leak into the newly-selected NPC's field.
-        private readonly Dictionary<string, byte[]> _npcNumBufs = new Dictionary<string, byte[]>();
-        private int? _npcNumBufsForId;
-
-        void ResetNpcNumBufsIfNpcChanged(int npcId)
-        {
-            if (_npcNumBufsForId == npcId) return;
-            _npcNumBufs.Clear();
-            _npcNumBufsForId = npcId;
-        }
-
-        byte[] GetNumBuffer(string field, int size)
-        {
-            if (!_npcNumBufs.TryGetValue(field, out var buf))
-            {
-                buf = new byte[size];
-                _npcNumBufs[field] = buf;
-            }
-            return buf;
-        }
+        // (numeric byte-buffer state removed — numeric widgets now use DragFloat, which
+        // owns its own display state, so we don't need per-field byte buffers or the
+        // reset-on-npc-change dance.)
 
         // ───────── NPC field widget helpers ───────────────────────────
 
@@ -3470,15 +3449,19 @@ namespace VisualEQ.Views
             _npcActiveEditReader      = null;
         }
 
-        // Renders a typed integer input via InputText + parse (see _npcNumBufs comment
-        // for why not InputInt). The buffer→model write fires on any frame the buffer
-        // content diffs from the frame-start value AND parses to a valid int, EXCEPT for
-        // one specific case: ImGui 0.4.6's InputText can restore the buffer to its
-        // at-focus content when Enter is pressed. That would come through here as a
-        // spurious write reverting _displayedNpc to the pre-focus value, which then
-        // corrupts HandleNpcActivation's flush read. Guard: if the parsed value equals
-        // the value we captured at focus start AND the current in-memory value has
-        // already moved past it, treat the write as an ImGui revert and skip.
+        // Numeric widgets use DragFloat (with drag disabled — speed=0 so an accidental
+        // click-drag doesn't nudge the value). Users click to focus, then type. Same
+        // widget the waypoint inspector uses reliably. This replaces an earlier attempt
+        // with raw InputText + byte buffer + parse — that approach fought ImGui.NET
+        // 0.4.6's inconsistent InputText state semantics (IsAnyItemActive flickers
+        // between key events, buffer restored on Enter, WantCaptureKeyboard is global)
+        // and lost user input on virtually every commit path.
+        //
+        // DragFloat's `ref float` owns the display state internally, so we don't need
+        // to shadow-buffer-sync anything. The value we pass in is the source of truth
+        // this frame; ImGui writes back through the ref on user edit, we read it, and
+        // if it changed we push to the model. HandleNpcActivation still records one
+        // NpcFieldEditAction per focus/defocus cycle for the undo stack + visual refresh.
         void NpcInt(int npcId, string field, string label,
             System.Func<int> read, System.Action<int> write, bool editable,
             int minValue = int.MinValue, int maxValue = int.MaxValue)
@@ -3489,24 +3472,18 @@ namespace VisualEQ.Views
                 ImGui.Text($"  {label}: {current}");
                 return;
             }
-            var buf = GetNumBuffer(field, 20);
-            var bufStr = ReadBuffer(buf);
-            var expectedStr = current.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            var isMe = _npcActiveEditForId == npcId && _npcActiveEditField == field;
-            if (!isMe && bufStr != expectedStr)
-                WriteStringToBuffer(buf, expectedStr);
-
             ImGui.Text(label);
-            ImGui.InputText($"###{Id}ni{field}", buf, (uint)buf.Length, InputTextFlags.Default, null);
-            var typed = ReadBuffer(buf);
-            if (typed != bufStr &&
-                int.TryParse(typed, System.Globalization.NumberStyles.Integer,
-                             System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+            var val = (float)current;
+            // dragSpeed=0 disables drag entirely; users Ctrl+Click OR just click to type.
+            // Range 0/0 removes DragFloat's clamping — we clamp ourselves after write so
+            // callers' minValue/maxValue apply to typed values too.
+            var changed = ImGui.DragFloat($"###{Id}ni{field}", ref val, 0f, 0f, 0f, "%.0f", 1f);
+            if (changed)
             {
-                if (parsed < minValue) parsed = minValue;
-                if (parsed > maxValue) parsed = maxValue;
-                if (parsed != current && !IsImGuiEnterRevert(npcId, field, parsed, current))
-                    write(parsed);
+                var asInt = (int)System.Math.Round(val);
+                if (asInt < minValue) asInt = minValue;
+                if (asInt > maxValue) asInt = maxValue;
+                if (asInt != current) write(asInt);
             }
             HandleNpcActivation(npcId, field, (int)current, () => (object)read());
         }
@@ -3520,23 +3497,19 @@ namespace VisualEQ.Views
                 ImGui.Text($"  {label}: {current}");
                 return;
             }
-            var buf = GetNumBuffer(field, 24);
-            var bufStr = ReadBuffer(buf);
-            var expectedStr = current.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            var isMe = _npcActiveEditForId == npcId && _npcActiveEditField == field;
-            if (!isMe && bufStr != expectedStr)
-                WriteStringToBuffer(buf, expectedStr);
-
             ImGui.Text(label);
-            ImGui.InputText($"###{Id}nl{field}", buf, (uint)buf.Length, InputTextFlags.Default, null);
-            var typed = ReadBuffer(buf);
-            if (typed != bufStr &&
-                long.TryParse(typed, System.Globalization.NumberStyles.Integer,
-                              System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+            // DragFloat only carries ~7 significant digits. Values in the Int32-plus
+            // range (rare for HP but possible for extreme raid mobs) lose precision on
+            // the low bits when edited. Practical HP/mana/regen ranges (<10^7) round-trip
+            // cleanly. If precision matters for a specific field, we'd need a dedicated
+            // large-int input; not worth building for the edge case.
+            var val = (float)current;
+            var changed = ImGui.DragFloat($"###{Id}nl{field}", ref val, 0f, 0f, 0f, "%.0f", 1f);
+            if (changed)
             {
-                if (parsed < 0) parsed = 0;
-                if (parsed != current && !IsImGuiEnterRevert(npcId, field, (int)parsed, (int)System.Math.Min(int.MaxValue, current)))
-                    write(parsed);
+                var asLong = (long)System.Math.Round((double)val);
+                if (asLong < 0) asLong = 0;
+                if (asLong != current) write(asLong);
             }
             HandleNpcActivation(npcId, field, (long)current, () => (object)read());
         }
@@ -3545,41 +3518,21 @@ namespace VisualEQ.Views
             System.Func<float> read, System.Action<float> write, bool editable, string fmt = "F2")
         {
             var current = read();
-            var display = current.ToString(fmt, System.Globalization.CultureInfo.InvariantCulture);
             if (!editable)
             {
+                var display = current.ToString(fmt, System.Globalization.CultureInfo.InvariantCulture);
                 ImGui.Text($"  {label}: {display}");
                 return;
             }
-            var buf = GetNumBuffer(field, 24);
-            var bufStr = ReadBuffer(buf);
-            var isMe = _npcActiveEditForId == npcId && _npcActiveEditField == field;
-            if (!isMe && bufStr != display)
-                WriteStringToBuffer(buf, display);
-
             ImGui.Text(label);
-            ImGui.InputText($"###{Id}nf{field}", buf, (uint)buf.Length, InputTextFlags.Default, null);
-            var typed = ReadBuffer(buf);
-            if (typed != bufStr &&
-                float.TryParse(typed, System.Globalization.NumberStyles.Float,
-                               System.Globalization.CultureInfo.InvariantCulture, out var parsed))
-            {
-                if (System.Math.Abs(parsed - current) > 0.0001f) write(parsed);
-            }
+            var val = current;
+            // DragFloat format uses printf syntax — translate "F2"/"F1" etc. to "%.Nf".
+            var dfFmt = fmt.StartsWith("F", System.StringComparison.Ordinal)
+                ? "%." + fmt.Substring(1) + "f"
+                : "%.2f";
+            var changed = ImGui.DragFloat($"###{Id}nf{field}", ref val, 0f, 0f, 0f, dfFmt, 1f);
+            if (changed && System.Math.Abs(val - current) > 0.0001f) write(val);
             HandleNpcActivation(npcId, field, (float)current, () => (object)read());
-        }
-
-        // Guard for ImGui 0.4.6's post-Enter buffer restore. When the widget was our
-        // active field and the parsed buffer content now equals the pre-focus value
-        // (captured in _npcActiveEditBeforeValue) AND the in-memory current has moved
-        // past it, that's the signature of ImGui reverting the buffer on Enter. Return
-        // true so the caller skips the spurious write; the Enter defocus will fire
-        // HandleNpcActivation's flush which correctly reads the already-committed value.
-        bool IsImGuiEnterRevert(int npcId, string field, int parsed, int current)
-        {
-            if (_npcActiveEditForId != npcId || _npcActiveEditField != field) return false;
-            if (!(_npcActiveEditBeforeValue is int beforeInt)) return false;
-            return parsed == beforeInt && current != beforeInt;
         }
 
         void NpcText(int npcId, string field, string label,
@@ -3700,21 +3653,12 @@ namespace VisualEQ.Views
             if (isSet)
             {
                 var cur = current ?? 0;
-                var buf = GetNumBuffer(field, 20);
-                var bufStr = ReadBuffer(buf);
-                var expectedStr = cur.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                var isMe = _npcActiveEditForId == npcId && _npcActiveEditField == field;
-                if (!isMe && bufStr != expectedStr)
-                    WriteStringToBuffer(buf, expectedStr);
-
-                ImGui.InputText($"  {label}###{Id}nni{field}", buf, (uint)buf.Length, InputTextFlags.Default, null);
-                var typed = ReadBuffer(buf);
-                if (typed != bufStr &&
-                    int.TryParse(typed, System.Globalization.NumberStyles.Integer,
-                                 System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                var val = (float)cur;
+                var changed = ImGui.DragFloat($"  {label}###{Id}nni{field}", ref val, 0f, 0f, 0f, "%.0f", 1f);
+                if (changed)
                 {
-                    if (parsed != cur && !IsImGuiEnterRevert(npcId, field, parsed, cur))
-                        write(parsed);
+                    var asInt = (int)System.Math.Round(val);
+                    if (asInt != cur) write(asInt);
                 }
                 HandleNpcActivation(npcId, field, current ?? 0, () => (object)(read() ?? 0));
             }
@@ -3931,7 +3875,6 @@ namespace VisualEQ.Views
         void RenderNpcDetailsBody(VisualEQ.Database.Models.NpcTypeFull n, bool editable)
         {
             var npcId = n.Id;
-            ResetNpcNumBufsIfNpcChanged(npcId);
 
             // ── Identity ───────────────────────────────────────────
             ImGui.Text($"[id {n.Id}]");
