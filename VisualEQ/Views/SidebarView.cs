@@ -3765,9 +3765,9 @@ namespace VisualEQ.Views
         static readonly string[] _npcMeleeLabels = { "1H Blunt", "1H Slashing", "2H Blunt", "2H Slashing", "Archery", "Backstab", "Bash", "Dragon Punch", "Eagle Strike", "Flying Kick", "Hand to Hand", "Kick", "1H Piercing", "Round Kick", "2H Piercing", "Throwing" };
 
         // Race / Class / BodyType combo options. Built once at class-init from the
-        // SpawnInfoLookups dicts, sorted alphabetically by label — a 230-entry Race combo
-        // is much easier to scan by name than by numeric id order. Labels are formatted
-        // "Name (id)" so the id is still visible next to the name.
+        // SpawnInfoLookups dicts, ordered by numeric id (server-side convention — race 1
+        // = Human, class 1 = Warrior, etc., so scanning by id is what OPs already know).
+        // Labels are formatted "Name (id)" so both are visible in the dropdown.
         static readonly int[]    _npcRaceVals;
         static readonly string[] _npcRaceLabels;
         static readonly int[]    _npcClassVals;
@@ -3786,7 +3786,7 @@ namespace VisualEQ.Views
             out int[] values, out string[] labels)
         {
             var pairs = src.Select(kv => new { Id = kv.Key, Label = kv.Value })
-                           .OrderBy(p => p.Label, System.StringComparer.OrdinalIgnoreCase)
+                           .OrderBy(p => p.Id)
                            .ToArray();
             values = pairs.Select(p => p.Id).ToArray();
             labels = pairs.Select(p => $"{p.Label} ({p.Id})").ToArray();
