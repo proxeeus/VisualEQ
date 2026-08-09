@@ -154,24 +154,29 @@ namespace VisualEQ.Views
 
         // Resize IS allowed — ResizeFromAnySide lets the user drag the right edge directly.
         // Height is forced to full window height each frame via SetWindowSize.
+        // Scroll is handled by a BeginChild inside the window (the outer window's
+        // scroll in ImGui.NET 0.4.6 caps at ~one page of content). NoScrollbar
+        // suppresses the outer's own bar — we don't want two visible bars stacking —
+        // but we do NOT pass NoScrollWithMouse: on this ImGui version that flag on
+        // the outer eats wheel events before they can reach the inner child, so the
+        // scrollbar renders but the wheel does nothing.
         private const WindowFlags PinnedPanel =
             WindowFlags.NoTitleBar | WindowFlags.NoMove |
             WindowFlags.NoCollapse | WindowFlags.NoBringToFrontOnFocus |
             WindowFlags.NoSavedSettings | WindowFlags.ResizeFromAnySide |
-            // Always-visible right-side scrollbar so users know they CAN scroll when
-            // stacked sections push content off the bottom (inspector fields especially).
-            WindowFlags.AlwaysVerticalScrollbar;
+            WindowFlags.NoScrollbar;
 
         private const float DefaultWidth = 380f;
         private const float MinWidth = 180f;
         private const float MinRightGutter = 200f; // leave at least this many px for the 3D view
         private const float WidthSaveDebounceSec = 0.5f;
-        // Sidebar height reserves this many pixels at the bottom of the client area so
-        // the OS taskbar (which can overlap the app on some Windows setups, especially
-        // maximized-over-work-area quirks in Parallels) doesn't cover the last row of
-        // scrollable content. Users on setups without this issue lose a small amount of
-        // vertical space — trade for reliable "scroll reaches the end" behavior.
-        private const float BottomSafeAreaPx = 60f;
+        // Small aesthetic bottom gap. Was 60px to reserve space against a taskbar
+        // that could overlap the app on Parallels ARM64 setups, but EngineCore's
+        // TryFitToWorkArea now sizes the OS window to Win32's work-area rect
+        // (screen minus taskbar/etc.) explicitly, so we no longer need to leave a
+        // huge buffer inside the sidebar. 4px keeps the last row from touching the
+        // bottom pixel; anything more is wasted usable height.
+        private const float BottomSafeAreaPx = 4f;
 
         private float _width;
         private readonly List<string> _order;
@@ -362,13 +367,23 @@ namespace VisualEQ.Views
 
             ImGui.BeginWindow($"Sidebar###{Id}", PinnedPanel);
 
-            // Force height + clamp width. Preserves whatever width the user dragged to.
             var current = ImGui.GetWindowSize();
             var w = current.X;
             if (w < MinWidth) w = MinWidth;
             if (w > winW - MinRightGutter) w = winW - MinRightGutter;
-            if (Math.Abs(current.X - w) > 0.5f || Math.Abs(current.Y - winH) > 0.5f)
+
+            // Only force-set the window size when there's a MEANINGFUL drift — either
+            // width clamp fired (user dragged past bounds) or height needs to grow/
+            // shrink by more than a handful of pixels (OS window resize). Calling
+            // SetWindowSize every frame on tiny sub-pixel drifts appears to reset
+            // the sidebar's scroll offset in ImGui.NET 0.4.6, capping user scroll at
+            // ~one page of content — the "can't scroll indefinitely" bug.
+            var widthNeedsClamp = System.Math.Abs(current.X - w) > 0.5f;
+            var heightDrifted   = System.Math.Abs(current.Y - winH) > 10f;
+            if (widthNeedsClamp || heightDrifted)
                 ImGui.SetWindowSize(new Vector2(w, winH));
+
+            // Persist the (possibly-user-dragged) width for settings.json.
             if (Math.Abs(w - _width) > 0.5f)
             {
                 _width = w;
@@ -378,9 +393,31 @@ namespace VisualEQ.Views
 
             RenderModeBanner();
 
+            // Query the remaining space AFTER the banner draws, then size the child
+            // to fill it explicitly. Passing 0 (fill-parent) in ImGui.NET 0.4.6
+            // miscalculates when the parent's own content-region tracking is off,
+            // silently clipping bottom content without exposing a scrollbar.
+            var avail  = ImGui.GetContentRegionAvailable();
+            var childH = System.Math.Max(50f, avail.Y - 4f); // small footer margin
+
+            // Hint a very large virtual content size to the NEXT (child) window
+            // via raw cimgui P/Invoke — ImGui.NET 0.4.6's C# wrapper never bound
+            // SetNextWindowContentSize, and without it the child's scroll extent
+            // caps at ~one page, making tall sidebars unreachable regardless of
+            // BeginChild flags. 20000 is safely larger than any realistic sidebar
+            // content height (all sections expanded totals well under that);
+            // scrollbar thumb will look small but the bar reaches the actual end.
+            NsimGui.CimguiRaw.igSetNextWindowContentSize(new NsimGui.CimguiRaw.ImVec2(0f, 20000f));
+
+            // AlwaysVerticalScrollbar so the scrollbar is visible even when content
+            // fits (users know they CAN scroll — no confusion about missing widgets).
+            ImGui.BeginChild($"###{Id}scroll", new Vector2(0, childH), false,
+                WindowFlags.AlwaysVerticalScrollbar);
+
             for (int i = 0; i < _order.Count; i++)
                 RenderSectionById(_order[i], i);
 
+            ImGui.EndChild();
             ImGui.EndWindow();
 
             // Draw the edit-mode viewport border AFTER EndWindow so it sits above everything.
@@ -3244,6 +3281,7 @@ namespace VisualEQ.Views
                 case "charm_accuracy_rating":  dest.CharmAccuracyRating = (int?)v; break;
                 case "charm_avoidance_rating": dest.CharmAvoidanceRating = (int?)v; break;
                 case "charm_atk":              dest.CharmAtk = (int?)v; break;
+                case "special_abilities":      dest.SpecialAbilities = (string)v; break;
             }
         }
 
@@ -3700,6 +3738,155 @@ namespace VisualEQ.Views
             }
         }
 
+        // Special-abilities editor (Slice 4). One row per SpecialAbilityCatalog entry
+        // with an enable checkbox + a value input (int, DragFloat with drag disabled).
+        // Any ability that has non-zero params 0..8 shows them read-only inline —
+        // param editing is out of MVP scope; users who need it can bypass the widget
+        // by editing the raw string via server-side tooling. Unknown ability ids (in
+        // raw string but not in the server catalog we scraped) get a "Custom (id=N)"
+        // read-only row at the bottom and are preserved verbatim on save.
+        //
+        // Every change re-serializes the whole entries dict and fires one
+        // NpcFieldEditAction — same commit path as any other npc_types field.
+        void NpcSpecialAbilitiesEditor(int npcId, System.Func<string> read, System.Action<string> write, bool editable)
+        {
+            var current = read() ?? "";
+            var parsed  = VisualEQ.EditSystem.SpecialAbilityString.Parse(current);
+
+            ImGui.Text($"Special abilities  ({parsed.Count} active)");
+            if (!editable)
+            {
+                if (parsed.Count == 0)
+                {
+                    ImGui.Text("  (none)");
+                    return;
+                }
+                foreach (var e in parsed.Values.OrderBy(x => x.AbilityId))
+                {
+                    var entry = VisualEQ.EditSystem.SpecialAbilityCatalog.Get(e.AbilityId);
+                    var name = entry != null ? entry.Name : $"Custom (id={e.AbilityId})";
+                    ImGui.Text($"  {name}: value={e.Value}{FormatSaParams(e.Params)}");
+                }
+                return;
+            }
+
+            // Scrollable list — 57 known abilities fits comfortably at ~18px per row
+            // inside a bounded child. Height is tall enough to show ~15 rows without
+            // scrolling; users scroll for the rest.
+            ImGui.BeginChild($"###{Id}saList", new Vector2(0, 300), true, WindowFlags.Default);
+            var display = _displayedNpc?.Name ?? "?";
+            bool dirty = false;
+
+            foreach (var abilityEntry in VisualEQ.EditSystem.SpecialAbilityCatalog.All)
+            {
+                var abilityId = abilityEntry.Id;
+                var hasEntry = parsed.TryGetValue(abilityId, out var e);
+                var chk = hasEntry;
+
+                if (ImGui.Checkbox($"###{Id}saChk{abilityId}", ref chk))
+                {
+                    if (chk && !hasEntry)
+                    {
+                        parsed[abilityId] = new VisualEQ.EditSystem.SpecialAbilityString.Entry
+                        {
+                            AbilityId = abilityId,
+                            Value     = 1,
+                        };
+                        dirty = true;
+                        hasEntry = true;
+                        e = parsed[abilityId];
+                    }
+                    else if (!chk && hasEntry)
+                    {
+                        parsed.Remove(abilityId);
+                        dirty = true;
+                        hasEntry = false;
+                    }
+                }
+
+                ImGui.SameLine();
+                ImGui.Text(abilityEntry.Name);
+
+                if (hasEntry && !abilityEntry.IsBoolean)
+                {
+                    // Non-boolean ability — value carries magnitude (chance %, HP
+                    // threshold, distance, etc. depending on ability). Expose input.
+                    ImGui.SameLine();
+                    ImGui.Text("value");
+                    ImGui.SameLine();
+                    var val = (float)e.Value;
+                    // dragSpeed=1 so Ctrl+Click text entry works (same trap from Slice 3).
+                    var changed = ImGui.DragFloat($"###{Id}saVal{abilityId}", ref val, 0f, 0f, 1f, "%.0f", 1f);
+                    if (changed)
+                    {
+                        var newV = (int)System.Math.Round(val);
+                        if (newV != e.Value)
+                        {
+                            e.Value = newV;
+                            dirty = true;
+                        }
+                    }
+                }
+                // Boolean abilities: checkbox alone is enough. Value stays 1 when
+                // enabled (set by the checkbox path above), 0 when disabled (entry
+                // removed from `parsed`).
+
+                if (hasEntry && HasAnyParam(e.Params))
+                {
+                    // Read-only inline params for any ability with non-zero params.
+                    // Rare — MVP surfaces them as text; per-param editor is deferred.
+                    ImGui.Text($"    params:{FormatSaParams(e.Params)}");
+                }
+            }
+
+            // Unknown ability ids surface at the bottom of the list so they're not
+            // silently dropped. Preserved on serialize because they live in `parsed`
+            // — the checkbox loop doesn't remove them (only iterates known ids).
+            var unknownIds = parsed.Keys.Where(id => !VisualEQ.EditSystem.SpecialAbilityCatalog.IsKnown(id)).ToList();
+            if (unknownIds.Count > 0)
+            {
+                ImGui.Separator();
+                ImGui.Text("Unknown ability ids (preserved on save):");
+                foreach (var id in unknownIds)
+                {
+                    var e = parsed[id];
+                    ImGui.Text($"  id={id}: value={e.Value}{FormatSaParams(e.Params)}");
+                }
+            }
+
+            ImGui.EndChild();
+
+            if (dirty)
+            {
+                var newRaw = VisualEQ.EditSystem.SpecialAbilityString.Serialize(parsed);
+                if (newRaw != current)
+                {
+                    write(newRaw);
+                    RecordNpcFieldEdit(npcId, "special_abilities", current, newRaw, display);
+                }
+            }
+        }
+
+        static bool HasAnyParam(int[] p)
+        {
+            for (int i = 0; i < p.Length; i++) if (p[i] != 0) return true;
+            return false;
+        }
+
+        static string FormatSaParams(int[] p)
+        {
+            var sb = new System.Text.StringBuilder();
+            int lastNonZero = -1;
+            for (int i = 0; i < p.Length; i++) if (p[i] != 0) lastNonZero = i;
+            for (int i = 0; i <= lastNonZero; i++)
+            {
+                sb.Append(' ');
+                sb.Append('p'); sb.Append(i); sb.Append('=');
+                sb.Append(p[i]);
+            }
+            return sb.ToString();
+        }
+
         // ───────── FK picker modal ────────────────────────────────────
 
         void BeginFkPicker(VisualEQ.SpawnSystem.ReferenceDataCache.Table table,
@@ -3896,9 +4083,14 @@ namespace VisualEQ.Views
                 _npcGenderVals, _npcGenderLabels, editable);
             NpcFloat(npcId, "size", "Size", () => n.Size, v => n.Size = v, editable);
 
+            // Sub-sections wrapped in CollapsingHeader so the sidebar's scrollable
+            // content stays under ImGui.NET 0.4.6's ~one-page scroll cap. Defaults
+            // biased toward the fields OPs edit most (Combat, Visual, Special abilities);
+            // the noisier full-schema sections start collapsed.
+
             // ── Combat ─────────────────────────────────────────────
-            ImGui.Separator();
-            ImGui.Text("Combat");
+            if (ImGui.CollapsingHeader($"Combat###{Id}ndCombat", TreeNodeFlags.DefaultOpen))
+            {
             NpcLong(npcId, "hp",   "HP",   () => n.Hp,   v => n.Hp   = v, editable);
             NpcLong(npcId, "mana", "Mana", () => n.Mana, v => n.Mana = v, editable);
             NpcInt(npcId, "AC",   "AC",           () => n.Ac,        v => n.Ac        = v, editable);
@@ -3915,10 +4107,11 @@ namespace VisualEQ.Views
             NpcLong(npcId, "hp_regen_rate",       "HP regen (per tick)",   () => n.HpRegenRate,      v => n.HpRegenRate      = v, editable);
             NpcLong(npcId, "hp_regen_per_second", "HP regen (per second)", () => n.HpRegenPerSecond, v => n.HpRegenPerSecond = v, editable);
             NpcLong(npcId, "mana_regen_rate",     "Mana regen (per tick)", () => n.ManaRegenRate,    v => n.ManaRegenRate    = v, editable);
+            }
 
             // ── Stats ──────────────────────────────────────────────
-            ImGui.Separator();
-            ImGui.Text("Stats");
+            if (ImGui.CollapsingHeader($"Stats###{Id}ndStats", 0))
+            {
             NpcInt(npcId, "STR",  "STR", () => n.Str,  v => n.Str  = v, editable, 0);
             NpcInt(npcId, "STA",  "STA", () => n.Sta,  v => n.Sta  = v, editable, 0);
             NpcInt(npcId, "DEX",  "DEX", () => n.Dex,  v => n.Dex  = v, editable, 0);
@@ -3926,10 +4119,11 @@ namespace VisualEQ.Views
             NpcInt(npcId, "_INT", "INT", () => n.Int_, v => n.Int_ = v, editable, 0);
             NpcInt(npcId, "WIS",  "WIS", () => n.Wis,  v => n.Wis  = v, editable, 0);
             NpcInt(npcId, "CHA",  "CHA", () => n.Cha,  v => n.Cha  = v, editable, 0);
+            }
 
             // ── Resistances ────────────────────────────────────────
-            ImGui.Separator();
-            ImGui.Text("Resistances");
+            if (ImGui.CollapsingHeader($"Resistances###{Id}ndRes", 0))
+            {
             NpcInt(npcId, "MR", "MR", () => n.MR, v => n.MR = v, editable);
             NpcInt(npcId, "CR", "CR", () => n.CR, v => n.CR = v, editable);
             NpcInt(npcId, "DR", "DR", () => n.DR, v => n.DR = v, editable);
@@ -3937,14 +4131,15 @@ namespace VisualEQ.Views
             NpcInt(npcId, "PR", "PR", () => n.PR, v => n.PR = v, editable);
             NpcInt(npcId, "Corrup", "Corrup", () => n.Corrup, v => n.Corrup = v, editable);
             NpcInt(npcId, "PhR",    "PhR",    () => n.PhR,    v => n.PhR    = v, editable, 0);
+            }
 
             // ── Visual ─────────────────────────────────────────────
             // Texture / helm / face are the "live preview" trio — editing any of them
             // triggers Controller.RefreshNpcVisualForNpc which cache-swaps the AniModel
             // on every scene instance backed by this npc_types row. Focusing any of
             // these fields also auto-frames the camera (see HandleNpcActivation).
-            ImGui.Separator();
-            ImGui.Text("Visual");
+            if (ImGui.CollapsingHeader($"Visual###{Id}ndVis", TreeNodeFlags.DefaultOpen))
+            {
             NpcInt(npcId, "texture",     "Body texture", () => n.Texture,     v => n.Texture     = v, editable, 0, 15);
             NpcInt(npcId, "helmtexture", "Helm texture", () => n.HelmTexture, v => n.HelmTexture = v, editable, 0, 15);
             NpcInt(npcId, "face",        "Face",         () => n.Face,        v => n.Face        = v, editable, 0, 15);
@@ -3960,10 +4155,11 @@ namespace VisualEQ.Views
             ImGui.Text($"  Luclin: hair {n.LuclinHairstyle}/{n.LuclinHaircolor}   eyes {n.LuclinEyecolor}/{n.LuclinEyecolor2}   beard {n.LuclinBeard}/{n.LuclinBeardcolor}");
             ImGui.Text($"  Drakkin: heritage {n.DrakkinHeritage}  tattoo {n.DrakkinTattoo}  details {n.DrakkinDetails}");
             ImGui.Text($"  Armor tint: id {n.ArmortintId}   RGB ({n.ArmortintRed},{n.ArmortintGreen},{n.ArmortintBlue})");
+            }
 
             // ── AI & Behavior ──────────────────────────────────────
-            ImGui.Separator();
-            ImGui.Text("AI & Behavior");
+            if (ImGui.CollapsingHeader($"AI & Behavior###{Id}ndAI", 0))
+            {
             NpcInt(npcId, "aggroradius",  "Aggro radius",  () => n.AggroRadius,  v => n.AggroRadius  = v, editable, 0);
             NpcInt(npcId, "assistradius", "Assist radius", () => n.AssistRadius, v => n.AssistRadius = v, editable, 0);
             NpcInt(npcId, "npc_aggro",    "npc_aggro",     () => n.NpcAggro,     v => n.NpcAggro     = v, editable);
@@ -4000,10 +4196,24 @@ namespace VisualEQ.Views
             NpcCheckbox(npcId, "isbot",                 "isbot",                 () => n.IsBot,              v => n.IsBot              = v, editable);
             NpcCheckbox(npcId, "isquest",               "isquest",               () => n.IsQuest,            v => n.IsQuest            = v, editable);
             NpcCheckbox(npcId, "exclude",               "exclude",               () => n.Exclude,            v => n.Exclude            = v, editable);
+            }
+
+            // ── Special abilities (Slice 4 — friendly checkbox editor) ─────
+            if (ImGui.CollapsingHeader($"Special Abilities###{Id}ndSA", TreeNodeFlags.DefaultOpen))
+            {
+            NpcSpecialAbilitiesEditor(npcId, () => n.SpecialAbilities, v => n.SpecialAbilities = v, editable);
+
+            // npcspecialattks is the legacy per-letter format (S=Summon, E=Enrage,
+            // R=Rampage, ...). Server auto-migrated it into special_abilities long ago
+            // (see database_update_manifest.cpp lines 184+). Kept read-only here — a
+            // fork that still writes to it can add editing later; the mainstream path
+            // is special_abilities.
+            ImGui.Text($"npcspecialattks (legacy): {(string.IsNullOrEmpty(n.NpcSpecialAttks) ? "(none)" : n.NpcSpecialAttks)}");
+            }
 
             // ── References (typeahead pickers for the FK fields) ───
-            ImGui.Separator();
-            ImGui.Text("References");
+            if (ImGui.CollapsingHeader($"References###{Id}ndRef", 0))
+            {
             NpcIdPicker(npcId, "loottable_id",          "Loot table",
                 VisualEQ.SpawnSystem.ReferenceDataCache.Table.LootTable,
                 () => n.LoottableId, editable);
@@ -4028,19 +4238,21 @@ namespace VisualEQ.Views
             NpcCheckbox(npcId, "is_parcel_merchant",   "is_parcel_merchant", () => n.IsParcelMerchant,   v => n.IsParcelMerchant   = v, editable);
             NpcCheckbox(npcId, "multiquest_enabled",   "multiquest_enabled", () => n.MultiquestEnabled,  v => n.MultiquestEnabled  = v, editable);
             NpcNullableInt(npcId, "skip_global_loot",  "Skip global loot",   () => n.SkipGlobalLoot,     v => n.SkipGlobalLoot     = v, editable);
+            }
 
             // ── Scaling ────────────────────────────────────────────
-            ImGui.Separator();
-            ImGui.Text("Scaling");
+            if (ImGui.CollapsingHeader($"Scaling###{Id}ndScale", 0))
+            {
             NpcInt(npcId, "scalerate",  "Scale rate", () => n.Scalerate,  v => n.Scalerate  = v, editable);
             NpcFloat(npcId, "spellscale", "Spell scale", () => n.Spellscale, v => n.Spellscale = v, editable, "F1");
             NpcFloat(npcId, "healscale",  "Heal scale",  () => n.Healscale,  v => n.Healscale  = v, editable, "F1");
             NpcInt(npcId, "exp_mod",    "Exp mod",   () => n.ExpMod,   v => n.ExpMod   = v, editable);
             NpcInt(npcId, "maxlevel",   "Max level", () => n.Maxlevel, v => n.Maxlevel = v, editable, 0, 127);
+            }
 
             // ── Charm overrides ────────────────────────────────────
-            ImGui.Separator();
-            ImGui.Text("Charm overrides (null = use base stat)");
+            if (ImGui.CollapsingHeader($"Charm overrides (null = use base stat)###{Id}ndCharm", 0))
+            {
             NpcNullableInt(npcId, "charm_ac",               "Charm AC",                () => n.CharmAc,               v => n.CharmAc               = v, editable);
             NpcNullableInt(npcId, "charm_atk",              "Charm ATK",               () => n.CharmAtk,              v => n.CharmAtk              = v, editable);
             NpcNullableInt(npcId, "charm_min_dmg",          "Charm min damage",        () => n.CharmMinDmg,           v => n.CharmMinDmg           = v, editable);
@@ -4048,16 +4260,13 @@ namespace VisualEQ.Views
             NpcNullableInt(npcId, "charm_attack_delay",     "Charm attack delay",      () => n.CharmAttackDelay,      v => n.CharmAttackDelay      = v, editable);
             NpcNullableInt(npcId, "charm_accuracy_rating", "Charm accuracy rating",    () => n.CharmAccuracyRating,   v => n.CharmAccuracyRating   = v, editable);
             NpcNullableInt(npcId, "charm_avoidance_rating","Charm avoidance rating",   () => n.CharmAvoidanceRating,  v => n.CharmAvoidanceRating  = v, editable);
-
-            // ── Special abilities (read-only — Slice 4 adds friendly editor) ──
-            ImGui.Separator();
-            ImGui.Text("Special abilities (raw — Slice 4 makes this friendly)");
-            ImGui.Text($"  npcspecialattks: {(string.IsNullOrEmpty(n.NpcSpecialAttks) ? "(none)" : n.NpcSpecialAttks)}");
-            ImGui.Text($"  special_abilities: {(string.IsNullOrEmpty(n.SpecialAbilities) ? "(none)" : n.SpecialAbilities)}");
+            }
 
             // ── Provenance ─────────────────────────────────────────
-            ImGui.Separator();
+            if (ImGui.CollapsingHeader($"Provenance###{Id}ndProv", 0))
+            {
             ImGui.Text($"Version {n.Version}   PEQ id {n.PeqId}");
+            }
         }
 
         void RenderModelEditorSection(int index)

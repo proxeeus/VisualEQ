@@ -13,12 +13,15 @@ namespace VisualEQ.EditSystem
     //   - cosmetic Luclin/Drakkin/armor-tint fields — RaceModelMapper doesn't consult
     //     them on the Trilogy client this editor targets; can be turned on later
     //     when a fork wires them into resolution
-    //   - special_abilities / npcspecialattks — Slice 4 owns these with the friendly parser
+    //   - npcspecialattks — legacy per-letter flag field superseded by
+    //     special_abilities (see database_update_manifest migration that
+    //     translates letters like S/E/R into 1,1^2,1^3,1^). Read-only in the UI.
     //   - version / peqid — provenance metadata, not intended to be user-editable
     //
-    // Slice 3 additions: texture / helmtexture / face are now editable with live
-    // preview (see Controller.RefreshNpcVisualForNpc), so they're registered here
-    // and route through the same UPDATE-npc_types commit path as the rest.
+    // Slice 3 additions: texture / helmtexture / face — live preview via
+    // Controller.RefreshNpcVisualForNpc.
+    // Slice 4 additions: special_abilities — friendly checkbox editor over
+    // SpecialAbilityCatalog serializes to the id,value,params^ wire format.
     //
     // Column names are the exact npc_types SQL identifiers (lowercase, some with underscores
     // or leading _), so EditCommitter can splice them straight into SET clauses.
@@ -172,6 +175,11 @@ namespace VisualEQ.EditSystem
             { "charm_accuracy_rating",  new FieldDef("charm_accuracy_rating",  FieldKind.NullableInt) },
             { "charm_avoidance_rating", new FieldDef("charm_avoidance_rating", FieldKind.NullableInt) },
             { "charm_atk",              new FieldDef("charm_atk",              FieldKind.NullableInt) },
+
+            // Special abilities (Slice 4). Stored as a delimited string; edited
+            // via the friendly checkbox editor over SpecialAbilityCatalog. Raw
+            // string still goes through the same UPDATE npc_types path.
+            { "special_abilities",      new FieldDef("special_abilities",      FieldKind.String) },
         };
 
         public static FieldDef Get(string fieldName) =>
