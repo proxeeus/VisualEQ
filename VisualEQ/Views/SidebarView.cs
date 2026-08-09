@@ -3474,7 +3474,7 @@ namespace VisualEQ.Views
             }
             ImGui.Text(label);
             var val = (float)current;
-            var changed = ImGui.DragFloat($"###{Id}ni{field}", ref val, 0f, 0f, 0f, "%.0f", 1f);
+            var changed = ImGui.DragFloat($"###{Id}ni{field}", ref val, 0f, 0f, 1f, "%.0f", 1f);
             if (changed)
             {
                 var asInt = (int)System.Math.Round(val);
@@ -3501,7 +3501,7 @@ namespace VisualEQ.Views
             // DragFloat carries ~7 significant digits; values > ~10^7 lose low-bit
             // precision on edit. Practical HP/mana/regen ranges fit fine.
             var val = (float)current;
-            var changed = ImGui.DragFloat($"###{Id}nl{field}", ref val, 0f, 0f, 0f, "%.0f", 1f);
+            var changed = ImGui.DragFloat($"###{Id}nl{field}", ref val, 0f, 0f, 1f, "%.0f", 1f);
             if (changed)
             {
                 var asLong = (long)System.Math.Round((double)val);
@@ -3529,7 +3529,7 @@ namespace VisualEQ.Views
             var dfFmt = fmt.StartsWith("F", System.StringComparison.Ordinal)
                 ? "%." + fmt.Substring(1) + "f"
                 : "%.2f";
-            var changed = ImGui.DragFloat($"###{Id}nf{field}", ref val, 0f, 0f, 0f, dfFmt, 1f);
+            var changed = ImGui.DragFloat($"###{Id}nf{field}", ref val, 0f, 0f, 1f, dfFmt, 1f);
             if (changed && System.Math.Abs(val - current) > 0.0001f)
             {
                 write(val);
@@ -3656,7 +3656,7 @@ namespace VisualEQ.Views
             {
                 var cur = current ?? 0;
                 var val = (float)cur;
-                var changed = ImGui.DragFloat($"  {label}###{Id}nni{field}", ref val, 0f, 0f, 0f, "%.0f", 1f);
+                var changed = ImGui.DragFloat($"  {label}###{Id}nni{field}", ref val, 0f, 0f, 1f, "%.0f", 1f);
                 if (changed)
                 {
                     var asInt = (int)System.Math.Round(val);
