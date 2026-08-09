@@ -26,6 +26,9 @@ namespace VisualEQ.EditSystem
             public int ZonePointInsertsWritten;
             public int ZonePointDeletesWritten;
             public int NpcRowsWritten;            // UPDATEs on npc_types
+            public int NpcFactionEntryInserts;    // INSERTs on npc_faction_entries
+            public int NpcFactionEntryUpdates;    // UPDATEs on npc_faction_entries
+            public int NpcFactionEntryDeletes;    // DELETEs on npc_faction_entries
 
             // Maps pending-insert temp ids (negative) to their assigned AUTO_INCREMENT ids
             // (positive) after a successful INSERT. Consumers (OnCommitSucceeded) apply this
@@ -304,6 +307,56 @@ namespace VisualEQ.EditSystem
                                 npcRows += await connection.ExecuteAsync(sql, parameters, tx);
                             }
 
+                            // NPC faction entries — Insert / Update / Delete driven by the
+                            // (Original, Current) pair on each NpcFactionEntryOp. Deletes
+                            // fire first so a same-frame "delete X then re-add X with a
+                            // different value" (rare but possible via Ctrl+Z sequences)
+                            // wouldn't hit the PK uniqueness on npc_faction_entries.
+                            int nfeDeletes = 0, nfeInserts = 0, nfeUpdates = 0;
+                            foreach (var kv in buffer.NpcFactionEntries)
+                            {
+                                var op = kv.Value;
+                                if (op.Original != null && op.Current == null)
+                                {
+                                    nfeDeletes += await connection.ExecuteAsync(
+                                        SqlQueries.DeleteNpcFactionEntry,
+                                        new { NpcFactionId = op.NpcFactionId, FactionId = op.FactionId },
+                                        tx);
+                                }
+                            }
+                            foreach (var kv in buffer.NpcFactionEntries)
+                            {
+                                var op = kv.Value;
+                                if (op.Original == null && op.Current != null)
+                                {
+                                    nfeInserts += await connection.ExecuteAsync(
+                                        SqlQueries.InsertNpcFactionEntry,
+                                        new
+                                        {
+                                            NpcFactionId = op.NpcFactionId,
+                                            FactionId    = op.FactionId,
+                                            Value        = op.Current.Value,
+                                            NpcValue     = op.Current.NpcValue,
+                                            Temp         = op.Current.Temp,
+                                        },
+                                        tx);
+                                }
+                                else if (op.Original != null && op.Current != null)
+                                {
+                                    nfeUpdates += await connection.ExecuteAsync(
+                                        SqlQueries.UpdateNpcFactionEntry,
+                                        new
+                                        {
+                                            NpcFactionId = op.NpcFactionId,
+                                            FactionId    = op.FactionId,
+                                            Value        = op.Current.Value,
+                                            NpcValue     = op.Current.NpcValue,
+                                            Temp         = op.Current.Temp,
+                                        },
+                                        tx);
+                                }
+                            }
+
                             // Zone-point commits: DELETE first (so a delete+re-insert with
                             // the same target coord doesn't briefly duplicate a row), then
                             // INSERT (returns AUTO_INCREMENT ids we map back to the temp
@@ -418,6 +471,9 @@ namespace VisualEQ.EditSystem
                                 ZonePointInsertsWritten  = zonePointInserts,
                                 ZonePointDeletesWritten  = zonePointDeletes,
                                 NpcRowsWritten           = npcRows,
+                                NpcFactionEntryInserts   = nfeInserts,
+                                NpcFactionEntryUpdates   = nfeUpdates,
+                                NpcFactionEntryDeletes   = nfeDeletes,
                                 InsertedIdMap            = insertedIdMap,
                             };
                         }

@@ -45,5 +45,11 @@ namespace VisualEQ.Database.Repositories
             using (var connection = CreateConnection())
                 return await connection.QueryAsync<ReferenceItem>(SqlQueries.GetAllNpcSpellEffectSets);
         }
+
+        public async Task<IEnumerable<ReferenceItem>> GetAllFactionListAsync()
+        {
+            using (var connection = CreateConnection())
+                return await connection.QueryAsync<ReferenceItem>(SqlQueries.GetAllFactionList);
+        }
     }
 }

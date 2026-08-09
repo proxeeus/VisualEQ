@@ -33,7 +33,11 @@ namespace VisualEQ.EditSystem
         //        dictionaries keyed by SQL column name, so a ~100-column table doesn't
         //        require 200 property pairs. Type parsing at commit time is driven by
         //        NpcFieldCatalog.
-        public int SchemaVersion { get; set; } = 9;
+        //   v10 — NPC faction entries (Slice 5). NpcFactionEntries dict keyed by
+        //         "npcFactionId:factionId"; each entry carries Original (null →
+        //         insert) + Current (null → delete) so the three ops share one
+        //         collection.
+        public int SchemaVersion { get; set; } = 10;
 
         public Dictionary<int, SpawnEdit> Spawns { get; set; } = new Dictionary<int, SpawnEdit>();
 
@@ -80,18 +84,30 @@ namespace VisualEQ.EditSystem
         // Reserved for Phase 5.9+ (npc_types edits).
         public Dictionary<int, NpcEdit> Npcs { get; set; } = new Dictionary<int, NpcEdit>();
 
+        // Pending npc_faction_entries operations (Slice 5). Key = "npcFactionId:factionId".
+        // Each NpcFactionEntryOp carries Original (null → this op is an insert) and
+        // Current (null → this op is a delete); both non-null → update. If a user
+        // adds an entry then removes it before commit, the op is dropped from this
+        // dict entirely (walk-back cleanup — matches NpcEdit's pattern).
+        public Dictionary<string, NpcFactionEntryOp> NpcFactionEntries { get; set; }
+            = new Dictionary<string, NpcFactionEntryOp>();
+
         public bool IsEmpty =>
             Spawns.Count == 0 && SpawnDeletes.Count == 0 && SpawnInserts.Count == 0 && GridEntries.Count == 0 &&
             ZonePoints.Count == 0 && ZonePointInserts.Count == 0 && ZonePointDeletes.Count == 0 &&
             Grids.Count == 0 && GridInserts.Count == 0 &&
             GridEntryInserts.Count == 0 && GridEntryDeletes.Count == 0 &&
-            Npcs.Count == 0;
+            Npcs.Count == 0 && NpcFactionEntries.Count == 0;
         public int TotalPending =>
             Spawns.Count + SpawnDeletes.Count + SpawnInserts.Count + GridEntries.Count +
             ZonePoints.Count + ZonePointInserts.Count + ZonePointDeletes.Count +
             Grids.Count + GridInserts.Count +
             GridEntryInserts.Count + GridEntryDeletes.Count +
-            Npcs.Count;
+            Npcs.Count + NpcFactionEntries.Count;
+
+        // Composite key helper for npc_faction_entries: (npcFactionId, factionId).
+        public static string NpcFactionEntryKey(int npcFactionId, int factionId) =>
+            $"{npcFactionId}:{factionId}";
 
         // Composite key helper for grid entries: (gridId, number).
         public static string GridEntryKey(int gridId, int number) => $"{gridId}:{number}";
@@ -273,6 +289,35 @@ namespace VisualEQ.EditSystem
         public Dictionary<string, string> OriginalValues { get; set; } = new Dictionary<string, string>();
         public Dictionary<string, string> CurrentValues  { get; set; } = new Dictionary<string, string>();
         public DateTime LastModifiedAt { get; set; }
+    }
+
+    // One pending operation on npc_faction_entries. Original + Current combine to
+    // encode all three ops in a single collection:
+    //   Original == null && Current != null  → INSERT (new row)
+    //   Original != null && Current != null  → UPDATE (Value/NpcValue/Temp change)
+    //   Original != null && Current == null  → DELETE
+    //   Original == null && Current == null  → invalid; the op should have been
+    //                                          removed from buffer.NpcFactionEntries
+    //
+    // NpcFactionId + FactionId are duplicated onto the snapshots so the commit path
+    // can DELETE by (npcFactionId, factionId) without cross-referencing the dict key.
+    public class NpcFactionEntryOp
+    {
+        public int NpcFactionId { get; set; }
+        public int FactionId    { get; set; }
+        public NpcFactionEntrySnapshot Original { get; set; }
+        public NpcFactionEntrySnapshot Current  { get; set; }
+        public DateTime LastModifiedAt { get; set; }
+    }
+
+    // Flat serializable copy of one npc_faction_entries row. Kept separate from
+    // Database.Models.NpcFactionEntry so the buffer JSON is decoupled from the
+    // read-side model (schema drift on either side stays independent).
+    public class NpcFactionEntrySnapshot
+    {
+        public int  Value    { get; set; }
+        public byte NpcValue { get; set; }
+        public byte Temp     { get; set; }
     }
 
     // A brand-new trilogy_zone_points row waiting to be INSERTed on commit. Holds every
