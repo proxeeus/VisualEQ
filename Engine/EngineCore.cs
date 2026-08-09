@@ -636,6 +636,12 @@ namespace VisualEQ.Engine
                             MouseBeforeLook = MousePosition;
                             CursorVisible = false;
                             LastMouseDelta = MouseDelta;
+                            // Release any active NPC-editor look-lock the instant the user
+                            // grabs mouse-look. Otherwise the "any keyboard/mouse-drag
+                            // releases" spec depends on the user actually moving the mouse
+                            // — a right-click-hold with no movement would leave Update()
+                            // re-asserting the lock and fighting subsequent tiny deltas.
+                            Camera?.ClearLookLock();
                         }
                         else
                         {

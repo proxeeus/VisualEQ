@@ -3354,8 +3354,16 @@ namespace VisualEQ.Views
             var hint  = FramingHintForField(field);
             var pos   = sp.Model.Position;
             var scale = System.Math.Max(0.1f, sp.Model.Scale);
-            var head  = pos + new Vector3(0, 0, 6f * scale);
-            var torso = pos + new Vector3(0, 0, 4f * scale);
+            // Use the race-specific authored mesh height so halflings/dwarves (mesh
+            // authored at 4 units) don't get framed above their heads. Fall back to 6
+            // when we don't have the effective NpcTypeFull (shouldn't happen — this is
+            // called from field widgets that always have _displayedNpc — but guard just
+            // in case).
+            var meshHeight = _displayedNpc != null
+                ? VisualEQ.SpawnSystem.SpawnManager.MeshHeightForRace(_displayedNpc.Race)
+                : 6f;
+            var head  = pos + new Vector3(0, 0, meshHeight * scale);
+            var torso = pos + new Vector3(0, 0, (meshHeight * 2f / 3f) * scale);
 
             Vector3 target;
             float distance;

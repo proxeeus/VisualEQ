@@ -22,6 +22,13 @@ namespace VisualEQ.SpawnSystem
         // Halas / Grobb / Oggok / Kaladim / Coldain citizens use city-specific
         // codes with the same physique, so they use the same divisors as their
         // ancestor race.
+        //
+        // Public so the sidebar's camera-framing code can compute head/torso
+        // world offsets that match the actual rendered mesh height (a halfling's
+        // head sits at pos + 4*scale, not pos + 6*scale — hardcoding 6 leaves
+        // the camera pointing above the head for short-mesh races).
+        public static float MeshHeightForRace(int race) => MeshAuthoredHeightForRace(race);
+
         static float MeshAuthoredHeightForRace(int race)
         {
             switch (race)
