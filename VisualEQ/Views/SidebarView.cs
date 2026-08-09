@@ -3937,12 +3937,14 @@ namespace VisualEQ.Views
                     continue;
                 }
 
-                // Value: numeric input, ~70px wide.
+                // Value: numeric input, ~70px wide. Push/Pop per widget mimics the
+                // (unavailable) SetNextItemWidth API — see CimguiRaw comment.
                 ImGui.SameLine(xValue);
-                NsimGui.CimguiRaw.igSetNextItemWidth(wValue);
+                NsimGui.CimguiRaw.igPushItemWidth(wValue);
                 var val = (float)entry.Value;
                 var vChanged = ImGui.DragFloat($"##{Id}nfeV{npcFactionId}_{entry.FactionId}",
                     ref val, 0f, 0f, 0f, "%.0f", 1f);
+                NsimGui.CimguiRaw.igPopItemWidth();
                 if (vChanged)
                 {
                     var newVal = (int)System.Math.Round(val);
@@ -3953,11 +3955,13 @@ namespace VisualEQ.Views
                 // Reaction: tri-state combo. Fall back to first slot if the DB has
                 // an out-of-range value (shouldn't happen, but keeps the combo sane).
                 ImGui.SameLine(xReaction);
-                NsimGui.CimguiRaw.igSetNextItemWidth(wReaction);
+                NsimGui.CimguiRaw.igPushItemWidth(wReaction);
                 var reactionIdx = System.Array.IndexOf(_reactionVals, (int)entry.NpcValue);
                 if (reactionIdx < 0) reactionIdx = 1; // default to Passive
                 var refReactionIdx = reactionIdx;
-                if (ImGui.Combo($"##{Id}nfeR{npcFactionId}_{entry.FactionId}", ref refReactionIdx, _reactionLabels))
+                var reactionChanged = ImGui.Combo($"##{Id}nfeR{npcFactionId}_{entry.FactionId}", ref refReactionIdx, _reactionLabels);
+                NsimGui.CimguiRaw.igPopItemWidth();
+                if (reactionChanged)
                 {
                     var newNv = (sbyte)_reactionVals[refReactionIdx];
                     if (newNv != entry.NpcValue)
@@ -3966,11 +3970,13 @@ namespace VisualEQ.Views
 
                 // Temp: 4-state combo.
                 ImGui.SameLine(xTemp);
-                NsimGui.CimguiRaw.igSetNextItemWidth(wTemp);
+                NsimGui.CimguiRaw.igPushItemWidth(wTemp);
                 var tempIdx = System.Array.IndexOf(_tempVals, (int)entry.Temp);
                 if (tempIdx < 0) tempIdx = 0;
                 var refTempIdx = tempIdx;
-                if (ImGui.Combo($"##{Id}nfeT{npcFactionId}_{entry.FactionId}", ref refTempIdx, _tempLabels))
+                var tempChanged = ImGui.Combo($"##{Id}nfeT{npcFactionId}_{entry.FactionId}", ref refTempIdx, _tempLabels);
+                NsimGui.CimguiRaw.igPopItemWidth();
+                if (tempChanged)
                 {
                     var newTemp = (sbyte)_tempVals[refTempIdx];
                     if (newTemp != entry.Temp)
