@@ -155,14 +155,16 @@ namespace VisualEQ.Views
         // Resize IS allowed — ResizeFromAnySide lets the user drag the right edge directly.
         // Height is forced to full window height each frame via SetWindowSize.
         // Scroll is handled by a BeginChild inside the window (the outer window's
-        // scroll in ImGui.NET 0.4.6 caps at ~one page of content); NoScrollbar +
-        // NoScrollWithMouse make sure the OUTER window doesn't try to compete with
-        // or eat wheel input meant for the inner child.
+        // scroll in ImGui.NET 0.4.6 caps at ~one page of content). NoScrollbar
+        // suppresses the outer's own bar — we don't want two visible bars stacking —
+        // but we do NOT pass NoScrollWithMouse: on this ImGui version that flag on
+        // the outer eats wheel events before they can reach the inner child, so the
+        // scrollbar renders but the wheel does nothing.
         private const WindowFlags PinnedPanel =
             WindowFlags.NoTitleBar | WindowFlags.NoMove |
             WindowFlags.NoCollapse | WindowFlags.NoBringToFrontOnFocus |
             WindowFlags.NoSavedSettings | WindowFlags.ResizeFromAnySide |
-            WindowFlags.NoScrollbar    | WindowFlags.NoScrollWithMouse;
+            WindowFlags.NoScrollbar;
 
         private const float DefaultWidth = 380f;
         private const float MinWidth = 180f;
