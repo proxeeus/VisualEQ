@@ -409,12 +409,41 @@ namespace VisualEQ.Views
         // Composite of everything the loot widget needs to render one loottable.
         // Held in one place so the widget's "have I got data yet?" check is a
         // single null-guard rather than three-way task juggling.
+        // ── Slice 6c: clone + create-empty modal state ─────────────────
+        // Two modals share their fetch/error state; only one can be up at a
+        // time. Clone flows: async DB write on Confirm, then buffered NPC
+        // edit / LTE insert so the link between owning NPC/loottable and the
+        // new row lands with the normal commit path. Create-empty flows: same
+        // shape, plus a name-entry buffer.
+        //
+        // On success: invalidate the loot fetch so the widget re-reads.
+        private bool _cloneConfirmActive;
+        private string _cloneConfirmKind;           // "loottable" or "lootdrop"
+        private int _cloneConfirmSourceId;
+        private string _cloneConfirmSourceName;
+        private int _cloneConfirmSourceUsage;       // pre-fetched usage count for the message
+        private int _cloneConfirmContextNpcId;              // loottable: NPC to repoint via buffered edit
+        private int _cloneConfirmContextOldLoottableId;     // loottable: baseline id to include in the buffered edit's "from"
+        private int _cloneConfirmContextLoottableId;        // lootdrop: which loottable's LTE row gets repointed
+        private System.Threading.Tasks.Task<int> _cloneTask;
+        private string _cloneError;
+
+        private bool _createEmptyActive;
+        private string _createEmptyKind;                    // "loottable" or "lootdrop"
+        private readonly byte[] _createEmptyNameBuf = new byte[128];
+        private int _createEmptyContextNpcId;               // loottable: NPC to repoint via buffered edit
+        private int _createEmptyContextOldLoottableId;      // loottable: current value for the buffered edit's "from"
+        private int _createEmptyContextLoottableId;         // lootdrop: which loottable's LTE row gets inserted
+        private System.Threading.Tasks.Task<int> _createEmptyTask;
+        private string _createEmptyError;
+
         sealed class LootFetchResult
         {
             public VisualEQ.Database.Models.LootTable LootTable;
             public System.Collections.Generic.List<VisualEQ.Database.Models.LootTableEntry> Entries;
             public System.Collections.Generic.Dictionary<int, System.Collections.Generic.List<VisualEQ.Database.Models.LootDropEntry>> ItemsByLootdrop;
-            public int UsageCount;
+            public int UsageCount;                                                 // # of NPCs pointing at this loottable
+            public System.Collections.Generic.Dictionary<int, int> LootdropUsage;  // lootdrop id → # of loottables referencing it (Slice 6c)
         }
 
         public SidebarWidget(SidebarView view)
@@ -533,6 +562,10 @@ namespace VisualEQ.Views
                     RenderFkPickerDialog(gui);
                 else if (_searchPickerActive)
                     RenderSearchPickerDialog(gui);
+                else if (_cloneConfirmActive)
+                    RenderCloneConfirmDialog(gui);
+                else if (_createEmptyActive)
+                    RenderCreateEmptyDialog(gui);
             }
         }
 
@@ -4318,6 +4351,21 @@ namespace VisualEQ.Views
                     ImGui.Text($"Content flags disabled: {table.ContentFlagsDisabled}");
             }
             ImGui.Text($"Used by: {data.UsageCount} NPC(s)");
+
+            // Slice 6c — shared-loottable warning + clone button. Only surfaces
+            // when > 1 NPC points at this loottable (any edit here silently
+            // affects everyone).
+            if (editable && data.UsageCount > 1)
+            {
+                ImGui.Text("⚠ Shared — edits affect every NPC above.", new Vector4(0.95f, 0.75f, 0.25f, 1f));
+                if (ImGui.Button($"Clone loottable for this NPC###{Id}ndCloneLT{loottableId}", new Vector2(240, 22)))
+                    BeginCloneLootTable(loottableId, table?.Name, data.UsageCount, npcId);
+            }
+            if (editable)
+            {
+                if (ImGui.Button($"+ New empty loottable…###{Id}ndNewLT{loottableId}", new Vector2(200, 22)))
+                    BeginCreateEmptyLootTable(npcId, loottableId);
+            }
             ImGui.Separator();
 
             // ── Per-lootdrop cards (with overlay merge) ─────────────────
@@ -4360,6 +4408,9 @@ namespace VisualEQ.Views
                             });
                     }
                 }
+                ImGui.SameLine();
+                if (ImGui.Button($"+ New empty lootdrop…###{Id}ndNewLD{loottableId}", new Vector2(200, 24)))
+                    BeginCreateEmptyLootDrop(loottableId);
             }
         }
 
@@ -4375,6 +4426,23 @@ namespace VisualEQ.Views
 
             var header = $"{dropName} (#{entry.LootdropId})  — {effectiveItems.Count} item(s), prob {entry.Probability:0.##}%###{Id}ndLD{entry.LootdropId}";
             if (!ImGui.CollapsingHeader(header, 0)) return;
+
+            // Slice 6c — per-lootdrop shared-warning + clone button. The
+            // usage-count lookup is per-lootdrop across all loottables (batched
+            // fetch); if > 1, editing items here quietly changes loot for
+            // every other loottable that references the same lootdrop.
+            var lootdropUsage = 1;
+            if (data.LootdropUsage != null)
+                data.LootdropUsage.TryGetValue(entry.LootdropId, out lootdropUsage);
+            if (lootdropUsage <= 0) lootdropUsage = 1;
+
+            if (editable && lootdropUsage > 1)
+            {
+                ImGui.Text($"  ⚠ Shared with {lootdropUsage - 1} other loottable(s) — item edits affect them all.",
+                    new Vector4(0.95f, 0.75f, 0.25f, 1f));
+                if (ImGui.Button($"  Clone lootdrop for this loottable###{Id}ndCloneLD{entry.LootdropId}", new Vector2(260, 22)))
+                    BeginCloneLootDrop(entry.LootdropId, dropName, lootdropUsage, loottableId);
+            }
 
             // Roll-param edit row: mindrop / droplimit / mult / probability + X.
             if (editable)
@@ -4783,6 +4851,7 @@ namespace VisualEQ.Views
                     var itemsByDrop = itemsFlat
                         .GroupBy(i => i.LootdropId)
                         .ToDictionary(g => g.Key, g => g.ToList());
+                    var lootdropUsage = await repo.GetLootDropUsageCountsAsync(lootdropIds);
 
                     return new LootFetchResult
                     {
@@ -4790,6 +4859,7 @@ namespace VisualEQ.Views
                         Entries         = entries,
                         ItemsByLootdrop = itemsByDrop,
                         UsageCount      = usage,
+                        LootdropUsage   = lootdropUsage,
                     };
                 });
             }
@@ -5100,6 +5170,312 @@ namespace VisualEQ.Views
                 EndSearchPicker();
 
             ImGui.EndWindow();
+        }
+
+        // ── Slice 6c: clone / create-empty modals ───────────────────────
+        //
+        // BeginCloneLootTable / BeginCloneLootDrop open the same confirm modal
+        // with different context. The modal fires the clone on Confirm and,
+        // after the async DB write lands, records the follow-up buffered edit
+        // (NPC repoint / LTE repoint). Success closes the modal + invalidates
+        // the loot cache.
+        void BeginCloneLootTable(int loottableId, string loottableName, int usageCount, int npcId)
+        {
+            _cloneConfirmActive              = true;
+            _cloneConfirmKind                = "loottable";
+            _cloneConfirmSourceId            = loottableId;
+            _cloneConfirmSourceName          = loottableName ?? "?";
+            _cloneConfirmSourceUsage         = usageCount;
+            _cloneConfirmContextNpcId        = npcId;
+            _cloneConfirmContextOldLoottableId = loottableId;
+            _cloneConfirmContextLoottableId  = 0;
+            _cloneTask                       = null;
+            _cloneError                      = null;
+        }
+
+        void BeginCloneLootDrop(int lootdropId, string lootdropName, int usageCount, int owningLoottableId)
+        {
+            _cloneConfirmActive               = true;
+            _cloneConfirmKind                 = "lootdrop";
+            _cloneConfirmSourceId             = lootdropId;
+            _cloneConfirmSourceName           = lootdropName ?? "?";
+            _cloneConfirmSourceUsage          = usageCount;
+            _cloneConfirmContextLoottableId   = owningLoottableId;
+            _cloneConfirmContextNpcId         = 0;
+            _cloneConfirmContextOldLoottableId = 0;
+            _cloneTask                        = null;
+            _cloneError                       = null;
+        }
+
+        void EndCloneConfirm()
+        {
+            _cloneConfirmActive = false;
+            _cloneTask          = null;
+        }
+
+        void RenderCloneConfirmDialog(Gui gui)
+        {
+            const float dlgW = 500f;
+            const float dlgH = 240f;
+            var pos = new Vector2((gui.Dimensions.X - dlgW) / 2, (gui.Dimensions.Y - dlgH) / 2);
+
+            ImGui.SetNextWindowPos(pos, Condition.Always, Vector2.Zero);
+            ImGui.SetNextWindowSize(new Vector2(dlgW, dlgH), Condition.Always);
+
+            const WindowFlags flags = WindowFlags.NoTitleBar | WindowFlags.NoMove
+                                    | WindowFlags.NoResize   | WindowFlags.NoCollapse
+                                    | WindowFlags.NoSavedSettings;
+
+            ImGui.BeginWindow($"###{Id}CloneCfmDlg", flags);
+
+            if (_cloneConfirmKind == "loottable")
+            {
+                ImGui.Text($"Clone loottable \"{_cloneConfirmSourceName}\" (#{_cloneConfirmSourceId})?");
+                ImGui.Separator();
+                ImGui.Text($"A copy of this loottable and all its lootdrops will be created.");
+                ImGui.Text($"This NPC will be re-pointed to the new loottable (buffered — commit to save).");
+                ImGui.Text($"The other {System.Math.Max(0, _cloneConfirmSourceUsage - 1)} NPC(s) sharing this loottable will continue to use the original.");
+            }
+            else
+            {
+                ImGui.Text($"Clone lootdrop \"{_cloneConfirmSourceName}\" (#{_cloneConfirmSourceId})?");
+                ImGui.Separator();
+                ImGui.Text($"A copy of this lootdrop (with all its items) will be created.");
+                ImGui.Text($"This loottable's entry will be re-pointed to the clone immediately.");
+                ImGui.Text($"The other {System.Math.Max(0, _cloneConfirmSourceUsage - 1)} loottable(s) sharing this lootdrop will continue to use the original.");
+            }
+
+            // Reap the in-flight task and apply the follow-up.
+            if (_cloneTask != null && _cloneTask.IsCompleted)
+            {
+                if (_cloneTask.IsFaulted)
+                {
+                    _cloneError = _cloneTask.Exception?.GetBaseException().Message ?? "unknown error";
+                    _cloneTask  = null;
+                }
+                else
+                {
+                    var newId = _cloneTask.Result;
+                    _cloneTask = null;
+                    ApplyCloneFollowUp(newId);
+                    EndCloneConfirm();
+                    ImGui.EndWindow();
+                    return;
+                }
+            }
+
+            if (_cloneError != null)
+                ImGui.Text($"Error: {_cloneError}", new Vector4(0.95f, 0.35f, 0.25f, 1f));
+            else if (_cloneTask != null)
+                ImGui.Text("Cloning…");
+
+            ImGui.Separator();
+            var busy = _cloneTask != null;
+            if (!busy && ImGui.Button($"Clone###{Id}cloneOk", new Vector2(120, 28)))
+            {
+                var factory = _view.Controller.DbFactory;
+                if (factory == null)
+                {
+                    _cloneError = "No database connection is configured.";
+                }
+                else
+                {
+                    _cloneError = null;
+                    var repo = new VisualEQ.Database.Repositories.LootRepository(factory);
+                    var sourceId = _cloneConfirmSourceId;
+                    _cloneTask = _cloneConfirmKind == "loottable"
+                        ? System.Threading.Tasks.Task.Run(() => repo.CloneLootTableAsync(sourceId))
+                        : System.Threading.Tasks.Task.Run(() => repo.CloneLootDropAsync(sourceId));
+                }
+            }
+            ImGui.SameLine();
+            if (ImGui.Button($"Cancel###{Id}cloneX", new Vector2(120, 28)))
+                EndCloneConfirm();
+
+            ImGui.EndWindow();
+        }
+
+        // Follow-up work after a clone's async DB write lands. For loottable
+        // clone: fire a buffered NPC edit swapping loottable_id from old → new
+        // (undoable). For lootdrop clone: run an immediate UPDATE on the
+        // owning loottable's LTE row swapping its lootdrop_id (not buffered —
+        // the DELETE-old + INSERT-new pattern isn't a good fit for an in-place
+        // repoint since the composite PK would fight itself; a raw UPDATE
+        // keeps roll params intact).
+        void ApplyCloneFollowUp(int newId)
+        {
+            if (_cloneConfirmKind == "loottable")
+            {
+                // Buffered NPC edit: loottable_id = newId. Uses the same
+                // pipeline as any other npc_types field edit; overlay merge
+                // will make the widget see the new id, triggering a fresh
+                // fetch of the clone's contents.
+                var displayName = _displayedNpc?.Name ?? "?";
+                RecordNpcFieldEdit(_cloneConfirmContextNpcId, "loottable_id",
+                    _cloneConfirmContextOldLoottableId, newId, displayName);
+            }
+            else
+            {
+                // Immediate repoint of the owning loottable_entries row. Fire
+                // and forget (any error surfaces as the next fetch's error).
+                var factory = _view.Controller.DbFactory;
+                if (factory != null)
+                {
+                    var repo = new VisualEQ.Database.Repositories.LootRepository(factory);
+                    var lt = _cloneConfirmContextLoottableId;
+                    var oldId = _cloneConfirmSourceId;
+                    System.Threading.Tasks.Task.Run(async () =>
+                        await repo.RepointLootTableEntryLootdropAsync(lt, oldId, newId));
+                }
+                // Force a re-fetch so the widget renders the swapped row.
+                _lootFetchedForLoottableId = null;
+                _lootData                  = null;
+            }
+        }
+
+        // Name-entry modal for the "+ New empty loottable/lootdrop" flows. On
+        // Confirm: async INSERT (returns new id) → follow-up wiring (buffered
+        // NPC edit for loottable, buffered LTE insert for lootdrop) → close
+        // + invalidate cache.
+        void BeginCreateEmptyLootTable(int npcId, int currentLoottableId)
+        {
+            _createEmptyActive                  = true;
+            _createEmptyKind                    = "loottable";
+            _createEmptyContextNpcId            = npcId;
+            _createEmptyContextOldLoottableId   = currentLoottableId;
+            _createEmptyContextLoottableId      = 0;
+            _createEmptyTask                    = null;
+            _createEmptyError                   = null;
+            System.Array.Clear(_createEmptyNameBuf, 0, _createEmptyNameBuf.Length);
+        }
+
+        void BeginCreateEmptyLootDrop(int owningLoottableId)
+        {
+            _createEmptyActive                  = true;
+            _createEmptyKind                    = "lootdrop";
+            _createEmptyContextLoottableId      = owningLoottableId;
+            _createEmptyContextNpcId            = 0;
+            _createEmptyContextOldLoottableId   = 0;
+            _createEmptyTask                    = null;
+            _createEmptyError                   = null;
+            System.Array.Clear(_createEmptyNameBuf, 0, _createEmptyNameBuf.Length);
+        }
+
+        void EndCreateEmpty()
+        {
+            _createEmptyActive = false;
+            _createEmptyTask   = null;
+        }
+
+        void RenderCreateEmptyDialog(Gui gui)
+        {
+            const float dlgW = 460f;
+            const float dlgH = 210f;
+            var pos = new Vector2((gui.Dimensions.X - dlgW) / 2, (gui.Dimensions.Y - dlgH) / 2);
+
+            ImGui.SetNextWindowPos(pos, Condition.Always, Vector2.Zero);
+            ImGui.SetNextWindowSize(new Vector2(dlgW, dlgH), Condition.Always);
+
+            const WindowFlags flags = WindowFlags.NoTitleBar | WindowFlags.NoMove
+                                    | WindowFlags.NoResize   | WindowFlags.NoCollapse
+                                    | WindowFlags.NoSavedSettings;
+
+            ImGui.BeginWindow($"###{Id}CreateEmptyDlg", flags);
+
+            ImGui.Text(_createEmptyKind == "loottable"
+                ? "Create new empty loottable"
+                : "Create new empty lootdrop");
+            ImGui.Separator();
+
+            ImGui.Text("Name:");
+            ImGui.InputText($"###{Id}ceName", _createEmptyNameBuf, (uint)_createEmptyNameBuf.Length, InputTextFlags.Default, null);
+            var name = ReadBuffer(_createEmptyNameBuf).Trim();
+
+            if (_createEmptyKind == "loottable")
+                ImGui.Text("This NPC will be re-pointed to the new loottable (buffered — commit to save).");
+            else
+                ImGui.Text("The new lootdrop will be added to this loottable (buffered — commit to save).");
+
+            // Reap in-flight task.
+            if (_createEmptyTask != null && _createEmptyTask.IsCompleted)
+            {
+                if (_createEmptyTask.IsFaulted)
+                {
+                    _createEmptyError = _createEmptyTask.Exception?.GetBaseException().Message ?? "unknown error";
+                    _createEmptyTask  = null;
+                }
+                else
+                {
+                    var newId = _createEmptyTask.Result;
+                    _createEmptyTask = null;
+                    ApplyCreateEmptyFollowUp(newId, name);
+                    EndCreateEmpty();
+                    ImGui.EndWindow();
+                    return;
+                }
+            }
+
+            if (_createEmptyError != null)
+                ImGui.Text($"Error: {_createEmptyError}", new Vector4(0.95f, 0.35f, 0.25f, 1f));
+            else if (_createEmptyTask != null)
+                ImGui.Text("Creating…");
+
+            ImGui.Separator();
+            var busy = _createEmptyTask != null;
+            var canConfirm = !busy && !string.IsNullOrWhiteSpace(name);
+            if (canConfirm)
+            {
+                if (ImGui.Button($"Create###{Id}ceOk", new Vector2(120, 28)))
+                {
+                    var factory = _view.Controller.DbFactory;
+                    if (factory == null)
+                    {
+                        _createEmptyError = "No database connection is configured.";
+                    }
+                    else
+                    {
+                        _createEmptyError = null;
+                        var repo = new VisualEQ.Database.Repositories.LootRepository(factory);
+                        var capturedName = name;
+                        _createEmptyTask = _createEmptyKind == "loottable"
+                            ? System.Threading.Tasks.Task.Run(() => repo.CreateEmptyLootTableAsync(capturedName))
+                            : System.Threading.Tasks.Task.Run(() => repo.CreateEmptyLootDropAsync(capturedName));
+                    }
+                }
+            }
+            else
+            {
+                ImGui.Text(busy ? "(waiting for DB…)" : "(name required)");
+            }
+            ImGui.SameLine();
+            if (ImGui.Button($"Cancel###{Id}ceX", new Vector2(120, 28)))
+                EndCreateEmpty();
+
+            ImGui.EndWindow();
+        }
+
+        void ApplyCreateEmptyFollowUp(int newId, string name)
+        {
+            if (_createEmptyKind == "loottable")
+            {
+                var displayName = _displayedNpc?.Name ?? "?";
+                RecordNpcFieldEdit(_createEmptyContextNpcId, "loottable_id",
+                    _createEmptyContextOldLoottableId, newId, displayName);
+            }
+            else
+            {
+                // Buffered LTE insert linking the new lootdrop to the owning
+                // loottable, defaults matching the "+ Add lootdrop" flow.
+                var newSnap = new LootTableEntrySnapshot
+                {
+                    Multiplier  = 1,
+                    DropLimit   = 1,
+                    MinDrop     = 1,
+                    Probability = 100f,
+                };
+                _view.Controller.RecordAction(new LootTableEntryEditAction(
+                    _createEmptyContextLoottableId, newId, null, newSnap, name ?? "?"));
+            }
         }
 
         void RenderFkPickerDialog(Gui gui)

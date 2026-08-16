@@ -469,6 +469,93 @@ namespace VisualEQ.Database.Constants
         public const string GetLootTableUsageCount = @"
             SELECT COUNT(*) FROM npc_types WHERE loottable_id = @LoottableId";
 
+        // Slice 6c — per-lootdrop usage count (how many loottables reference
+        // each lootdrop). Batched via IN so one query covers every lootdrop in
+        // the current view. The sidebar surfaces N > 1 as "shared → clone
+        // before editing" so a well-meaning edit doesn't quietly change loot
+        // for every NPC that inherits from the same lootdrop.
+        public const string GetLootDropUsageCountBatch = @"
+            SELECT lootdrop_id AS LootdropId, COUNT(*) AS Count
+            FROM loottable_entries
+            WHERE lootdrop_id IN @Ids
+            GROUP BY lootdrop_id";
+
+        // Slice 6c — clone / create writes. All immediate (own transaction on
+        // the connection); they don't route through the pending buffer because
+        // AUTO_INCREMENT id remapping across buffer ops would be intrusive to
+        // add for a rarely-undone action. Documented in the sidebar with a
+        // confirm modal before firing.
+
+        // Copies a loottable row (with " (clone)" name suffix) so the clone is
+        // instantly identifiable in searches. Selects every editable column so
+        // future schema additions don't silently drop.
+        public const string CloneLootTableRow = @"
+            INSERT INTO loottable
+                (name, mincash, maxcash, avgcoin, done, min_expansion,
+                 max_expansion, content_flags, content_flags_disabled)
+            SELECT
+                CONCAT(name, ' (clone)'), mincash, maxcash, avgcoin, done,
+                min_expansion, max_expansion, content_flags, content_flags_disabled
+            FROM loottable
+            WHERE id = @SourceId";
+
+        // Bulk-copy every loottable_entries row from source to new loottable.
+        // Preserves multiplier / droplimit / mindrop / probability.
+        public const string CloneLootTableEntries = @"
+            INSERT INTO loottable_entries
+                (loottable_id, lootdrop_id, multiplier, droplimit, mindrop, probability)
+            SELECT
+                @NewId, lootdrop_id, multiplier, droplimit, mindrop, probability
+            FROM loottable_entries
+            WHERE loottable_id = @SourceId";
+
+        public const string CloneLootDropRow = @"
+            INSERT INTO lootdrop
+                (name, min_expansion, max_expansion, content_flags, content_flags_disabled)
+            SELECT
+                CONCAT(name, ' (clone)'), min_expansion, max_expansion,
+                content_flags, content_flags_disabled
+            FROM lootdrop
+            WHERE id = @SourceId";
+
+        public const string CloneLootDropEntries = @"
+            INSERT INTO lootdrop_entries
+                (lootdrop_id, item_id, item_charges, equip_item, chance,
+                 disabled_chance, trivial_min_level, trivial_max_level,
+                 multiplier, npc_min_level, npc_max_level,
+                 min_expansion, max_expansion, content_flags, content_flags_disabled)
+            SELECT
+                @NewId, item_id, item_charges, equip_item, chance,
+                disabled_chance, trivial_min_level, trivial_max_level,
+                multiplier, npc_min_level, npc_max_level,
+                min_expansion, max_expansion, content_flags, content_flags_disabled
+            FROM lootdrop_entries
+            WHERE lootdrop_id = @SourceId";
+
+        // Swaps a loottable_entries row's lootdrop_id (used post-clone: the
+        // owning loottable now points at the fresh copy instead of the shared
+        // original). Composite PK preserved by the WHERE clause.
+        public const string RepointLootTableEntryLootdrop = @"
+            UPDATE loottable_entries
+            SET lootdrop_id = @NewLootdropId
+            WHERE loottable_id = @LoottableId AND lootdrop_id = @OldLootdropId";
+
+        // Fresh empty loottable — user supplies just a name; defaults elsewhere.
+        // The row is committed immediately; the sidebar then routes the NPC's
+        // npc_types.loottable_id through the normal buffered edit path so
+        // discarding the session doesn't leave a rogue assignment.
+        public const string CreateEmptyLootTable = @"
+            INSERT INTO loottable (name, mincash, maxcash, avgcoin)
+            VALUES (@Name, 0, 0, 0)";
+
+        // Fresh empty lootdrop — used by the ""+ New empty lootdrop"" path in
+        // the add-lootdrop search picker. Caller wires the returned id into a
+        // pending LootTableEntryEditAction so the link between the owning
+        // loottable and the new lootdrop lands with the normal commit.
+        public const string CreateEmptyLootDrop = @"
+            INSERT INTO lootdrop (name)
+            VALUES (@Name)";
+
         // Slice 6b — SEARCH pickers. lootdrop (24k rows) and items (80k rows) are
         // both too large for the preload path (ReferenceDataCache). Callers pre-
         // wrap @Filter with '%' wildcards (empty filter is fine — LIMIT caps
