@@ -10,5 +10,10 @@ namespace VisualEQ.Database.Repositories.Interfaces
     {
         Task<IEnumerable<NpcFactionEntry>> GetNpcFactionEntriesAsync(int npcFactionId);
         Task<NpcFactionSet> GetNpcFactionSetAsync(int npcFactionId);
+
+        // Slice 7b — bare row insert; returns new AUTO_INCREMENT id. Bundled
+        // INSERT + SELECT LAST_INSERT_ID so both share one physical connection
+        // (see LOOK: LAST_INSERT_ID gotcha in LootRepository).
+        Task<int> CreateEmptyNpcFactionAsync(string name, int primaryFaction, int ignorePrimaryAssist);
     }
 }

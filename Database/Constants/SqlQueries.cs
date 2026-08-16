@@ -355,6 +355,15 @@ namespace VisualEQ.Database.Constants
         // One npc_faction (set) row. Holds set-wide metadata: display name, the
         // primary faction id (fk to faction_list) this NPC belongs to, and whether
         // the primary is excluded from assist aggro.
+        // Slice 7b — create a new npc_faction row. Users supply name + optional
+        // primaryfaction (0 = none) + ignore_primary_assist flag. Row lands
+        // immediately (same rationale as loottable create-empty); the follow-up
+        // NPC repoint via npc_faction_id is buffered so a session discard
+        // doesn't strand the NPC on a set that no longer exists.
+        public const string CreateEmptyNpcFaction = @"
+            INSERT INTO npc_faction (name, primaryfaction, ignore_primary_assist)
+            VALUES (@Name, @PrimaryFaction, @IgnorePrimaryAssist)";
+
         public const string GetNpcFactionById = @"
             SELECT
                 nf.id                     AS Id,

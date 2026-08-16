@@ -29,5 +29,18 @@ namespace VisualEQ.Database.Repositories
                 return await connection.QuerySingleOrDefaultAsync<NpcFactionSet>(
                     SqlQueries.GetNpcFactionById, new { Id = npcFactionId });
         }
+
+        public async Task<int> CreateEmptyNpcFactionAsync(string name, int primaryFaction, int ignorePrimaryAssist)
+        {
+            using (var connection = CreateConnection())
+                return await connection.ExecuteScalarAsync<int>(
+                    SqlQueries.CreateEmptyNpcFaction + "; SELECT LAST_INSERT_ID();",
+                    new
+                    {
+                        Name = name ?? "",
+                        PrimaryFaction = primaryFaction,
+                        IgnorePrimaryAssist = ignorePrimaryAssist,
+                    });
+        }
     }
 }

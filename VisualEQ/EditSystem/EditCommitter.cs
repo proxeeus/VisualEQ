@@ -36,6 +36,7 @@ namespace VisualEQ.EditSystem
             public int LootDropEntryUpdates;      // UPDATEs on lootdrop_entries
             public int LootDropEntryDeletes;      // DELETEs on lootdrop_entries
             public int LootTableRowsWritten;      // UPDATEs on loottable (header fields)
+            public int NpcFactionRowsWritten;     // UPDATEs on npc_faction (header fields)
 
             // Maps pending-insert temp ids (negative) to their assigned AUTO_INCREMENT ids
             // (positive) after a successful INSERT. Consumers (OnCommitSucceeded) apply this
@@ -502,6 +503,33 @@ namespace VisualEQ.EditSystem
                                 lootTableRows += await connection.ExecuteAsync(sql, parameters, tx);
                             }
 
+                            // npc_faction header commits (Slice 7b) — same
+                            // dynamic UPDATE SET pattern as loottable.
+                            int npcFactionRows = 0;
+                            foreach (var kv in buffer.NpcFactions)
+                            {
+                                var edit = kv.Value;
+                                if (edit.CurrentValues == null || edit.CurrentValues.Count == 0)
+                                    continue;
+
+                                var setClauses = new System.Collections.Generic.List<string>();
+                                var parameters = new DynamicParameters();
+                                parameters.Add("Id", edit.NpcFactionId);
+                                int p = 0;
+                                foreach (var fv in edit.CurrentValues)
+                                {
+                                    var def = NpcFactionFieldCatalog.Get(fv.Key);
+                                    if (def == null) continue;
+                                    var paramName = $"p{p++}";
+                                    setClauses.Add($"`{def.ColumnName}` = @{paramName}");
+                                    parameters.Add(paramName, NpcFactionFieldCatalog.Parse(fv.Value, def.Kind));
+                                }
+                                if (setClauses.Count == 0) continue;
+
+                                var sql = $"UPDATE npc_faction SET {string.Join(", ", setClauses)} WHERE id = @Id";
+                                npcFactionRows += await connection.ExecuteAsync(sql, parameters, tx);
+                            }
+
                             // Zone-point commits: DELETE first (so a delete+re-insert with
                             // the same target coord doesn't briefly duplicate a row), then
                             // INSERT (returns AUTO_INCREMENT ids we map back to the temp
@@ -626,6 +654,7 @@ namespace VisualEQ.EditSystem
                                 LootDropEntryUpdates     = ldeUpdates,
                                 LootDropEntryDeletes     = ldeDeletes,
                                 LootTableRowsWritten     = lootTableRows,
+                                NpcFactionRowsWritten    = npcFactionRows,
                                 InsertedIdMap            = insertedIdMap,
                             };
                         }
