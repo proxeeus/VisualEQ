@@ -1486,12 +1486,26 @@ namespace VisualEQ.Views
 
             ImGui.Separator();
             ImGui.Text("Position (DB axes)");
+            // 3-in-a-row X/Y/Z — same 70px cell as the spawn position field.
+            // In read-only mode RenderWpFloatField emits a plain Text row; the
+            // width push is a no-op there (Text ignores item-width) but the
+            // SameLine still packs the three coord strings onto one line, which
+            // is even more compact than the edit view.
+            const float WpPosInput = 70f;
+            NsimGui.CimguiRaw.igPushItemWidth(WpPosInput);
             RenderWpFloatField(gridId, number, VisualEQ.EditSystem.GridEntryFieldEditAction.Field.X,
                 "x", () => wp.X, v => wp.X = v, editable);
+            NsimGui.CimguiRaw.igPopItemWidth();
+            ImGui.SameLine();
+            NsimGui.CimguiRaw.igPushItemWidth(WpPosInput);
             RenderWpFloatField(gridId, number, VisualEQ.EditSystem.GridEntryFieldEditAction.Field.Y,
                 "y", () => wp.Y, v => wp.Y = v, editable);
+            NsimGui.CimguiRaw.igPopItemWidth();
+            ImGui.SameLine();
+            NsimGui.CimguiRaw.igPushItemWidth(WpPosInput);
             RenderWpFloatField(gridId, number, VisualEQ.EditSystem.GridEntryFieldEditAction.Field.Z,
                 "z", () => wp.Z, v => wp.Z = v, editable);
+            NsimGui.CimguiRaw.igPopItemWidth();
 
             ImGui.Separator();
             ImGui.Text("Facing");
@@ -1960,29 +1974,43 @@ namespace VisualEQ.Views
 
             ImGui.Text("Position (DB axes)");
 
+            // 3-in-a-row: fits the 380px default sidebar and keeps X/Y/Z visually
+            // grouped as a single vector edit. Each DragFloat is 70px wide; the
+            // label (x/y/z) renders inline to the right courtesy of DragFloat's
+            // native label handling. SameLine keeps them on one row.
+            const float PosInput = 70f;
+
             // X (DB) ↔ scene.Y
             var beforeX = sp.Model.Position;
             var xVal = beforeX.Y;
+            NsimGui.CimguiRaw.igPushItemWidth(PosInput);
             var xChanged = ImGui.DragFloat($"x###{Id}siPosX{spawnId}",
                 ref xVal, 0f, 0f, 1f, "%.2f", 1f);
+            NsimGui.CimguiRaw.igPopItemWidth();
             if (xChanged)
                 sp.Model.Position = new Vector3(beforeX.X, xVal, beforeX.Z);
             HandleSpawnPosTransition(sp, SpawnPosAxis.X, beforeX.Y, beforeX);
+            ImGui.SameLine();
 
             // Y (DB) ↔ scene.X — re-read since X's write may have changed sp.Model.Position.
             var beforeY = sp.Model.Position;
             var yVal = beforeY.X;
+            NsimGui.CimguiRaw.igPushItemWidth(PosInput);
             var yChanged = ImGui.DragFloat($"y###{Id}siPosY{spawnId}",
                 ref yVal, 0f, 0f, 1f, "%.2f", 1f);
+            NsimGui.CimguiRaw.igPopItemWidth();
             if (yChanged)
                 sp.Model.Position = new Vector3(yVal, beforeY.Y, beforeY.Z);
             HandleSpawnPosTransition(sp, SpawnPosAxis.Y, beforeY.X, beforeY);
+            ImGui.SameLine();
 
             // Z (DB) ↔ scene.Z
             var beforeZ = sp.Model.Position;
             var zVal = beforeZ.Z;
+            NsimGui.CimguiRaw.igPushItemWidth(PosInput);
             var zChanged = ImGui.DragFloat($"z###{Id}siPosZ{spawnId}",
                 ref zVal, 0f, 0f, 1f, "%.2f", 1f);
+            NsimGui.CimguiRaw.igPopItemWidth();
             if (zChanged)
                 sp.Model.Position = new Vector3(beforeZ.X, beforeZ.Y, zVal);
             HandleSpawnPosTransition(sp, SpawnPosAxis.Z, beforeZ.Z, beforeZ);
