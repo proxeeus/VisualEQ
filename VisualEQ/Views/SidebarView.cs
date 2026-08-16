@@ -203,6 +203,7 @@ namespace VisualEQ.Views
         private int _commitGridMetaCountSnapshot;
         private int _commitGridWholeInsertsSnapshot;
         private int _commitNpcCountSnapshot;
+        private int _commitNpcFactionEntryCountSnapshot;
 
         // Simple confirm modals — no extra state beyond "is it open?" + a snapshot count
         // so the dialog can display consistent numbers even if the buffer mutates while
@@ -336,6 +337,40 @@ namespace VisualEQ.Views
         private string _fkPickerNpcDisplayName;
         private readonly byte[] _fkPickerFilterBuf = new byte[64];
         private int _fkPickerSelectedIdx = -1;
+        // Optional callback fired when the user hits Select. When null (default),
+        // the picker writes an NpcFieldEditAction to _fkPickerFieldName on the NPC.
+        // When set (e.g. faction-entry-add), the callback owns what to do with the
+        // picked id — the picker just closes.
+        private System.Action<int> _fkPickerOnPicked;
+
+        // Faction-entries fetch state (Slice 5). Keyed by npc_faction_id (from the
+        // currently-selected NPC's NpcTypeFull.NpcFactionId). Cache is npc_faction-
+        // scoped so switching NPCs that share a faction set is free.
+        //
+        // Two fetches run in parallel per set: the entries list (rows in
+        // npc_faction_entries) and the parent set metadata (name / primaryfaction /
+        // ignore_primary_assist from npc_faction). Both must complete before the
+        // editor renders; we wait for the entries task and then just read whatever
+        // the set task has produced (name/primary lookup is cosmetic — if the parent
+        // row is missing we still render entries).
+        private int? _factionEntriesFetchedFor;
+        private int? _factionEntriesInFlightFor;
+        private System.Threading.Tasks.Task<System.Collections.Generic.List<VisualEQ.Database.Models.NpcFactionEntry>> _factionEntriesTask;
+        private System.Collections.Generic.List<VisualEQ.Database.Models.NpcFactionEntry> _factionEntriesData;
+        private System.Threading.Tasks.Task<VisualEQ.Database.Models.NpcFactionSet> _factionSetTask;
+        private VisualEQ.Database.Models.NpcFactionSet _factionSetData;
+        private string _factionEntriesError;
+
+        // Enum labels for npc_value (reaction) and temp — mirrors peqphpeditor's
+        // faction_values / tmpfaction dicts so DB values render as human labels.
+        //   npc_value: -1 = Aggressive, 0 = Passive, 1 = Assist (signed tinyint on wire)
+        //   temp:       0 = Perm, 1 = Temp/NoMsg, 2 = Perm/NoMsg, 3 = Temp
+        static readonly int[]    _reactionVals   = { -1, 0, 1 };
+        static readonly string[] _reactionLabels = { "Aggressive", "Passive", "Assist" };
+        // Kept short — the sidebar column is tight and peqphpeditor's tmpfacshort
+        // uses the same abbreviations in its per-row rendering.
+        static readonly int[]    _tempVals   = { 0, 1, 2, 3 };
+        static readonly string[] _tempLabels = { "Perm", "Temp/NM", "Perm/NM", "Temp" };
 
         public SidebarWidget(SidebarView view)
         {
@@ -517,6 +552,7 @@ namespace VisualEQ.Views
             _commitGridMetaCountSnapshot    = buffer.Grids.Count;
             _commitGridWholeInsertsSnapshot = buffer.GridInserts.Count;
             _commitNpcCountSnapshot         = buffer.Npcs.Count;
+            _commitNpcFactionEntryCountSnapshot = buffer.NpcFactionEntries.Count;
             _commitPhase = CommitPhase.Confirm;
             _commitResult = null;
         }
@@ -539,6 +575,17 @@ namespace VisualEQ.Views
                     {
                         _npcDetailsFetchedForId = null;
                         _displayedNpc           = null;
+                    }
+                    // Same idea for faction entries — DB rows are now the committed
+                    // set, so drop the fetched baseline to force a re-query on the
+                    // next render (which now reflects Insert/Update/Delete).
+                    if (_commitResult.NpcFactionEntryInserts > 0 ||
+                        _commitResult.NpcFactionEntryUpdates > 0 ||
+                        _commitResult.NpcFactionEntryDeletes > 0)
+                    {
+                        _factionEntriesFetchedFor = null;
+                        _factionEntriesData       = null;
+                        _factionSetData           = null;
                     }
                 }
                 _commitPhase = CommitPhase.Result;
@@ -589,6 +636,8 @@ namespace VisualEQ.Views
                 ImGui.Text($"  {_commitGridWholeInsertsSnapshot} new grid(s)");
             if (_commitNpcCountSnapshot > 0)
                 ImGui.Text($"  {_commitNpcCountSnapshot} NPC edit(s)");
+            if (_commitNpcFactionEntryCountSnapshot > 0)
+                ImGui.Text($"  {_commitNpcFactionEntryCountSnapshot} faction-entry op(s)");
             ImGui.Separator();
             ImGui.Text($"Target: {db.Server}/{db.Database}");
             ImGui.Text("Runs as a single transaction — all-or-nothing.");
@@ -648,6 +697,12 @@ namespace VisualEQ.Views
                     ImGui.Text($"  {r.ZonePointDeletesWritten} trilogy_zone_points row(s) deleted");
                 if (r.NpcRowsWritten > 0)
                     ImGui.Text($"  {r.NpcRowsWritten} npc_types row(s) updated");
+                if (r.NpcFactionEntryInserts > 0)
+                    ImGui.Text($"  {r.NpcFactionEntryInserts} npc_faction_entries row(s) inserted");
+                if (r.NpcFactionEntryUpdates > 0)
+                    ImGui.Text($"  {r.NpcFactionEntryUpdates} npc_faction_entries row(s) updated");
+                if (r.NpcFactionEntryDeletes > 0)
+                    ImGui.Text($"  {r.NpcFactionEntryDeletes} npc_faction_entries row(s) deleted");
                 ImGui.Separator();
                 ImGui.Text("Buffer + undo history cleared.");
                 var touchedZonePoints = r.ZonePointRowsWritten + r.ZonePointInsertsWritten + r.ZonePointDeletesWritten;
@@ -3748,6 +3803,384 @@ namespace VisualEQ.Views
         //
         // Every change re-serializes the whole entries dict and fires one
         // NpcFieldEditAction — same commit path as any other npc_types field.
+        // Faction-entries editor (Slice 5). Modeled on peqphpeditor's npc/faction
+        // view — a compact header (set name + primary faction + assist flag) over
+        // a fixed-column table of hits: Faction | Value | Reaction | Temp | X.
+        //
+        // Column widths are absolute pixels via igSetNextItemWidth so the columns
+        // line up regardless of the widest faction name. The name column truncates
+        // if the sidebar is narrower than expected — full name is on the row's
+        // tooltip via ImGui.Text (implicit hover doesn't kick in here, so it's
+        // shown inline).
+        //
+        // npc_value is a tri-state enum (Aggressive / Passive / Assist), not a
+        // signed byte editable via drag. temp is a 4-state enum (Perm / Temp / …),
+        // not a boolean checkbox. This corrects two guesses from the initial cut.
+        //
+        // Fetch runs two queries in parallel: npc_faction_entries (the rows) and
+        // npc_faction (the parent set metadata). FactionList reference cache is
+        // force-warmed here so the very first render already has names — no more
+        // "you see just IDs until the async fetch lands" flash.
+        //
+        // Requires npc_faction_id > 0. NPCs without a faction set get a hint
+        // pointing to the References section where the FK picker is.
+        void NpcFactionEntriesEditor(int npcId, int npcFactionId, bool editable)
+        {
+            if (npcFactionId <= 0)
+            {
+                ImGui.Text("(no faction set assigned — pick one in the References section)");
+                return;
+            }
+
+            // Faction names come inline via the LEFT JOIN on faction_list — no
+            // reliance on ReferenceDataCache for row rendering. Cache is still
+            // used by the Add-faction picker further down (its own concern).
+            var cache = _view.Controller.ReferenceData;
+
+            MaintainFactionEntriesFetch(npcFactionId);
+            if (_factionEntriesInFlightFor == npcFactionId)
+            {
+                ImGui.Text("Loading faction entries…");
+                return;
+            }
+            if (_factionEntriesFetchedFor == npcFactionId && _factionEntriesError != null)
+            {
+                ImGui.Text($"Error: {_factionEntriesError}", new Vector4(0.95f, 0.35f, 0.25f, 1f));
+                return;
+            }
+            if (_factionEntriesFetchedFor != npcFactionId || _factionEntriesData == null)
+            {
+                ImGui.Text("Waiting for faction entries…");
+                return;
+            }
+
+            // ── Header: set name + primary faction + ignore-assist flag ──────
+            var setName = _factionSetData?.Name;
+            if (string.IsNullOrWhiteSpace(setName)) setName = "(unnamed set)";
+            ImGui.Text($"Set #{npcFactionId} — \"{setName}\"");
+
+            // Primary faction: JOIN-resolved name (empty when set has none or the fk
+            // is dangling). Format as "Name (#id)" — name first for scannability.
+            string primaryLine;
+            if (_factionSetData == null)
+                primaryLine = "(loading…)";
+            else if (_factionSetData.PrimaryFaction == 0)
+                primaryLine = "(none)";
+            else if (!string.IsNullOrWhiteSpace(_factionSetData.PrimaryFactionName))
+                primaryLine = $"{_factionSetData.PrimaryFactionName} (#{_factionSetData.PrimaryFaction})";
+            else
+                primaryLine = $"? (#{_factionSetData.PrimaryFaction})";
+            ImGui.Text($"Primary faction: {primaryLine}");
+
+            var ignoreAssist = _factionSetData != null && _factionSetData.IgnorePrimaryAssist != 0;
+            ImGui.Text($"Ignore primary assist: {(ignoreAssist ? "Yes" : "No")}");
+
+            ImGui.Separator();
+
+            // ── Table: hit rows ───────────────────────────────────────────
+            var effective = ComputeEffectiveFactionEntries(npcFactionId);
+
+            // Column geometry, sized to the actual content region so the layout
+            // adapts when the user widens the sidebar. Widget widths are fixed
+            // (combos need to fit their widest label — "Aggressive"); the faction
+            // name column absorbs whatever's left. Minimums stop things from
+            // collapsing at the ~320px minimum sidebar width.
+            var contentW = ImGui.GetContentRegionAvailable().X;
+            if (contentW < 320f) contentW = 320f;
+
+            const float wValue    = 55f;    // "-2000" fits
+            const float wReaction = 100f;   // "Aggressive" + arrow
+            const float wTemp     = 85f;    // "Perm/NM" + arrow
+            const float wRemove   = 22f;    // small "X" button
+            const float colGap    = 6f;
+
+            var xRemove   = contentW - wRemove;
+            var xTemp     = xRemove - colGap - wTemp;
+            var xReaction = xTemp   - colGap - wReaction;
+            var xValue    = xReaction - colGap - wValue;
+            // Minimum faction-name column width so ultra-narrow sidebars don't
+            // squeeze names into 20px. If we ever hit this, columns overflow to
+            // the right (still readable, just no longer perfectly aligned).
+            if (xValue < 90f) xValue = 90f;
+
+            // Header row.
+            ImGui.Text("Faction");
+            ImGui.SameLine(xValue);    ImGui.Text("Adj.");
+            ImGui.SameLine(xReaction); ImGui.Text("Reaction");
+            ImGui.SameLine(xTemp);     ImGui.Text("Temp");
+            ImGui.Separator();
+
+            if (effective.Count == 0)
+            {
+                ImGui.Text("  (no faction hits in this set)");
+            }
+
+            foreach (var entry in effective.OrderBy(e =>
+                string.IsNullOrWhiteSpace(e.FactionName) ? "￿" + e.FactionId : e.FactionName))
+            {
+                // Format: "Name (#id)". Name from the LEFT JOIN, falls back to "?"
+                // when faction_list has no row for the id (dangling fk — user still
+                // sees the id, so they can look it up).
+                var factionName = !string.IsNullOrWhiteSpace(entry.FactionName)
+                    ? $"{entry.FactionName} (#{entry.FactionId})"
+                    : $"? (#{entry.FactionId})";
+
+                // Faction name column — plain text; ID follows the name so the row
+                // reads at a glance and the id is available for anyone jumping into
+                // faction_list directly.
+                ImGui.Text(factionName);
+
+                if (!editable)
+                {
+                    // Read-only view: same columns, just labels.
+                    ImGui.SameLine(xValue);
+                    ImGui.Text(entry.Value.ToString());
+
+                    ImGui.SameLine(xReaction);
+                    ImGui.Text(ReactionLabel(entry.NpcValue));
+
+                    ImGui.SameLine(xTemp);
+                    ImGui.Text(TempLabel(entry.Temp));
+                    continue;
+                }
+
+                // Value: numeric input, ~70px wide. Push/Pop per widget mimics the
+                // (unavailable) SetNextItemWidth API — see CimguiRaw comment.
+                ImGui.SameLine(xValue);
+                NsimGui.CimguiRaw.igPushItemWidth(wValue);
+                var val = (float)entry.Value;
+                var vChanged = ImGui.DragFloat($"##{Id}nfeV{npcFactionId}_{entry.FactionId}",
+                    ref val, 0f, 0f, 0f, "%.0f", 1f);
+                NsimGui.CimguiRaw.igPopItemWidth();
+                if (vChanged)
+                {
+                    var newVal = (int)System.Math.Round(val);
+                    if (newVal != entry.Value)
+                        RecordFactionEntryEdit(entry, e => e.Value = newVal, factionName);
+                }
+
+                // Reaction: tri-state combo. Fall back to first slot if the DB has
+                // an out-of-range value (shouldn't happen, but keeps the combo sane).
+                ImGui.SameLine(xReaction);
+                NsimGui.CimguiRaw.igPushItemWidth(wReaction);
+                var reactionIdx = System.Array.IndexOf(_reactionVals, (int)entry.NpcValue);
+                if (reactionIdx < 0) reactionIdx = 1; // default to Passive
+                var refReactionIdx = reactionIdx;
+                var reactionChanged = ImGui.Combo($"##{Id}nfeR{npcFactionId}_{entry.FactionId}", ref refReactionIdx, _reactionLabels);
+                NsimGui.CimguiRaw.igPopItemWidth();
+                if (reactionChanged)
+                {
+                    var newNv = (sbyte)_reactionVals[refReactionIdx];
+                    if (newNv != entry.NpcValue)
+                        RecordFactionEntryEdit(entry, e => e.NpcValue = newNv, factionName);
+                }
+
+                // Temp: 4-state combo.
+                ImGui.SameLine(xTemp);
+                NsimGui.CimguiRaw.igPushItemWidth(wTemp);
+                var tempIdx = System.Array.IndexOf(_tempVals, (int)entry.Temp);
+                if (tempIdx < 0) tempIdx = 0;
+                var refTempIdx = tempIdx;
+                var tempChanged = ImGui.Combo($"##{Id}nfeT{npcFactionId}_{entry.FactionId}", ref refTempIdx, _tempLabels);
+                NsimGui.CimguiRaw.igPopItemWidth();
+                if (tempChanged)
+                {
+                    var newTemp = (sbyte)_tempVals[refTempIdx];
+                    if (newTemp != entry.Temp)
+                        RecordFactionEntryEdit(entry, e => e.Temp = newTemp, factionName);
+                }
+
+                // Remove button.
+                ImGui.SameLine(xRemove);
+                if (ImGui.Button($"X##{Id}nfeX{npcFactionId}_{entry.FactionId}", new Vector2(24, 22)))
+                    RecordFactionEntryDelete(npcFactionId, entry, factionName);
+            }
+
+            if (editable)
+            {
+                ImGui.Separator();
+                if (ImGui.Button($"+ Add faction hit…###{Id}nfeAdd{npcFactionId}", new Vector2(160, 24)))
+                {
+                    // Open the FK picker over faction_list with a callback that inserts
+                    // a new entry (value=0 defaults) instead of writing an NpcFieldEditAction.
+                    var currentEffective = effective;
+                    BeginFkPicker(
+                        VisualEQ.SpawnSystem.ReferenceDataCache.Table.FactionList,
+                        "faction_entry_add", "Add faction hit to set",
+                        npcId, 0,
+                        onPicked: pickedFactionId =>
+                        {
+                            // Guard against re-adding an existing faction (composite PK
+                            // is (npc_faction_id, faction_id) — a duplicate would fail
+                            // the commit's INSERT).
+                            if (currentEffective.Any(e => e.FactionId == pickedFactionId)) return;
+                            var newSnap = new NpcFactionEntrySnapshot { Value = 0, NpcValue = 0, Temp = 0 };
+                            var cache2 = _view.Controller.ReferenceData;
+                            var picked = cache2?.ResolveLabel(
+                                VisualEQ.SpawnSystem.ReferenceDataCache.Table.FactionList, pickedFactionId)
+                                ?? pickedFactionId.ToString();
+                            _view.Controller.RecordAction(new NpcFactionEntryEditAction(
+                                npcFactionId, pickedFactionId, null, newSnap, picked));
+                        });
+                }
+            }
+        }
+
+        static string ReactionLabel(sbyte npcValue)
+        {
+            var idx = System.Array.IndexOf(_reactionVals, (int)npcValue);
+            return idx >= 0 ? _reactionLabels[idx] : $"({npcValue})";
+        }
+
+        static string TempLabel(sbyte temp)
+        {
+            var idx = System.Array.IndexOf(_tempVals, (int)temp);
+            return idx >= 0 ? _tempLabels[idx] : $"({temp})";
+        }
+
+        // Kick lazy fetches for both npc_faction_entries AND the parent npc_faction
+        // set row. Cached against the last-fetched id so switching NPCs that share
+        // a faction set is free. The set-metadata task is fire-and-forget: renders
+        // "(unknown)" gracefully if it hasn't landed yet, and always polls-in on
+        // the same tick as the entries task.
+        void MaintainFactionEntriesFetch(int npcFactionId)
+        {
+            // Reap set-metadata task first (independent of entries task; both were
+            // spawned together but land in whatever order the DB replies).
+            if (_factionSetTask != null && _factionSetTask.IsCompleted)
+            {
+                _factionSetData = _factionSetTask.IsFaulted ? null : _factionSetTask.Result;
+                _factionSetTask = null;
+            }
+
+            if (_factionEntriesTask != null && _factionEntriesTask.IsCompleted)
+            {
+                if (_factionEntriesTask.IsFaulted)
+                {
+                    _factionEntriesError = _factionEntriesTask.Exception?.GetBaseException().Message ?? "unknown error";
+                    _factionEntriesData  = null;
+                }
+                else
+                {
+                    _factionEntriesError = null;
+                    _factionEntriesData  = _factionEntriesTask.Result;
+                }
+                _factionEntriesFetchedFor  = _factionEntriesInFlightFor;
+                _factionEntriesInFlightFor = null;
+                _factionEntriesTask        = null;
+            }
+            if (_factionEntriesTask == null && _factionEntriesFetchedFor != npcFactionId)
+            {
+                var factory = _view.Controller.DbFactory;
+                if (factory == null)
+                {
+                    _factionEntriesError = "No database connection is configured.";
+                    _factionEntriesData  = null;
+                    _factionEntriesFetchedFor = npcFactionId;
+                    return;
+                }
+                _factionEntriesInFlightFor = npcFactionId;
+                _factionSetData            = null;
+                var repo = new VisualEQ.Database.Repositories.FactionRepository(factory);
+                _factionEntriesTask = System.Threading.Tasks.Task.Run(async () =>
+                    (await repo.GetNpcFactionEntriesAsync(npcFactionId)).ToList());
+                _factionSetTask     = System.Threading.Tasks.Task.Run(async () =>
+                    await repo.GetNpcFactionSetAsync(npcFactionId));
+            }
+        }
+
+        // Merge fetched baseline + pending buffer ops → the effective in-memory list
+        // the widget renders. Inserts add new entries, updates modify existing, deletes
+        // remove. Result is a fresh List so callers can mutate freely.
+        List<VisualEQ.Database.Models.NpcFactionEntry> ComputeEffectiveFactionEntries(int npcFactionId)
+        {
+            var byId = new Dictionary<int, VisualEQ.Database.Models.NpcFactionEntry>();
+            if (_factionEntriesData != null)
+                foreach (var e in _factionEntriesData)
+                    byId[e.FactionId] = new VisualEQ.Database.Models.NpcFactionEntry
+                    {
+                        NpcFactionId = e.NpcFactionId,
+                        FactionId    = e.FactionId,
+                        Value        = e.Value,
+                        NpcValue     = e.NpcValue,
+                        Temp         = e.Temp,
+                        FactionName  = e.FactionName,
+                    };
+
+            var buffer = _view.Controller.PendingBuffer;
+            if (buffer != null)
+            {
+                foreach (var kv in buffer.NpcFactionEntries)
+                {
+                    var op = kv.Value;
+                    if (op.NpcFactionId != npcFactionId) continue;
+                    if (op.Current == null)
+                    {
+                        byId.Remove(op.FactionId);
+                    }
+                    else
+                    {
+                        // Preserve baseline name on update; fall back to the op's
+                        // captured name (from picker or edit-time snapshot) so pure-
+                        // insert rows still display a name in the editor.
+                        byId.TryGetValue(op.FactionId, out var existing);
+                        var name = existing != null && !string.IsNullOrEmpty(existing.FactionName)
+                            ? existing.FactionName
+                            : op.FactionName;
+                        byId[op.FactionId] = new VisualEQ.Database.Models.NpcFactionEntry
+                        {
+                            NpcFactionId = npcFactionId,
+                            FactionId    = op.FactionId,
+                            Value        = op.Current.Value,
+                            NpcValue     = op.Current.NpcValue,
+                            Temp         = op.Current.Temp,
+                            FactionName  = name,
+                        };
+                    }
+                }
+            }
+            return byId.Values.ToList();
+        }
+
+        // Record a mutation to an existing faction entry. Captures the "from"
+        // snapshot at call time (either the buffer's current-if-present, or the DB
+        // baseline for first-touch), applies `mutate` to a new "to" snapshot, fires
+        // the action. Repeated edits on the same entry keep the true DB baseline as
+        // Original inside the buffer (walk-back cleanup then works correctly).
+        void RecordFactionEntryEdit(VisualEQ.Database.Models.NpcFactionEntry current,
+            System.Action<NpcFactionEntrySnapshot> mutate, string factionName)
+        {
+            var from = new NpcFactionEntrySnapshot
+            {
+                Value    = current.Value,
+                NpcValue = current.NpcValue,
+                Temp     = current.Temp,
+            };
+            var to = new NpcFactionEntrySnapshot
+            {
+                Value    = current.Value,
+                NpcValue = current.NpcValue,
+                Temp     = current.Temp,
+            };
+            mutate(to);
+            _view.Controller.RecordAction(new NpcFactionEntryEditAction(
+                current.NpcFactionId, current.FactionId, from, to, factionName));
+        }
+
+        // Delete-entry action. `from` is the current snapshot; `to` is null.
+        void RecordFactionEntryDelete(int npcFactionId,
+            VisualEQ.Database.Models.NpcFactionEntry current, string factionName)
+        {
+            var from = new NpcFactionEntrySnapshot
+            {
+                Value    = current.Value,
+                NpcValue = current.NpcValue,
+                Temp     = current.Temp,
+            };
+            _view.Controller.RecordAction(new NpcFactionEntryEditAction(
+                npcFactionId, current.FactionId, from, null, factionName));
+        }
+
         void NpcSpecialAbilitiesEditor(int npcId, System.Func<string> read, System.Action<string> write, bool editable)
         {
             var current = read() ?? "";
@@ -3890,7 +4323,8 @@ namespace VisualEQ.Views
         // ───────── FK picker modal ────────────────────────────────────
 
         void BeginFkPicker(VisualEQ.SpawnSystem.ReferenceDataCache.Table table,
-            string fieldName, string label, int npcId, int currentValue)
+            string fieldName, string label, int npcId, int currentValue,
+            System.Action<int> onPicked = null)
         {
             _fkPickerActive       = true;
             _fkPickerTable        = table;
@@ -3899,6 +4333,7 @@ namespace VisualEQ.Views
             _fkPickerNpcId        = npcId;
             _fkPickerCurrentValue = currentValue;
             _fkPickerNpcDisplayName = _displayedNpc?.Name ?? "?";
+            _fkPickerOnPicked     = onPicked;
             System.Array.Clear(_fkPickerFilterBuf, 0, _fkPickerFilterBuf.Length);
             _fkPickerSelectedIdx = -1;
         }
@@ -3907,6 +4342,7 @@ namespace VisualEQ.Views
         {
             _fkPickerActive = false;
             _fkPickerFieldName = null;
+            _fkPickerOnPicked  = null;
         }
 
         void RenderFkPickerDialog(Gui gui)
@@ -4002,7 +4438,14 @@ namespace VisualEQ.Views
                 if (ImGui.Button($"Select###{Id}fkOk", new Vector2(140, 28)))
                 {
                     var picked = filtered[_fkPickerSelectedIdx];
-                    if (picked.Id != _fkPickerCurrentValue)
+                    // Callback owns what to do with the pick (faction-entry-add path).
+                    // Default: write an NpcFieldEditAction to the field the picker
+                    // was opened for (loottable_id / npc_faction_id / etc).
+                    if (_fkPickerOnPicked != null)
+                    {
+                        _fkPickerOnPicked(picked.Id);
+                    }
+                    else if (picked.Id != _fkPickerCurrentValue)
                     {
                         RecordNpcFieldEdit(
                             _fkPickerNpcId, _fkPickerFieldName,
@@ -4238,6 +4681,14 @@ namespace VisualEQ.Views
             NpcCheckbox(npcId, "is_parcel_merchant",   "is_parcel_merchant", () => n.IsParcelMerchant,   v => n.IsParcelMerchant   = v, editable);
             NpcCheckbox(npcId, "multiquest_enabled",   "multiquest_enabled", () => n.MultiquestEnabled,  v => n.MultiquestEnabled  = v, editable);
             NpcNullableInt(npcId, "skip_global_loot",  "Skip global loot",   () => n.SkipGlobalLoot,     v => n.SkipGlobalLoot     = v, editable);
+            }
+
+            // ── Faction entries (Slice 5 — inline edits over npc_faction_entries) ─
+            // Right after References so the just-picked faction set is visually close
+            // to its entries. Default-open because it's a common edit target.
+            if (ImGui.CollapsingHeader($"Faction entries###{Id}ndFacE", TreeNodeFlags.DefaultOpen))
+            {
+                NpcFactionEntriesEditor(npcId, n.NpcFactionId, editable);
             }
 
             // ── Scaling ────────────────────────────────────────────

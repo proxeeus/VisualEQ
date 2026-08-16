@@ -326,6 +326,62 @@ namespace VisualEQ.Database.Constants
             GROUP BY merchantid
             ORDER BY merchantid";
 
+        // faction_list — master list of factions used by the per-entry picker inside
+        // a faction set (npc_faction_entries.faction_id references this). ~2k rows,
+        // fine for in-memory typeahead.
+        public const string GetAllFactionList = @"
+            SELECT id AS Id, name AS Name
+            FROM faction_list
+            ORDER BY name";
+
+        // One npc_faction (set) row. Holds set-wide metadata: display name, the
+        // primary faction id (fk to faction_list) this NPC belongs to, and whether
+        // the primary is excluded from assist aggro.
+        public const string GetNpcFactionById = @"
+            SELECT
+                nf.id                     AS Id,
+                nf.name                   AS Name,
+                nf.primaryfaction         AS PrimaryFaction,
+                nf.ignore_primary_assist  AS IgnorePrimaryAssist,
+                fl.name                   AS PrimaryFactionName
+            FROM npc_faction nf
+            LEFT JOIN faction_list fl ON fl.id = nf.primaryfaction
+            WHERE nf.id = @Id";
+
+        // Entries in a specific npc_faction set. Composite PK is
+        // (npc_faction_id, faction_id) — one row per faction that dying to this NPC
+        // affects. `value` = client-visible hit amount, `npc_value` = NPC-side hit
+        // amount used for aggro calc, `temp` = temporary faction flag.
+        public const string GetNpcFactionEntries = @"
+            SELECT
+                nfe.npc_faction_id  AS NpcFactionId,
+                nfe.faction_id      AS FactionId,
+                nfe.value           AS Value,
+                nfe.npc_value       AS NpcValue,
+                nfe.temp            AS Temp,
+                fl.name             AS FactionName
+            FROM npc_faction_entries nfe
+            LEFT JOIN faction_list fl ON fl.id = nfe.faction_id
+            WHERE nfe.npc_faction_id = @NpcFactionId
+            ORDER BY fl.name, nfe.faction_id";
+
+        // Commit-path DML for per-entry edits. Composite PK on
+        // (npc_faction_id, faction_id) — the (id, faction) pair must be unique.
+        public const string InsertNpcFactionEntry = @"
+            INSERT INTO npc_faction_entries
+                (npc_faction_id, faction_id, value, npc_value, temp)
+            VALUES
+                (@NpcFactionId, @FactionId, @Value, @NpcValue, @Temp)";
+
+        public const string UpdateNpcFactionEntry = @"
+            UPDATE npc_faction_entries
+            SET value = @Value, npc_value = @NpcValue, temp = @Temp
+            WHERE npc_faction_id = @NpcFactionId AND faction_id = @FactionId";
+
+        public const string DeleteNpcFactionEntry = @"
+            DELETE FROM npc_faction_entries
+            WHERE npc_faction_id = @NpcFactionId AND faction_id = @FactionId";
+
         // NPC picker search — substring match on npc_types.name. Caller passes @Filter
         // pre-wrapped with '%' wildcards (empty @Filter still returns rows, LIMIT
         // caps the load). Ordered by name so the UI list stays stable across

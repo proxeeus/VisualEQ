@@ -24,10 +24,12 @@ namespace VisualEQ.SpawnSystem
         public enum Table
         {
             LootTable,
-            NpcFaction,
+            NpcFaction,        // faction SETS from npc_faction
             Merchant,
             NpcSpellSet,
             NpcSpellEffectSet,
+            FactionList,       // individual factions from faction_list (Slice 5 — used
+                               //   by the per-entry faction picker inside a faction set)
         }
 
         sealed class TableState
@@ -46,6 +48,7 @@ namespace VisualEQ.SpawnSystem
             { Table.Merchant,          new TableState() },
             { Table.NpcSpellSet,       new TableState() },
             { Table.NpcSpellEffectSet, new TableState() },
+            { Table.FactionList,       new TableState() },
         };
 
         readonly MySqlConnectionFactory _factory;
@@ -113,6 +116,7 @@ namespace VisualEQ.SpawnSystem
                         case Table.Merchant:          rows = await repo.GetAllMerchantsAsync(); break;
                         case Table.NpcSpellSet:       rows = await repo.GetAllNpcSpellSetsAsync(); break;
                         case Table.NpcSpellEffectSet: rows = await repo.GetAllNpcSpellEffectSetsAsync(); break;
+                        case Table.FactionList:       rows = await repo.GetAllFactionListAsync(); break;
                         default: throw new ArgumentOutOfRangeException(nameof(table));
                     }
                     var list = rows.ToList();

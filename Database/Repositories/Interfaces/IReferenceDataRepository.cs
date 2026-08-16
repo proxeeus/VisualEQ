@@ -14,5 +14,6 @@ namespace VisualEQ.Database.Repositories.Interfaces
         Task<IEnumerable<ReferenceItem>> GetAllMerchantsAsync();
         Task<IEnumerable<ReferenceItem>> GetAllNpcSpellSetsAsync();
         Task<IEnumerable<ReferenceItem>> GetAllNpcSpellEffectSetsAsync();
+        Task<IEnumerable<ReferenceItem>> GetAllFactionListAsync();
     }
 }
