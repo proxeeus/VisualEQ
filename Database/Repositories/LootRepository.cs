@@ -112,20 +112,25 @@ namespace VisualEQ.Database.Repositories
 
         public async Task<int> CreateEmptyLootTableAsync(string name)
         {
+            // LAST_INSERT_ID() is per-connection in MySQL, and Dapper closes
+            // auto-opened connections after each call. Splitting INSERT + SELECT
+            // across two calls means the second one lands on a different pooled
+            // connection whose LAST_INSERT_ID() is 0 → the caller wires the NPC
+            // to loottable 0 = "no loottable". Bundle both statements into one
+            // ExecuteScalarAsync so they share the physical connection.
             using (var connection = CreateConnection())
-            {
-                await connection.ExecuteAsync(SqlQueries.CreateEmptyLootTable, new { Name = name ?? "" });
-                return await connection.ExecuteScalarAsync<int>("SELECT LAST_INSERT_ID()");
-            }
+                return await connection.ExecuteScalarAsync<int>(
+                    SqlQueries.CreateEmptyLootTable + "; SELECT LAST_INSERT_ID();",
+                    new { Name = name ?? "" });
         }
 
         public async Task<int> CreateEmptyLootDropAsync(string name)
         {
+            // See CreateEmptyLootTableAsync for the LAST_INSERT_ID reasoning.
             using (var connection = CreateConnection())
-            {
-                await connection.ExecuteAsync(SqlQueries.CreateEmptyLootDrop, new { Name = name ?? "" });
-                return await connection.ExecuteScalarAsync<int>("SELECT LAST_INSERT_ID()");
-            }
+                return await connection.ExecuteScalarAsync<int>(
+                    SqlQueries.CreateEmptyLootDrop + "; SELECT LAST_INSERT_ID();",
+                    new { Name = name ?? "" });
         }
 
         public async Task RepointLootTableEntryLootdropAsync(int loottableId, int oldLootdropId, int newLootdropId)
