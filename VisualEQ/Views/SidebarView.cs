@@ -257,8 +257,18 @@ namespace VisualEQ.Views
         // event via SidebarView). Fetch runs on background Task; results ranked by
         // whatever SqlQueries.SearchNpcTypes returns (ORDER BY name). Filter refetches
         // fire when the byte-buffer text changes.
+        //
+        // Two dispatch modes share the same dialog + fetch machinery:
+        //   PlaceNewSpawn — original flow, confirm calls Controller.PlaceNewSpawn with
+        //     the scene hit point captured by Ctrl+double-click.
+        //   AddToSpawngroup — new flow (v14), confirm splices the picked NPC into an
+        //     existing spawn's spawngroup via SpawnEntryInsertAction. _npcPickerTargetSpawn
+        //     is the spawn whose group we're extending.
+        private enum NpcPickerMode { PlaceNewSpawn, AddToSpawngroup }
         private bool _npcPickerActive;
+        private NpcPickerMode _npcPickerMode;
         private System.Numerics.Vector3 _npcPickerScenePos;
+        private SpawnPoint _npcPickerTargetSpawn;    // AddToSpawngroup only
         private readonly byte[] _npcPickerFilterBuf = new byte[64];
         private string _npcPickerLastQueried;
         private System.Threading.Tasks.Task<System.Collections.Generic.List<VisualEQ.Database.Models.NpcType>> _npcPickerFetchTask;
@@ -266,6 +276,21 @@ namespace VisualEQ.Views
             new System.Collections.Generic.List<VisualEQ.Database.Models.NpcType>();
         private int _npcPickerSelectedIdx = -1;
         private string _npcPickerError;
+
+        // Spawnentry inline chance-edit state (v14). Same activation-transition pattern as
+        // _wpActiveEdit* — while a chance DragFloat has keyboard/mouse focus, the mutation
+        // happens live on Record.Entries; on deactivation we roll it back to the captured
+        // baseline and record a single ChanceEdit action for the whole drag so the undo
+        // stack gets one entry per completed edit, not one per intermediate frame.
+        private int? _spawnEntryEditSpawnId;
+        private int _spawnEntryEditNpcId;
+        private int _spawnEntryEditBaseline;
+        private string _spawnEntryEditNpcName;
+
+        // Per-entry delete two-click confirm. Composite arm key = "spawnId:npcId" so the
+        // arm survives frame-to-frame even if selection briefly clears.
+        private string _spawnEntryDeleteArmedKey;
+        private float _spawnEntryDeleteArmedAt;
 
         // Waypoint inspector state — parallel to _zpActiveEdit* but keyed on (gridId, number)
         // instead of a single row id.
@@ -891,6 +916,12 @@ namespace VisualEQ.Views
                     ImGui.Text($"  {r.LootTableRowsWritten} loottable row(s) updated");
                 if (r.NpcFactionRowsWritten > 0)
                     ImGui.Text($"  {r.NpcFactionRowsWritten} npc_faction row(s) updated");
+                if (r.SpawnEntryInserts > 0)
+                    ImGui.Text($"  {r.SpawnEntryInserts} spawnentry row(s) inserted");
+                if (r.SpawnEntryUpdates > 0)
+                    ImGui.Text($"  {r.SpawnEntryUpdates} spawnentry row(s) updated");
+                if (r.SpawnEntryDeletes > 0)
+                    ImGui.Text($"  {r.SpawnEntryDeletes} spawnentry row(s) deleted");
                 ImGui.Separator();
                 ImGui.Text("Buffer + undo history cleared.");
                 var touchedZonePoints = r.ZonePointRowsWritten + r.ZonePointInsertsWritten + r.ZonePointDeletesWritten;
@@ -992,19 +1023,44 @@ namespace VisualEQ.Views
 
         void BeginNpcPicker(System.Numerics.Vector3 sceneHitPos)
         {
-            _npcPickerActive       = true;
-            _npcPickerScenePos     = sceneHitPos;
+            _npcPickerActive         = true;
+            _npcPickerMode           = NpcPickerMode.PlaceNewSpawn;
+            _npcPickerScenePos       = sceneHitPos;
+            _npcPickerTargetSpawn    = null;
             System.Array.Clear(_npcPickerFilterBuf, 0, _npcPickerFilterBuf.Length);
-            _npcPickerLastQueried  = null;   // force initial fetch (empty filter → up to 500 rows)
+            _npcPickerLastQueried    = null;   // force initial fetch (empty filter → up to 500 rows)
             _npcPickerResults.Clear();
-            _npcPickerSelectedIdx  = -1;
-            _npcPickerError        = null;
-            _npcPickerFetchTask    = null;
+            _npcPickerSelectedIdx    = -1;
+            _npcPickerError          = null;
+            _npcPickerFetchTask      = null;
+        }
+
+        // AddToSpawngroup mode entry (v14). Same fetch machinery, different confirm
+        // dispatch: on Confirm the picked NPC lands as a new spawnentry row inside
+        // sp.Record.Spawn.SpawnGroupId via SpawnEntryInsertAction. Scene pos is
+        // unused in this mode.
+        void BeginNpcPickerForAddToSpawngroup(SpawnPoint sp)
+        {
+            if (sp == null) return;
+            _npcPickerActive         = true;
+            _npcPickerMode           = NpcPickerMode.AddToSpawngroup;
+            _npcPickerScenePos       = System.Numerics.Vector3.Zero;
+            _npcPickerTargetSpawn    = sp;
+            System.Array.Clear(_npcPickerFilterBuf, 0, _npcPickerFilterBuf.Length);
+            _npcPickerLastQueried    = null;
+            _npcPickerResults.Clear();
+            _npcPickerSelectedIdx    = -1;
+            _npcPickerError          = null;
+            _npcPickerFetchTask      = null;
         }
 
         void EndNpcPicker()
         {
-            _npcPickerActive = false;
+            _npcPickerActive       = false;
+            _npcPickerTargetSpawn  = null;
+            // PlaceNewSpawn mode owns PendingPlacement state on the controller; the
+            // AddToSpawngroup path never wrote it, so ClearPendingPlacement is a no-op
+            // there and safe to call unconditionally.
             _view.Controller.ClearPendingPlacement();
         }
 
@@ -1026,13 +1082,39 @@ namespace VisualEQ.Views
             const WindowFlags flags = WindowFlags.NoCollapse | WindowFlags.NoSavedSettings;
 
             bool open = true;
-            ImGui.BeginWindow($"Place spawn###{Id}NpcPickerDlg", ref open, flags);
+            var isAdd = _npcPickerMode == NpcPickerMode.AddToSpawngroup;
+            var title = isAdd ? $"Add NPC to spawngroup###{Id}NpcPickerDlg"
+                              : $"Place spawn###{Id}NpcPickerDlg";
+            ImGui.BeginWindow(title, ref open, flags);
 
-            // Scene → DB coord swap for the readout so the numbers match sidebar / DB.
-            var dbX = _npcPickerScenePos.Y;
-            var dbY = _npcPickerScenePos.X;
-            var dbZ = _npcPickerScenePos.Z;
-            ImGui.Text($"Place new spawn at X={dbX:F1}  Y={dbY:F1}  Z={dbZ:F1}");
+            if (isAdd)
+            {
+                var target = _npcPickerTargetSpawn;
+                if (target == null)
+                {
+                    // Selection cleared between opening the dialog and this frame.
+                    // Bail rather than dispatch against a stale spawn ref.
+                    ImGui.Text("(target spawn no longer available — cancel and reselect)");
+                    if (ImGui.Button($"Cancel###{Id}npcXStale", new Vector2(140, 28)))
+                        EndNpcPicker();
+                    ImGui.EndWindow();
+                    if (!open) EndNpcPicker();
+                    return;
+                }
+                var groupName = target.Record.Spawn.SpawnGroupName ?? "(unnamed)";
+                var groupId   = target.Record.Spawn.SpawnGroupId;
+                var entryCount = target.Record.Entries?.Count ?? 0;
+                ImGui.Text($"Add NPC to spawngroup '{groupName}' (id {groupId})");
+                ImGui.Text($"Currently has {entryCount} entr{(entryCount == 1 ? "y" : "ies")} — new NPC lands with weight 100.");
+            }
+            else
+            {
+                // Scene → DB coord swap for the readout so the numbers match sidebar / DB.
+                var dbX = _npcPickerScenePos.Y;
+                var dbY = _npcPickerScenePos.X;
+                var dbZ = _npcPickerScenePos.Z;
+                ImGui.Text($"Place new spawn at X={dbX:F1}  Y={dbY:F1}  Z={dbZ:F1}");
+            }
             ImGui.Separator();
 
             ImGui.Text("Filter (name substring):");
@@ -1109,22 +1191,52 @@ namespace VisualEQ.Views
 
             ImGui.Separator();
 
-            var confirmSize = new Vector2(140, 28);
+            var confirmSize = new Vector2(180, 28);
             var confirmEnabled = _npcPickerSelectedIdx >= 0 && _npcPickerSelectedIdx < _npcPickerResults.Count;
+            var confirmLabel = _npcPickerMode == NpcPickerMode.AddToSpawngroup
+                ? $"Add to spawngroup###{Id}npcOk"
+                : $"Place spawn###{Id}npcOk";
             if (confirmEnabled)
             {
-                if (ImGui.Button($"Place spawn###{Id}npcOk", confirmSize))
+                if (ImGui.Button(confirmLabel, confirmSize))
                 {
                     var picked = _npcPickerResults[_npcPickerSelectedIdx];
-                    _view.Controller.PlaceNewSpawn(picked, _npcPickerScenePos);
+                    if (_npcPickerMode == NpcPickerMode.AddToSpawngroup)
+                    {
+                        var target = _npcPickerTargetSpawn;
+                        // Re-check target: user could have deleted or changed selection
+                        // between opening the picker and clicking Confirm.
+                        var stillLive = target != null &&
+                            _view.Controller.SpawnManager.SpawnPoints.Any(p => p.Record.Spawn.Id == target.Record.Spawn.Id);
+                        if (stillLive)
+                        {
+                            // Idempotency guard: don't add a duplicate npcID to a spawngroup
+                            // (composite PK on spawnentry would refuse the INSERT at commit
+                            // and roll back the whole batch — user-visible failure that's
+                            // easily prevented here).
+                            var already = target.Record.Entries?
+                                .Any(e => e?.Entry?.NpcId == picked.Id) ?? false;
+                            if (!already)
+                            {
+                                _view.Controller.RecordAction(
+                                    new VisualEQ.EditSystem.SpawnEntryInsertAction(target, picked, 100));
+                            }
+                        }
+                    }
+                    else
+                    {
+                        _view.Controller.PlaceNewSpawn(picked, _npcPickerScenePos);
+                    }
                     EndNpcPicker();
                 }
             }
             else
             {
-                // Grayed-out no-op button. Cheaper than InvisibleButton + rect for the
+                // Grayed-out no-op text. Cheaper than InvisibleButton + rect for the
                 // handful of frames the dialog spends without a selection.
-                ImGui.Text("(pick an NPC to enable Place)");
+                ImGui.Text(_npcPickerMode == NpcPickerMode.AddToSpawngroup
+                    ? "(pick an NPC to enable Add)"
+                    : "(pick an NPC to enable Place)");
             }
             ImGui.SameLine();
             if (ImGui.Button($"Cancel###{Id}npcX", confirmSize))
@@ -1546,58 +1658,244 @@ namespace VisualEQ.Views
             }
         }
 
-        // Spawngroup entry cycler + list. When a spawngroup has more than one entry,
-        // rendered as: focus header ("Focused: name (chance%) — N of M"), then prev/next
-        // buttons, then a per-entry Selectable list. Clicking any row (or the prev/next
-        // buttons) advances the SpawnPoint's FocusedEntryIndex and asks the Controller
-        // to swap the in-scene AniModel + repoint the NPC editor. Single-entry
-        // spawngroups render nothing — the info panel already shows the primary.
+        // Spawngroup entry cycler + composer. Two rendering modes:
+        //   View mode  — original cycler UI (only shown when count > 1): sum + focus
+        //     header, prev/next buttons, and a click-to-focus list ordered by chance.
+        //   Edit mode  — full composer (v14). Always rendered so the "+ Add NPC"
+        //     affordance is reachable even for 1-entry spawngroups. Each row exposes
+        //     an inline weight input and a delete X with two-click confirm.
+        //
+        // Server semantics: spawnentry.chance is a relative WEIGHT (spawngroup.cpp:
+        // totalchance = sum(chance); roll = random.Int(0, totalchance-1)). "50/50"
+        // and "1/1" produce the same 50/50 split — the sidebar surfaces the sum and
+        // an effective % so users can reason about picks correctly.
         void RenderSpawnEntryCyclerBlock(SpawnPoint sp)
         {
             var entries = sp.Record?.Entries;
-            if (entries == null || entries.Count <= 1) return;
+            if (entries == null) return;
+
+            var editing = _view.Controller.EditModeEnabled;
+            if (entries.Count <= 1 && !editing) return;
 
             ImGui.Separator();
             var focusIdx = sp.FocusedEntryIndex;
             if (focusIdx < 0 || focusIdx >= entries.Count) focusIdx = 0;
 
-            var focused = entries[focusIdx];
-            var fNpc = focused?.Npc;
-            var fName = fNpc?.Name ?? "?";
-            var fChance = focused?.Entry?.Chance ?? 0;
-            ImGui.Text($"Spawngroup: {entries.Count} possible NPCs — server picks one per spawn");
-            ImGui.Text($"Focused: {fName} ({fChance}%) — {focusIdx + 1} of {entries.Count}");
+            var totalWeight = 0;
+            for (int i = 0; i < entries.Count; i++)
+                totalWeight += entries[i]?.Entry?.Chance ?? 0;
 
-            var prevIdx = (focusIdx - 1 + entries.Count) % entries.Count;
-            var nextIdx = (focusIdx + 1) % entries.Count;
-            if (ImGui.Button($"< prev variant###{Id}spEntPrev", new Vector2(140, 22)))
-                SetSpawnFocus(sp, prevIdx);
-            ImGui.SameLine();
-            if (ImGui.Button($"next variant >###{Id}spEntNext", new Vector2(140, 22)))
-                SetSpawnFocus(sp, nextIdx);
-
-            // Full entry list — sorted by chance descending for readability, but the
-            // click target uses the entry's actual list index so focus semantics stay
-            // list-order-based. Marker (>) highlights the current focus so the visual
-            // + editor state is unambiguous.
-            ImGui.Text("Variants (click to focus):");
-            var ordered = entries
-                .Select((e, i) => new { E = e, Idx = i })
-                .OrderByDescending(x => x.E?.Entry?.Chance ?? 0)
-                .ToList();
-            foreach (var row in ordered)
+            if (entries.Count > 1)
             {
-                var e = row.E;
-                var eNpc = e?.Npc;
-                var name = eNpc?.Name ?? "?";
-                var race = eNpc?.Race.ToString() ?? "?";
-                var lvl  = eNpc?.Level.ToString() ?? "?";
-                var chance = e?.Entry?.Chance ?? 0;
-                var marker = row.Idx == focusIdx ? ">" : " ";
-                var label = $"{marker} {chance,3}%  {name} (race {race}, lvl {lvl})###{Id}spEnt{row.Idx}";
-                if (ImGui.Selectable(label, row.Idx == focusIdx))
-                    SetSpawnFocus(sp, row.Idx);
+                var focused = entries[focusIdx];
+                var fNpc = focused?.Npc;
+                var fName = fNpc?.Name ?? "?";
+                var fChance = focused?.Entry?.Chance ?? 0;
+                var fPct = totalWeight > 0 ? (fChance * 100.0f / totalWeight) : 0f;
+                ImGui.Text($"Spawngroup: {entries.Count} NPCs — server picks one per spawn (weight sum: {totalWeight})");
+                ImGui.Text($"Focused: {fName} (weight {fChance} = {fPct:F0}%) — {focusIdx + 1} of {entries.Count}");
+
+                var prevIdx = (focusIdx - 1 + entries.Count) % entries.Count;
+                var nextIdx = (focusIdx + 1) % entries.Count;
+                if (ImGui.Button($"< prev variant###{Id}spEntPrev", new Vector2(140, 22)))
+                    SetSpawnFocus(sp, prevIdx);
+                ImGui.SameLine();
+                if (ImGui.Button($"next variant >###{Id}spEntNext", new Vector2(140, 22)))
+                    SetSpawnFocus(sp, nextIdx);
             }
+            else if (editing)
+            {
+                var only = entries[0];
+                var oName = only?.Npc?.Name ?? "?";
+                var oChance = only?.Entry?.Chance ?? 0;
+                ImGui.Text($"Spawngroup: 1 NPC — {oName} (weight {oChance})");
+            }
+
+            if (editing)
+            {
+                // List order preserved in edit mode so a chance input's DragFloat ID stays
+                // stable across frames (sorting on-the-fly would remap ids under an active
+                // drag and lose focus). Sum + effective % gives the same at-a-glance ranking.
+                ImGui.Text("Variants (weight → effective % of picks):");
+                for (int i = 0; i < entries.Count; i++)
+                {
+                    var e = entries[i];
+                    if (e?.Entry == null) continue;
+                    RenderSpawnEntryEditableRow(sp, e, i, totalWeight, focusIdx);
+                }
+
+                ImGui.Separator();
+                if (ImGui.Button($"+ Add NPC to spawngroup###{Id}spEntAdd", new Vector2(240, 24)))
+                    BeginNpcPickerForAddToSpawngroup(sp);
+            }
+            else
+            {
+                ImGui.Text("Variants (click to focus):");
+                var ordered = entries
+                    .Select((e, i) => new { E = e, Idx = i })
+                    .OrderByDescending(x => x.E?.Entry?.Chance ?? 0)
+                    .ToList();
+                foreach (var row in ordered)
+                {
+                    var e = row.E;
+                    var eNpc = e?.Npc;
+                    var name = eNpc?.Name ?? "?";
+                    var race = eNpc?.Race.ToString() ?? "?";
+                    var lvl  = eNpc?.Level.ToString() ?? "?";
+                    var chance = e?.Entry?.Chance ?? 0;
+                    var pct = totalWeight > 0 ? (chance * 100.0f / totalWeight) : 0f;
+                    var marker = row.Idx == focusIdx ? ">" : " ";
+                    var label = $"{marker} {chance,3} ({pct,3:F0}%)  {name} (race {race}, lvl {lvl})###{Id}spEnt{row.Idx}";
+                    if (ImGui.Selectable(label, row.Idx == focusIdx))
+                        SetSpawnFocus(sp, row.Idx);
+                }
+            }
+        }
+
+        // One editable row inside the composer. Fixed-width Selectable on the left so
+        // subsequent SameLine widgets (chance drag, delete X) don't get eaten by
+        // Selectable's row-span behavior.
+        void RenderSpawnEntryEditableRow(SpawnPoint sp, VisualEQ.Database.Models.SpawnEntryWithNpc e,
+            int idx, int totalWeight, int focusIdx)
+        {
+            var eNpc = e.Npc;
+            var name = eNpc?.Name ?? "?";
+            var race = eNpc?.Race.ToString() ?? "?";
+            var lvl  = eNpc?.Level.ToString() ?? "?";
+            var npcId = e.Entry.NpcId;
+            var chanceI = e.Entry.Chance;
+            var effectivePct = totalWeight > 0 ? (chanceI * 100.0f / totalWeight) : 0f;
+            var marker = idx == focusIdx ? ">" : " ";
+
+            var focusLabel = $"{marker} {name} (r{race}, L{lvl})###{Id}spEntFoc{idx}";
+            if (ImGui.Selectable(focusLabel, idx == focusIdx, SelectableFlags.Default, new Vector2(210, 0)))
+                SetSpawnFocus(sp, idx);
+
+            ImGui.SameLine();
+            NsimGui.CimguiRaw.igPushItemWidth(60f);
+            var val = (float)chanceI;
+            // Chance is an int in schema. 0-999 range is generous — real EQEmu data
+            // rarely exceeds 100 per entry but no schema cap exists. Non-integer step
+            // (0f) via DragFloat + round-to-int keeps ImGui.NET 0.4.6 (no InputInt)
+            // usable without extra plumbing.
+            var changed = ImGui.DragFloat($"###{Id}spEntCh{idx}", ref val, 1f, 0f, 999f, "%.0f", 1f);
+            NsimGui.CimguiRaw.igPopItemWidth();
+            if (changed)
+            {
+                var asInt = (int)System.Math.Round(val);
+                if (asInt < 0) asInt = 0;
+                if (asInt != chanceI) e.Entry.Chance = asInt;
+            }
+            HandleSpawnEntryChanceActivation(sp, npcId, name, chanceI);
+
+            ImGui.SameLine();
+            ImGui.Text($"= {effectivePct:F0}%");
+
+            // Delete X (right side). Two-click confirm mirrors the spawn-delete flow.
+            // Refuses to fire when this is the last remaining entry — a spawngroup with
+            // zero rows would render the parent spawn2 un-fillable server-side.
+            ImGui.SameLine();
+            var armKey = $"{sp.Record.Spawn.Id}:{npcId}";
+            var isLastEntry = sp.Record.Entries.Count <= 1;
+            if (_spawnEntryDeleteArmedKey == armKey &&
+                (FrameTime - _spawnEntryDeleteArmedAt) < DeleteConfirmSeconds)
+            {
+                if (ImGui.Button($"confirm###{Id}spEntDelC{idx}", new Vector2(64, 20)))
+                {
+                    if (!isLastEntry)
+                    {
+                        var priorOp = SnapshotSpawnEntryOp(sp, npcId);
+                        _view.Controller.RecordAction(
+                            new VisualEQ.EditSystem.SpawnEntryDeleteAction(sp, e, idx, priorOp));
+                    }
+                    _spawnEntryDeleteArmedKey = null;
+                }
+            }
+            else
+            {
+                if (ImGui.Button($"x###{Id}spEntDel{idx}", new Vector2(24, 20)))
+                {
+                    if (isLastEntry)
+                    {
+                        _view.StatusMessage = "Can't remove the last NPC — a spawngroup needs at least one entry.";
+                        _view.MessageTimer = 3f;
+                    }
+                    else
+                    {
+                        _spawnEntryDeleteArmedKey = armKey;
+                        _spawnEntryDeleteArmedAt  = FrameTime;
+                    }
+                }
+            }
+        }
+
+        // Deferred-action pattern (mirrors HandleWpActivationTransition). While the
+        // chance DragFloat is active, mutations happen live on Record.Entries; on
+        // deactivation we roll back to the captured baseline and record ONE
+        // ChanceEditAction for the whole edit so undo produces the expected one-step-
+        // per-completed-edit behavior.
+        void HandleSpawnEntryChanceActivation(SpawnPoint sp, int npcId, string npcName, int currentBeforeMutation)
+        {
+            var isActive = ImGui.IsAnyItemActive();
+            var wasThis =
+                _spawnEntryEditSpawnId == sp.Record.Spawn.Id &&
+                _spawnEntryEditNpcId   == npcId;
+
+            if (isActive && !wasThis)
+            {
+                if (_spawnEntryEditSpawnId.HasValue)
+                    FlushActiveSpawnEntryChanceIfChanged();
+                _spawnEntryEditSpawnId  = sp.Record.Spawn.Id;
+                _spawnEntryEditNpcId    = npcId;
+                _spawnEntryEditBaseline = currentBeforeMutation;
+                _spawnEntryEditNpcName  = npcName;
+            }
+            else if (!isActive && wasThis)
+            {
+                FlushActiveSpawnEntryChanceIfChanged();
+            }
+        }
+
+        void FlushActiveSpawnEntryChanceIfChanged()
+        {
+            if (!_spawnEntryEditSpawnId.HasValue) return;
+            var ctrl = _view.Controller;
+            var sp = ctrl.SpawnManager.SpawnPoints
+                .FirstOrDefault(p => p.Record.Spawn.Id == _spawnEntryEditSpawnId.Value);
+            if (sp != null)
+            {
+                var entry = sp.Record.Entries?
+                    .FirstOrDefault(x => x?.Entry?.NpcId == _spawnEntryEditNpcId);
+                if (entry?.Entry != null)
+                {
+                    var after  = entry.Entry.Chance;
+                    var before = _spawnEntryEditBaseline;
+                    if (after != before)
+                    {
+                        // Roll back the live mutation so the action's Apply can set it
+                        // to `after` cleanly (matches the idempotent-Apply invariant
+                        // every other IEditAction assumes).
+                        entry.Entry.Chance = before;
+                        ctrl.RecordAction(new VisualEQ.EditSystem.SpawnEntryChanceEditAction(
+                            sp, _spawnEntryEditNpcId, _spawnEntryEditNpcName, before, after));
+                    }
+                }
+            }
+            _spawnEntryEditSpawnId = null;
+            _spawnEntryEditNpcName = null;
+        }
+
+        // Snapshot the current buffer entry for (sp.SpawnGroupId, npcId), if any.
+        // The delete action needs this to know whether it's cancelling a pending INSERT
+        // (drop the buffer op entirely) or transforming an UPDATE into a DELETE (preserve
+        // the earliest Original chance from the in-progress edit).
+        VisualEQ.EditSystem.SpawnEntryOp SnapshotSpawnEntryOp(SpawnPoint sp, int npcId)
+        {
+            if (sp == null) return null;
+            var buffer = _view.Controller.PendingBuffer;
+            if (buffer == null) return null;
+            var key = VisualEQ.EditSystem.EditBuffer.SpawnEntryKey(sp.Record.Spawn.SpawnGroupId, npcId);
+            return buffer.SpawnEntries.TryGetValue(key, out var op) ? op : null;
         }
 
         // Applies a focus change: no-op if the requested index is already focused,

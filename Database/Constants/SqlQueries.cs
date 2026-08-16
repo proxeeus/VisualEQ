@@ -77,6 +77,17 @@ namespace VisualEQ.Database.Constants
             INSERT INTO spawnentry (spawngroupID, npcID, chance)
             VALUES (@SpawnGroupId, @NpcId, @Chance)";
 
+        // Per-entry chance edit + delete for the sidebar's spawngroup composer.
+        // Composite PK is (spawngroupID, npcID) so both columns appear in every WHERE.
+        public const string UpdateSpawnEntryChance = @"
+            UPDATE spawnentry
+            SET chance = @Chance
+            WHERE spawngroupID = @SpawnGroupId AND npcID = @NpcId";
+
+        public const string DeleteSpawnEntry = @"
+            DELETE FROM spawnentry
+            WHERE spawngroupID = @SpawnGroupId AND npcID = @NpcId";
+
         // spawn2 row insert. Columns that VisualEQ tracks in the SpawnInsert record are
         // named explicitly; DB-defaulted columns (path_when_zone_idle, _condition,
         // cond_value, min/max_expansion, content_flags*) inherit their schema defaults.

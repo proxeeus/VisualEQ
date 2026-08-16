@@ -110,6 +110,10 @@ namespace VisualEQ.Views
             ImGui.Text("  the model + NPC editor onto a lower-chance sibling.");
             ImGui.Text("- Spawn List search matches every NPC in every spawngroup, not");
             ImGui.Text("  just the primary — a lower-chance NPC still shows up.");
+            ImGui.Text("- Spawn Info in edit mode shows every variant with an inline");
+            ImGui.Text("  weight input, per-row delete X, and \"+ Add NPC to spawngroup\".");
+            ImGui.Text("  chance is a WEIGHT: server rolls in [0, sum-1] and each row's");
+            ImGui.Text("  effective % is shown next to its weight.");
             ImGui.Text("- Grid mode (sidebar toggle) turns LMB double-clicks into");
             ImGui.Text("  waypoint placements on the selected grid.");
             ImGui.Text("- NPC / FK pickers are floating windows — drag by the title");
