@@ -3997,6 +3997,98 @@ namespace VisualEQ.Views
             }
         }
 
+        // ── Compact / grid-friendly variants of Npc{Int,Long,Float} ────────────
+        // These render label + DragFloat on ONE line with an explicit input width,
+        // so callers can pack them into 2-, 3-, or 4-column grids via SameLine(x)
+        // between cells. Field IDs are byte-identical to the block-form helpers
+        // (###{Id}ni{field}, ###{Id}nl{field}, ###{Id}nf{field}) — HandleNpcActivation
+        // slots key on those and MUST stay unchanged. Read-only branch renders
+        // "label: value" inline so grids don't collapse when EditMode is off.
+        void NpcIntInline(int npcId, string field, string label,
+            System.Func<int> read, System.Action<int> write, bool editable,
+            float inputWidth,
+            int minValue = int.MinValue, int maxValue = int.MaxValue)
+        {
+            var current = read();
+            if (!editable)
+            {
+                ImGui.Text($"{label}: {current}");
+                return;
+            }
+            ImGui.Text(label);
+            ImGui.SameLine();
+            NsimGui.CimguiRaw.igPushItemWidth(inputWidth);
+            var val = (float)current;
+            var changed = ImGui.DragFloat($"###{Id}ni{field}", ref val, 0f, 0f, 1f, "%.0f", 1f);
+            NsimGui.CimguiRaw.igPopItemWidth();
+            if (changed)
+            {
+                var asInt = (int)System.Math.Round(val);
+                if (asInt < minValue) asInt = minValue;
+                if (asInt > maxValue) asInt = maxValue;
+                if (asInt != current)
+                {
+                    write(asInt);
+                    RecordNpcFieldEdit(npcId, field, current, asInt, _displayedNpc?.Name ?? "?");
+                }
+            }
+        }
+
+        void NpcLongInline(int npcId, string field, string label,
+            System.Func<long> read, System.Action<long> write, bool editable,
+            float inputWidth)
+        {
+            var current = read();
+            if (!editable)
+            {
+                ImGui.Text($"{label}: {current}");
+                return;
+            }
+            ImGui.Text(label);
+            ImGui.SameLine();
+            NsimGui.CimguiRaw.igPushItemWidth(inputWidth);
+            var val = (float)current;
+            var changed = ImGui.DragFloat($"###{Id}nl{field}", ref val, 0f, 0f, 1f, "%.0f", 1f);
+            NsimGui.CimguiRaw.igPopItemWidth();
+            if (changed)
+            {
+                var asLong = (long)System.Math.Round((double)val);
+                if (asLong < 0) asLong = 0;
+                if (asLong != current)
+                {
+                    write(asLong);
+                    RecordNpcFieldEdit(npcId, field, current, asLong, _displayedNpc?.Name ?? "?");
+                }
+            }
+        }
+
+        void NpcFloatInline(int npcId, string field, string label,
+            System.Func<float> read, System.Action<float> write, bool editable,
+            float inputWidth, string fmt = "F2")
+        {
+            var current = read();
+            if (!editable)
+            {
+                var display = current.ToString(fmt, System.Globalization.CultureInfo.InvariantCulture);
+                ImGui.Text($"{label}: {display}");
+                return;
+            }
+            ImGui.Text(label);
+            ImGui.SameLine();
+            NsimGui.CimguiRaw.igPushItemWidth(inputWidth);
+            var val = current;
+            var dfFmt = fmt.StartsWith("F", System.StringComparison.Ordinal)
+                ? "%." + fmt.Substring(1) + "f"
+                : "%.2f";
+            var changed = ImGui.DragFloat($"###{Id}nf{field}", ref val, 0f, 0f, 1f, dfFmt, 1f);
+            NsimGui.CimguiRaw.igPopItemWidth();
+            if (changed && System.Math.Abs(val - current) > 0.0001f)
+            {
+                write(val);
+                RecordNpcFieldEdit(npcId, field, current, val, _displayedNpc?.Name ?? "?");
+            }
+        }
+
         // Special-abilities editor (Slice 4). One row per SpecialAbilityCatalog entry
         // with an enable checkbox + a value input (int, DragFloat with drag disabled).
         // Any ability that has non-zero params 0..8 shows them read-only inline —
@@ -6453,48 +6545,84 @@ namespace VisualEQ.Views
             // the noisier full-schema sections start collapsed.
 
             // ── Combat ─────────────────────────────────────────────
+            // 3-column grid @ 115px cell pitch (fits 380px default sidebar); labels
+            // shortened to survive tight cells ("Min damage"→"Min dmg", "Attack
+            // delay"→"Atk delay", "HP regen (per tick)"→"HP/tick", etc.). Field
+            // IDs unchanged so undo history + activation slots stay consistent.
             if (ImGui.CollapsingHeader($"Combat###{Id}ndCombat", TreeNodeFlags.DefaultOpen))
             {
-            NpcLong(npcId, "hp",   "HP",   () => n.Hp,   v => n.Hp   = v, editable);
-            NpcLong(npcId, "mana", "Mana", () => n.Mana, v => n.Mana = v, editable);
-            NpcInt(npcId, "AC",   "AC",           () => n.Ac,        v => n.Ac        = v, editable);
-            NpcInt(npcId, "ATK",  "ATK",          () => n.Atk,       v => n.Atk       = v, editable);
-            NpcInt(npcId, "Accuracy",  "Accuracy",  () => n.Accuracy,  v => n.Accuracy  = v, editable);
-            NpcInt(npcId, "Avoidance", "Avoidance", () => n.Avoidance, v => n.Avoidance = v, editable);
-            NpcInt(npcId, "mindmg", "Min damage", () => n.MinDmg, v => n.MinDmg = v, editable, 0);
-            NpcInt(npcId, "maxdmg", "Max damage", () => n.MaxDmg, v => n.MaxDmg = v, editable, 0);
-            NpcInt(npcId, "attack_delay", "Attack delay", () => n.AttackDelay, v => n.AttackDelay = v, editable, 0);
-            NpcInt(npcId, "attack_count", "Attack count", () => n.AttackCount, v => n.AttackCount = v, editable);
-            NpcFloat(npcId, "attack_speed", "Attack speed", () => n.AttackSpeed, v => n.AttackSpeed = v, editable);
-            NpcInt(npcId, "slow_mitigation", "Slow mitigation", () => n.SlowMitigation, v => n.SlowMitigation = v, editable);
-            NpcInt(npcId, "heroic_strikethrough", "Heroic strikethrough", () => n.HeroicStrikethrough, v => n.HeroicStrikethrough = v, editable);
-            NpcLong(npcId, "hp_regen_rate",       "HP regen (per tick)",   () => n.HpRegenRate,      v => n.HpRegenRate      = v, editable);
-            NpcLong(npcId, "hp_regen_per_second", "HP regen (per second)", () => n.HpRegenPerSecond, v => n.HpRegenPerSecond = v, editable);
-            NpcLong(npcId, "mana_regen_rate",     "Mana regen (per tick)", () => n.ManaRegenRate,    v => n.ManaRegenRate    = v, editable);
+            const float CombatCell  = 115f;
+            const float CombatInput = 48f;
+            NpcLongInline(npcId, "hp",   "HP",   () => n.Hp,   v => n.Hp   = v, editable, CombatInput);
+            ImGui.SameLine(CombatCell);
+            NpcLongInline(npcId, "mana", "Mana", () => n.Mana, v => n.Mana = v, editable, CombatInput);
+            ImGui.SameLine(CombatCell * 2);
+            NpcIntInline (npcId, "AC",   "AC",   () => n.Ac,   v => n.Ac   = v, editable, CombatInput);
+
+            NpcIntInline(npcId, "ATK",  "ATK",   () => n.Atk,       v => n.Atk       = v, editable, CombatInput);
+            ImGui.SameLine(CombatCell);
+            NpcIntInline(npcId, "Accuracy",  "Accur", () => n.Accuracy,  v => n.Accuracy  = v, editable, CombatInput);
+            ImGui.SameLine(CombatCell * 2);
+            NpcIntInline(npcId, "Avoidance", "Avoid", () => n.Avoidance, v => n.Avoidance = v, editable, CombatInput);
+
+            NpcIntInline(npcId, "mindmg", "Min dmg", () => n.MinDmg, v => n.MinDmg = v, editable, CombatInput, 0);
+            ImGui.SameLine(CombatCell);
+            NpcIntInline(npcId, "maxdmg", "Max dmg", () => n.MaxDmg, v => n.MaxDmg = v, editable, CombatInput, 0);
+            ImGui.SameLine(CombatCell * 2);
+            NpcIntInline(npcId, "attack_delay", "Atk dly", () => n.AttackDelay, v => n.AttackDelay = v, editable, CombatInput, 0);
+
+            NpcIntInline  (npcId, "attack_count", "Atk cnt", () => n.AttackCount, v => n.AttackCount = v, editable, CombatInput);
+            ImGui.SameLine(CombatCell);
+            NpcFloatInline(npcId, "attack_speed", "Atk spd", () => n.AttackSpeed, v => n.AttackSpeed = v, editable, CombatInput);
+            ImGui.SameLine(CombatCell * 2);
+            NpcIntInline  (npcId, "slow_mitigation", "Slow mit", () => n.SlowMitigation, v => n.SlowMitigation = v, editable, CombatInput);
+
+            NpcIntInline (npcId, "heroic_strikethrough", "Heroic ST", () => n.HeroicStrikethrough, v => n.HeroicStrikethrough = v, editable, CombatInput);
+            ImGui.SameLine(CombatCell);
+            NpcLongInline(npcId, "hp_regen_rate",        "HP/tick",   () => n.HpRegenRate,         v => n.HpRegenRate         = v, editable, CombatInput);
+            ImGui.SameLine(CombatCell * 2);
+            NpcLongInline(npcId, "hp_regen_per_second",  "HP/sec",    () => n.HpRegenPerSecond,    v => n.HpRegenPerSecond    = v, editable, CombatInput);
+
+            NpcLongInline(npcId, "mana_regen_rate",      "Mana/tick", () => n.ManaRegenRate,       v => n.ManaRegenRate       = v, editable, CombatInput);
             }
 
-            // ── Stats ──────────────────────────────────────────────
-            if (ImGui.CollapsingHeader($"Stats###{Id}ndStats", 0))
+            // ── Attributes (Stats + Resistances) ───────────────────
+            // 4-column grid @ 88px cell pitch. Merged from two separate headers
+            // (Stats + Resistances) since both are short-label int fields with
+            // identical widget shape — the merge shaves a whole click and heading
+            // line. DefaultOpen after compaction: 14 fields in 4 rows is cheap
+            // to show. Field IDs unchanged so undo history keeps working.
+            if (ImGui.CollapsingHeader($"Attributes###{Id}ndStats", TreeNodeFlags.DefaultOpen))
             {
-            NpcInt(npcId, "STR",  "STR", () => n.Str,  v => n.Str  = v, editable, 0);
-            NpcInt(npcId, "STA",  "STA", () => n.Sta,  v => n.Sta  = v, editable, 0);
-            NpcInt(npcId, "DEX",  "DEX", () => n.Dex,  v => n.Dex  = v, editable, 0);
-            NpcInt(npcId, "AGI",  "AGI", () => n.Agi,  v => n.Agi  = v, editable, 0);
-            NpcInt(npcId, "_INT", "INT", () => n.Int_, v => n.Int_ = v, editable, 0);
-            NpcInt(npcId, "WIS",  "WIS", () => n.Wis,  v => n.Wis  = v, editable, 0);
-            NpcInt(npcId, "CHA",  "CHA", () => n.Cha,  v => n.Cha  = v, editable, 0);
-            }
+            const float AttrCell  = 88f;
+            const float AttrInput = 40f;
+            NpcIntInline(npcId, "STR",  "STR", () => n.Str,  v => n.Str  = v, editable, AttrInput, 0);
+            ImGui.SameLine(AttrCell);
+            NpcIntInline(npcId, "STA",  "STA", () => n.Sta,  v => n.Sta  = v, editable, AttrInput, 0);
+            ImGui.SameLine(AttrCell * 2);
+            NpcIntInline(npcId, "DEX",  "DEX", () => n.Dex,  v => n.Dex  = v, editable, AttrInput, 0);
+            ImGui.SameLine(AttrCell * 3);
+            NpcIntInline(npcId, "AGI",  "AGI", () => n.Agi,  v => n.Agi  = v, editable, AttrInput, 0);
 
-            // ── Resistances ────────────────────────────────────────
-            if (ImGui.CollapsingHeader($"Resistances###{Id}ndRes", 0))
-            {
-            NpcInt(npcId, "MR", "MR", () => n.MR, v => n.MR = v, editable);
-            NpcInt(npcId, "CR", "CR", () => n.CR, v => n.CR = v, editable);
-            NpcInt(npcId, "DR", "DR", () => n.DR, v => n.DR = v, editable);
-            NpcInt(npcId, "FR", "FR", () => n.FR, v => n.FR = v, editable);
-            NpcInt(npcId, "PR", "PR", () => n.PR, v => n.PR = v, editable);
-            NpcInt(npcId, "Corrup", "Corrup", () => n.Corrup, v => n.Corrup = v, editable);
-            NpcInt(npcId, "PhR",    "PhR",    () => n.PhR,    v => n.PhR    = v, editable, 0);
+            NpcIntInline(npcId, "_INT", "INT", () => n.Int_, v => n.Int_ = v, editable, AttrInput, 0);
+            ImGui.SameLine(AttrCell);
+            NpcIntInline(npcId, "WIS",  "WIS", () => n.Wis,  v => n.Wis  = v, editable, AttrInput, 0);
+            ImGui.SameLine(AttrCell * 2);
+            NpcIntInline(npcId, "CHA",  "CHA", () => n.Cha,  v => n.Cha  = v, editable, AttrInput, 0);
+
+            NpcIntInline(npcId, "MR", "MR", () => n.MR, v => n.MR = v, editable, AttrInput);
+            ImGui.SameLine(AttrCell);
+            NpcIntInline(npcId, "CR", "CR", () => n.CR, v => n.CR = v, editable, AttrInput);
+            ImGui.SameLine(AttrCell * 2);
+            NpcIntInline(npcId, "DR", "DR", () => n.DR, v => n.DR = v, editable, AttrInput);
+            ImGui.SameLine(AttrCell * 3);
+            NpcIntInline(npcId, "FR", "FR", () => n.FR, v => n.FR = v, editable, AttrInput);
+
+            NpcIntInline(npcId, "PR", "PR", () => n.PR, v => n.PR = v, editable, AttrInput);
+            ImGui.SameLine(AttrCell);
+            NpcIntInline(npcId, "Corrup", "Corr", () => n.Corrup, v => n.Corrup = v, editable, AttrInput);
+            ImGui.SameLine(AttrCell * 2);
+            NpcIntInline(npcId, "PhR",    "PhR",  () => n.PhR,    v => n.PhR    = v, editable, AttrInput, 0);
             }
 
             // ── Visual ─────────────────────────────────────────────
@@ -6504,21 +6632,31 @@ namespace VisualEQ.Views
             // these fields also auto-frames the camera (see HandleNpcActivation).
             if (ImGui.CollapsingHeader($"Visual###{Id}ndVis", TreeNodeFlags.DefaultOpen))
             {
-            NpcInt(npcId, "texture",     "Body texture", () => n.Texture,     v => n.Texture     = v, editable, 0, 15);
-            NpcInt(npcId, "helmtexture", "Helm texture", () => n.HelmTexture, v => n.HelmTexture = v, editable, 0, 15);
-            NpcInt(npcId, "face",        "Face",         () => n.Face,        v => n.Face        = v, editable, 0, 15);
+            const float VisualCell  = 120f;
+            const float VisualInput = 44f;
+            NpcIntInline(npcId, "texture",     "Body", () => n.Texture,     v => n.Texture     = v, editable, VisualInput, 0, 15);
+            ImGui.SameLine(VisualCell);
+            NpcIntInline(npcId, "helmtexture", "Helm", () => n.HelmTexture, v => n.HelmTexture = v, editable, VisualInput, 0, 15);
+            ImGui.SameLine(VisualCell * 2);
+            NpcIntInline(npcId, "face",        "Face", () => n.Face,        v => n.Face        = v, editable, VisualInput, 0, 15);
 
             // Cosmetic / luclin / drakkin fields — not wired into the live-preview
             // refresh (RaceModelMapper doesn't consult them for the Trilogy client this
-            // editor targets). Kept read-only for now; a later slice can turn them on
-            // if a Luclin-era fork wires them into model resolution.
-            ImGui.Text($"  Extra: arm {n.ArmTexture}  bracer {n.BracerTexture}  hand {n.HandTexture}  leg {n.LegTexture}  feet {n.FeetTexture}");
-            ImGui.Text($"  Weapons: d_melee1 {n.DMeleeTexture1}   d_melee2 {n.DMeleeTexture2}   ammo {n.AmmoIdfile ?? ""}");
-            ImGui.Text($"  Melee types: prim {SpawnInfoLookups.MeleeTypeName(n.PrimMeleeType)} ({n.PrimMeleeType})  sec {SpawnInfoLookups.MeleeTypeName(n.SecMeleeType)} ({n.SecMeleeType})  ranged {SpawnInfoLookups.MeleeTypeName(n.RangedType)} ({n.RangedType})");
-            ImGui.Text($"  Model {n.Model}   HerosForge {n.HerosForgeModel}   Light {n.Light}");
-            ImGui.Text($"  Luclin: hair {n.LuclinHairstyle}/{n.LuclinHaircolor}   eyes {n.LuclinEyecolor}/{n.LuclinEyecolor2}   beard {n.LuclinBeard}/{n.LuclinBeardcolor}");
-            ImGui.Text($"  Drakkin: heritage {n.DrakkinHeritage}  tattoo {n.DrakkinTattoo}  details {n.DrakkinDetails}");
-            ImGui.Text($"  Armor tint: id {n.ArmortintId}   RGB ({n.ArmortintRed},{n.ArmortintGreen},{n.ArmortintBlue})");
+            // editor targets). Nested behind a TreeNode so they don't dominate the
+            // panel when unused; opens with a click when a Luclin-era fork needs
+            // them for reference. TreeNode not nested CollapsingHeader — the latter
+            // renders poorly nested in ImGui.NET 0.4.6.
+            if (ImGui.TreeNode($"Cosmetic / Luclin / Drakkin (read-only)###{Id}ndVisMore"))
+            {
+                ImGui.Text($"Extra: arm {n.ArmTexture}  bracer {n.BracerTexture}  hand {n.HandTexture}  leg {n.LegTexture}  feet {n.FeetTexture}");
+                ImGui.Text($"Weapons: d_melee1 {n.DMeleeTexture1}   d_melee2 {n.DMeleeTexture2}   ammo {n.AmmoIdfile ?? ""}");
+                ImGui.Text($"Melee types: prim {SpawnInfoLookups.MeleeTypeName(n.PrimMeleeType)} ({n.PrimMeleeType})  sec {SpawnInfoLookups.MeleeTypeName(n.SecMeleeType)} ({n.SecMeleeType})  ranged {SpawnInfoLookups.MeleeTypeName(n.RangedType)} ({n.RangedType})");
+                ImGui.Text($"Model {n.Model}   HerosForge {n.HerosForgeModel}   Light {n.Light}");
+                ImGui.Text($"Luclin: hair {n.LuclinHairstyle}/{n.LuclinHaircolor}   eyes {n.LuclinEyecolor}/{n.LuclinEyecolor2}   beard {n.LuclinBeard}/{n.LuclinBeardcolor}");
+                ImGui.Text($"Drakkin: heritage {n.DrakkinHeritage}  tattoo {n.DrakkinTattoo}  details {n.DrakkinDetails}");
+                ImGui.Text($"Armor tint: id {n.ArmortintId}   RGB ({n.ArmortintRed},{n.ArmortintGreen},{n.ArmortintBlue})");
+                ImGui.TreePop();
+            }
             }
 
             // ── AI & Behavior ──────────────────────────────────────
@@ -6546,19 +6684,36 @@ namespace VisualEQ.Views
             NpcInt(npcId, "qglobal",  "Qglobal",  () => n.Qglobal,  v => n.Qglobal  = v, editable);
             NpcInt(npcId, "emoteid",  "Emote id", () => n.EmoteId,  v => n.EmoteId  = v, editable);
             ImGui.Text("Flags");
+            // 2-column grid @ 170px cell pitch. Two columns (not three) because
+            // "unique_spawn_by_name" alone is ~150px wide; a 3rd column would
+            // regularly clip. Cell positions: 0 and FlagCell.
+            const float FlagCell = 170f;
             NpcCheckbox(npcId, "findable",              "findable",              () => n.Findable,           v => n.Findable           = v, editable);
+            ImGui.SameLine(FlagCell);
             NpcCheckbox(npcId, "trackable",             "trackable",             () => n.Trackable,          v => n.Trackable          = v, editable);
+
             NpcCheckbox(npcId, "show_name",             "show_name",             () => n.ShowName,           v => n.ShowName           = v, editable);
+            ImGui.SameLine(FlagCell);
             NpcCheckbox(npcId, "no_target_hotkey",      "no_target_hotkey",      () => n.NoTargetHotkey,     v => n.NoTargetHotkey     = v, editable);
+
             NpcCheckbox(npcId, "untargetable",          "untargetable",          () => n.Untargetable,       v => n.Untargetable       = v, editable);
+            ImGui.SameLine(FlagCell);
             NpcCheckbox(npcId, "raid_target",           "raid_target",           () => n.RaidTarget,         v => n.RaidTarget         = v, editable);
+
             NpcCheckbox(npcId, "private_corpse",        "private_corpse",        () => n.PrivateCorpse,      v => n.PrivateCorpse      = v, editable);
+            ImGui.SameLine(FlagCell);
             NpcCheckbox(npcId, "unique_spawn_by_name",  "unique_spawn_by_name",  () => n.UniqueSpawnByName,  v => n.UniqueSpawnByName  = v, editable);
+
             NpcCheckbox(npcId, "unique_",               "unique",                () => n.Unique,             v => n.Unique             = v, editable);
+            ImGui.SameLine(FlagCell);
             NpcCheckbox(npcId, "fixed",                 "fixed",                 () => n.Fixed,              v => n.Fixed              = v, editable);
+
             NpcCheckbox(npcId, "ignore_despawn",        "ignore_despawn",        () => n.IgnoreDespawn,      v => n.IgnoreDespawn      = v, editable);
+            ImGui.SameLine(FlagCell);
             NpcCheckbox(npcId, "isbot",                 "isbot",                 () => n.IsBot,              v => n.IsBot              = v, editable);
+
             NpcCheckbox(npcId, "isquest",               "isquest",               () => n.IsQuest,            v => n.IsQuest            = v, editable);
+            ImGui.SameLine(FlagCell);
             NpcCheckbox(npcId, "exclude",               "exclude",               () => n.Exclude,            v => n.Exclude            = v, editable);
             }
 
