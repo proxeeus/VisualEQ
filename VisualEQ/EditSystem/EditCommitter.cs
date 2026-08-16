@@ -37,6 +37,9 @@ namespace VisualEQ.EditSystem
             public int LootDropEntryDeletes;      // DELETEs on lootdrop_entries
             public int LootTableRowsWritten;      // UPDATEs on loottable (header fields)
             public int NpcFactionRowsWritten;     // UPDATEs on npc_faction (header fields)
+            public int SpawnEntryInserts;         // INSERTs on spawnentry (per-row add-npc-to-spawngroup)
+            public int SpawnEntryUpdates;         // UPDATEs on spawnentry (chance re-weight)
+            public int SpawnEntryDeletes;         // DELETEs on spawnentry (per-row removal)
 
             // Maps pending-insert temp ids (negative) to their assigned AUTO_INCREMENT ids
             // (positive) after a successful INSERT. Consumers (OnCommitSucceeded) apply this
@@ -530,6 +533,53 @@ namespace VisualEQ.EditSystem
                                 npcFactionRows += await connection.ExecuteAsync(sql, parameters, tx);
                             }
 
+                            // spawnentry per-row commits (v14). Same DELETE→INSERT→UPDATE
+                            // ordering as the loot/faction loops so a same-commit delete +
+                            // re-insert on the same composite PK doesn't briefly collide.
+                            // Only runs for persisted spawngroups — pending-insert
+                            // spawngroups already write their entries via the SpawnInserts
+                            // loop above.
+                            int spawnEntryDeletes = 0, spawnEntryInserts = 0, spawnEntryUpdates = 0;
+                            foreach (var kv in buffer.SpawnEntries)
+                            {
+                                var op = kv.Value;
+                                if (op.Original != null && op.Current == null)
+                                {
+                                    spawnEntryDeletes += await connection.ExecuteAsync(
+                                        SqlQueries.DeleteSpawnEntry,
+                                        new { SpawnGroupId = op.SpawnGroupId, NpcId = op.NpcId },
+                                        tx);
+                                }
+                            }
+                            foreach (var kv in buffer.SpawnEntries)
+                            {
+                                var op = kv.Value;
+                                if (op.Original == null && op.Current != null)
+                                {
+                                    spawnEntryInserts += await connection.ExecuteAsync(
+                                        SqlQueries.InsertSpawnEntry,
+                                        new
+                                        {
+                                            SpawnGroupId = op.SpawnGroupId,
+                                            NpcId        = op.NpcId,
+                                            Chance       = op.Current.Chance,
+                                        },
+                                        tx);
+                                }
+                                else if (op.Original != null && op.Current != null)
+                                {
+                                    spawnEntryUpdates += await connection.ExecuteAsync(
+                                        SqlQueries.UpdateSpawnEntryChance,
+                                        new
+                                        {
+                                            SpawnGroupId = op.SpawnGroupId,
+                                            NpcId        = op.NpcId,
+                                            Chance       = op.Current.Chance,
+                                        },
+                                        tx);
+                                }
+                            }
+
                             // Zone-point commits: DELETE first (so a delete+re-insert with
                             // the same target coord doesn't briefly duplicate a row), then
                             // INSERT (returns AUTO_INCREMENT ids we map back to the temp
@@ -655,6 +705,9 @@ namespace VisualEQ.EditSystem
                                 LootDropEntryDeletes     = ldeDeletes,
                                 LootTableRowsWritten     = lootTableRows,
                                 NpcFactionRowsWritten    = npcFactionRows,
+                                SpawnEntryInserts        = spawnEntryInserts,
+                                SpawnEntryUpdates        = spawnEntryUpdates,
+                                SpawnEntryDeletes        = spawnEntryDeletes,
                                 InsertedIdMap            = insertedIdMap,
                             };
                         }

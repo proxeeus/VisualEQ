@@ -51,7 +51,15 @@ namespace VisualEQ.EditSystem
         //         by npc_faction id; each NpcFactionEdit holds sparse
         //         OriginalValues / CurrentValues (name / primaryfaction /
         //         ignore_primary_assist), same shape as v12.
-        public int SchemaVersion { get; set; } = 13;
+        //   v14 — spawnentry per-row ops (add-npc-to-spawngroup slice). Insert /
+        //         update / delete of individual (spawngroupID, npcID) rows share
+        //         one SpawnEntries dict keyed by "spawngroupID:npcID"; encoding
+        //         mirrors NpcFactionEntryOp — Original null → INSERT, Current
+        //         null → DELETE, both non-null → UPDATE. Pending-insert
+        //         spawngroups (SpawnInsert entries) mutate their own
+        //         SpawnInsert.Entries list instead of touching this dict, since
+        //         their spawngroupID isn't known until commit.
+        public int SchemaVersion { get; set; } = 14;
 
         public Dictionary<int, SpawnEdit> Spawns { get; set; } = new Dictionary<int, SpawnEdit>();
 
@@ -130,6 +138,17 @@ namespace VisualEQ.EditSystem
         public Dictionary<int, NpcFactionRowEdit> NpcFactions { get; set; }
             = new Dictionary<int, NpcFactionRowEdit>();
 
+        // Pending spawnentry ops (v14) — insert / update / delete of individual
+        // (spawngroupID, npcID) rows in an existing spawngroup. Key =
+        // "spawngroupID:npcID". Original/Current null-encoding matches
+        // NpcFactionEntryOp so one collection covers all three ops. Ops that
+        // target a pending-insert spawngroup (SpawnInsert entry, negative temp
+        // id, unresolved spawngroupID) mutate the SpawnInsert.Entries list in
+        // place instead of landing here — the commit path for SpawnInserts
+        // already writes those entries.
+        public Dictionary<string, SpawnEntryOp> SpawnEntries { get; set; }
+            = new Dictionary<string, SpawnEntryOp>();
+
         public bool IsEmpty =>
             Spawns.Count == 0 && SpawnDeletes.Count == 0 && SpawnInserts.Count == 0 && GridEntries.Count == 0 &&
             ZonePoints.Count == 0 && ZonePointInserts.Count == 0 && ZonePointDeletes.Count == 0 &&
@@ -137,7 +156,8 @@ namespace VisualEQ.EditSystem
             GridEntryInserts.Count == 0 && GridEntryDeletes.Count == 0 &&
             Npcs.Count == 0 && NpcFactionEntries.Count == 0 &&
             LootTableEntries.Count == 0 && LootDropEntries.Count == 0 &&
-            LootTables.Count == 0 && NpcFactions.Count == 0;
+            LootTables.Count == 0 && NpcFactions.Count == 0 &&
+            SpawnEntries.Count == 0;
         public int TotalPending =>
             Spawns.Count + SpawnDeletes.Count + SpawnInserts.Count + GridEntries.Count +
             ZonePoints.Count + ZonePointInserts.Count + ZonePointDeletes.Count +
@@ -145,7 +165,8 @@ namespace VisualEQ.EditSystem
             GridEntryInserts.Count + GridEntryDeletes.Count +
             Npcs.Count + NpcFactionEntries.Count +
             LootTableEntries.Count + LootDropEntries.Count +
-            LootTables.Count + NpcFactions.Count;
+            LootTables.Count + NpcFactions.Count +
+            SpawnEntries.Count;
 
         // Composite key helper for npc_faction_entries: (npcFactionId, factionId).
         public static string NpcFactionEntryKey(int npcFactionId, int factionId) =>
@@ -163,6 +184,10 @@ namespace VisualEQ.EditSystem
 
         // Composite key helper for grid metadata: (gridId, zoneId).
         public static string GridKey(int gridId, int zoneId) => $"{gridId}:{zoneId}";
+
+        // Composite key helper for spawnentry ops: (spawngroupID, npcID).
+        public static string SpawnEntryKey(int spawnGroupId, int npcId) =>
+            $"{spawnGroupId}:{npcId}";
     }
 
     public class SpawnEdit
@@ -450,6 +475,42 @@ namespace VisualEQ.EditSystem
         public Dictionary<string, string> OriginalValues { get; set; } = new Dictionary<string, string>();
         public Dictionary<string, string> CurrentValues  { get; set; } = new Dictionary<string, string>();
         public DateTime LastModifiedAt { get; set; }
+    }
+
+    // One pending operation on spawnentry (v14). Same Original/Current
+    // null-encoding as NpcFactionEntryOp:
+    //   Original == null && Current != null  → INSERT
+    //   Original != null && Current != null  → UPDATE (Chance change)
+    //   Original != null && Current == null  → DELETE
+    // Walk-back cleanup: if the user edits chance then reverts to the baseline
+    // (or adds then removes a fresh entry pre-commit), the op is dropped from
+    // the dict entirely so a "no-op" commit doesn't hit the DB.
+    //
+    // Only used for spawnentries owned by *persisted* spawngroups (real
+    // spawngroupID). Pending-insert spawngroups (SpawnInsert entries) route
+    // per-entry edits through their SpawnInsert.Entries list because their
+    // spawngroupID isn't assigned until commit.
+    public class SpawnEntryOp
+    {
+        public int SpawnGroupId { get; set; }
+        public int NpcId { get; set; }
+        public SpawnEntrySnapshot Original { get; set; }
+        public SpawnEntrySnapshot Current { get; set; }
+        public DateTime LastModifiedAt { get; set; }
+        // Display-only cache of the NPC's name (captured from the sidebar's
+        // existing entry list or from the picker's selection). Not written
+        // to the DB — spawnentry has no name column — but lets the sidebar
+        // overlay show a readable label for pending INSERTs before the next
+        // reload rehydrates full NpcType rows.
+        public string NpcName { get; set; }
+    }
+
+    // Flat serializable copy of one spawnentry row. Kept separate from
+    // Database.Models.SpawnEntry so buffer JSON stays independent from the
+    // read-side model.
+    public class SpawnEntrySnapshot
+    {
+        public int Chance { get; set; }
     }
 
     // A brand-new trilogy_zone_points row waiting to be INSERTed on commit. Holds every
