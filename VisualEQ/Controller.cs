@@ -2805,12 +2805,14 @@ namespace VisualEQ
 
         public IReadOnlyList<AniModelInstance> GetCharacterModels() => CharacterModels;
 
-        // Builds the per-frame list of spawn marker lines (vertical spikes above spawns in
-        // non-normal states). Colors:
-        //   selected  → bright cyan, taller line
-        //   dirty     → orange
-        //   placeholder → yellow
-        // Normal (modelled, in-DB spawns) get no marker to keep the scene readable.
+        // Builds the per-frame list of spawn marker lines. Two visual layers:
+        //   selected spawn → wireframe cage (spine + 3 hoops at feet/waist/head).
+        //                    Green when clean, orange when there's a pending edit.
+        //   non-selected   → vertical spike (dirty=orange, placeholder=yellow).
+        // Normal (modelled, in-DB, unselected) spawns get no marker.
+        //
+        // Cage geometry sizes to the model's authored mesh height * scale so
+        // a halfling and a giant both get properly-fitting cages.
         void UpdateSpawnMarkers()
         {
             var lines = new List<(Vector3 A, Vector3 B, Vector4 Color)>();
@@ -2820,27 +2822,30 @@ namespace VisualEQ
             var showDirty       = Settings.ShowDirtyMarkers;
             var showPlaceholder = Settings.ShowPlaceholderMarkers;
 
+            // Selected spawn: draw a full cage so the selection is unmissable from
+            // any camera angle. Color still reflects dirty state (same priority
+            // convention as the spike markers below — dirty > clean).
+            if (selected != null && showSelected)
+            {
+                var cageColor = (selected.IsDirty && showDirty)
+                    ? new Vector4(1f, 0.55f, 0.15f, 0.95f)   // orange (pending edit)
+                    : new Vector4(0.25f, 1f, 0.35f, 0.95f);  // green (clean selection)
+                EmitSelectionCage(lines, selected, cageColor);
+            }
+
             foreach (var sp in SpawnManager.SpawnPoints)
             {
-                bool isSelected = sp == selected;
+                if (sp == selected) continue; // cage above already represents it
+
                 bool isDirty = sp.IsDirty;
                 bool isPlaceholder = sp.IsPlaceholder;
 
-                // Priority: dirty > selected > placeholder. Dirty must win over selected so
-                // that dragging a spawn (which stays selected) still flips the marker orange.
                 Vector4 color;
                 float height;
                 if (isDirty && showDirty)
                 {
-                    // Selected + dirty gets a taller marker so the user still sees "this is
-                    // the one I have selected" while the color reflects the dirty state.
                     color = new Vector4(1f, 0.55f, 0.15f, 0.95f); // orange
-                    height = isSelected ? 60f : 40f;
-                }
-                else if (isSelected && showSelected)
-                {
-                    color = new Vector4(0.3f, 1f, 1f, 1f);   // cyan
-                    height = 60f;
+                    height = 40f;
                 }
                 else if (isPlaceholder && showPlaceholder)
                 {
@@ -2854,6 +2859,60 @@ namespace VisualEQ
             }
 
             Engine.SetSpawnMarkerLines(lines);
+        }
+
+        // Wireframe cage — vertical spine + 3 axis-aligned hoops (feet/waist/head).
+        // 37 line segments per cage (1 spine + 3 hoops × 12 segs); one selection at
+        // a time so total marker line count stays trivial vs. SpawnMarkers' 4096 cap.
+        static void EmitSelectionCage(
+            List<(Vector3 A, Vector3 B, Vector4 Color)> lines,
+            SpawnSystem.SpawnPoint sp, Vector4 color)
+        {
+            if (sp?.Model == null) return;
+
+            var pos    = sp.Model.Position;
+            var scale  = Math.Max(0.1f, sp.Model.Scale);
+            var meshH  = SpawnSystem.SpawnManager.MeshHeightForRace(GetRaceForSpawn(sp));
+            var height = meshH * scale;
+            // Radius slightly tighter than ModelSelector's 2.5×scale picking radius
+            // so the cage sits against the mesh, not visibly floating away from it.
+            var radius = 2f * scale;
+
+            // Spine — feet to a bit above head so the cage pokes above the model
+            // and reads as "attached to this thing" from a top-down camera angle.
+            var feet = pos;
+            var top  = pos + new Vector3(0, 0, height + 4f);
+            lines.Add((feet, top, color));
+
+            // Three hoops. Feet slightly above the ground plane, waist mid-body,
+            // head just below the crown.
+            EmitHoop(lines, pos + new Vector3(0, 0, height * 0.05f), radius, color);
+            EmitHoop(lines, pos + new Vector3(0, 0, height * 0.50f), radius, color);
+            EmitHoop(lines, pos + new Vector3(0, 0, height * 0.95f), radius, color);
+        }
+
+        static void EmitHoop(
+            List<(Vector3 A, Vector3 B, Vector4 Color)> lines,
+            Vector3 center, float radius, Vector4 color)
+        {
+            const int segments = 12;
+            for (int i = 0; i < segments; i++)
+            {
+                float a1 = (i * MathF.PI * 2f) / segments;
+                float a2 = ((i + 1) * MathF.PI * 2f) / segments;
+                var p1 = center + new Vector3(MathF.Cos(a1) * radius, MathF.Sin(a1) * radius, 0);
+                var p2 = center + new Vector3(MathF.Cos(a2) * radius, MathF.Sin(a2) * radius, 0);
+                lines.Add((p1, p2, color));
+            }
+        }
+
+        // Race for the primary (highest-Chance) NPC on this spawn. Race 0 falls
+        // back to the humanoid mesh-height default (6) via MeshHeightForRace,
+        // which is the right behavior for placeholder spawns.
+        static int GetRaceForSpawn(SpawnSystem.SpawnPoint sp)
+        {
+            var primary = sp.Record.Entries.OrderByDescending(e => e.Entry.Chance).FirstOrDefault();
+            return primary?.Npc?.Race ?? 0;
         }
 
         // Builds path grid line list for the current grid source. Priority: sidebar-picked
