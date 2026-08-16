@@ -37,7 +37,13 @@ namespace VisualEQ.EditSystem
         //         "npcFactionId:factionId"; each entry carries Original (null →
         //         insert) + Current (null → delete) so the three ops share one
         //         collection.
-        public int SchemaVersion { get; set; } = 10;
+        //   v11 — Loot editor CRUD (Slice 6b). Two new op dicts, same encoding
+        //         pattern as v10: LootTableEntries keyed by
+        //         "loottableId:lootdropId" (which lootdrops sit under a
+        //         loottable, with roll params), and LootDropEntries keyed by
+        //         "lootdropId:itemId" (which items sit under a lootdrop, with
+        //         chance / equip / etc.).
+        public int SchemaVersion { get; set; } = 11;
 
         public Dictionary<int, SpawnEdit> Spawns { get; set; } = new Dictionary<int, SpawnEdit>();
 
@@ -92,22 +98,42 @@ namespace VisualEQ.EditSystem
         public Dictionary<string, NpcFactionEntryOp> NpcFactionEntries { get; set; }
             = new Dictionary<string, NpcFactionEntryOp>();
 
+        // Pending loottable_entries operations (Slice 6b). Key = "loottableId:
+        // lootdropId". Same Original/Current null-encoding as NpcFactionEntries:
+        // insert / update / delete share one collection.
+        public Dictionary<string, LootTableEntryOp> LootTableEntries { get; set; }
+            = new Dictionary<string, LootTableEntryOp>();
+
+        // Pending lootdrop_entries operations (Slice 6b). Key = "lootdropId:
+        // itemId". Same encoding pattern.
+        public Dictionary<string, LootDropEntryOp> LootDropEntries { get; set; }
+            = new Dictionary<string, LootDropEntryOp>();
+
         public bool IsEmpty =>
             Spawns.Count == 0 && SpawnDeletes.Count == 0 && SpawnInserts.Count == 0 && GridEntries.Count == 0 &&
             ZonePoints.Count == 0 && ZonePointInserts.Count == 0 && ZonePointDeletes.Count == 0 &&
             Grids.Count == 0 && GridInserts.Count == 0 &&
             GridEntryInserts.Count == 0 && GridEntryDeletes.Count == 0 &&
-            Npcs.Count == 0 && NpcFactionEntries.Count == 0;
+            Npcs.Count == 0 && NpcFactionEntries.Count == 0 &&
+            LootTableEntries.Count == 0 && LootDropEntries.Count == 0;
         public int TotalPending =>
             Spawns.Count + SpawnDeletes.Count + SpawnInserts.Count + GridEntries.Count +
             ZonePoints.Count + ZonePointInserts.Count + ZonePointDeletes.Count +
             Grids.Count + GridInserts.Count +
             GridEntryInserts.Count + GridEntryDeletes.Count +
-            Npcs.Count + NpcFactionEntries.Count;
+            Npcs.Count + NpcFactionEntries.Count +
+            LootTableEntries.Count + LootDropEntries.Count;
 
         // Composite key helper for npc_faction_entries: (npcFactionId, factionId).
         public static string NpcFactionEntryKey(int npcFactionId, int factionId) =>
             $"{npcFactionId}:{factionId}";
+
+        // Composite key helpers for the loot editor buffer (Slice 6b).
+        public static string LootTableEntryKey(int loottableId, int lootdropId) =>
+            $"{loottableId}:{lootdropId}";
+
+        public static string LootDropEntryKey(int lootdropId, int itemId) =>
+            $"{lootdropId}:{itemId}";
 
         // Composite key helper for grid entries: (gridId, number).
         public static string GridEntryKey(int gridId, int number) => $"{gridId}:{number}";
@@ -324,6 +350,57 @@ namespace VisualEQ.EditSystem
         public int   Value    { get; set; }
         public sbyte NpcValue { get; set; }
         public sbyte Temp     { get; set; }
+    }
+
+    // ─── Slice 6b: loot editor ops ────────────────────────────────────────
+    //
+    // Same encoding as NpcFactionEntryOp — Original/Current null-pairing lets
+    // the three ops (insert / update / delete) share one collection. Composite
+    // PK columns duplicated onto the op so the commit path can DELETE without
+    // parsing the dict key.
+    public class LootTableEntryOp
+    {
+        public int LoottableId { get; set; }
+        public int LootdropId  { get; set; }
+        public LootTableEntrySnapshot Original { get; set; }
+        public LootTableEntrySnapshot Current  { get; set; }
+        public DateTime LastModifiedAt { get; set; }
+        // Display-only cache of the lootdrop's name so newly-INSERTed rows
+        // still render a readable label in the editor pre-commit.
+        public string LootdropName { get; set; }
+    }
+
+    public class LootTableEntrySnapshot
+    {
+        public byte  Multiplier  { get; set; }
+        public byte  DropLimit   { get; set; }
+        public byte  MinDrop     { get; set; }
+        public float Probability { get; set; }
+    }
+
+    public class LootDropEntryOp
+    {
+        public int LootdropId { get; set; }
+        public int ItemId     { get; set; }
+        public LootDropEntrySnapshot Original { get; set; }
+        public LootDropEntrySnapshot Current  { get; set; }
+        public DateTime LastModifiedAt { get; set; }
+        // Display-only cache of the item's name (captured from either the
+        // baseline row's JOIN or the search picker's selection).
+        public string ItemName { get; set; }
+    }
+
+    public class LootDropEntrySnapshot
+    {
+        public ushort ItemCharges     { get; set; }
+        public byte   EquipItem       { get; set; }
+        public float  Chance          { get; set; }
+        public float  DisabledChance  { get; set; }
+        public ushort TrivialMinLevel { get; set; }
+        public ushort TrivialMaxLevel { get; set; }
+        public byte   Multiplier      { get; set; }
+        public ushort NpcMinLevel     { get; set; }
+        public ushort NpcMaxLevel     { get; set; }
     }
 
     // A brand-new trilogy_zone_points row waiting to be INSERTed on commit. Holds every

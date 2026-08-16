@@ -469,6 +469,66 @@ namespace VisualEQ.Database.Constants
         public const string GetLootTableUsageCount = @"
             SELECT COUNT(*) FROM npc_types WHERE loottable_id = @LoottableId";
 
+        // Slice 6b — SEARCH pickers. lootdrop (24k rows) and items (80k rows) are
+        // both too large for the preload path (ReferenceDataCache). Callers pre-
+        // wrap @Filter with '%' wildcards (empty filter is fine — LIMIT caps
+        // the load).
+        public const string SearchLootdrops = @"
+            SELECT id AS Id, name AS Name
+            FROM lootdrop
+            WHERE name LIKE @Filter
+            ORDER BY name
+            LIMIT @Limit";
+
+        public const string SearchItems = @"
+            SELECT id AS Id, Name AS Name
+            FROM items
+            WHERE Name LIKE @Filter
+            ORDER BY Name
+            LIMIT @Limit";
+
+        // Slice 6b — CRUD DML for the two per-entry tables. Composite PKs on both
+        // (loottable_id, lootdrop_id) / (lootdrop_id, item_id) so the WHERE clause
+        // on UPDATE / DELETE always keys on both columns.
+        public const string InsertLootTableEntry = @"
+            INSERT INTO loottable_entries
+                (loottable_id, lootdrop_id, multiplier, droplimit, mindrop, probability)
+            VALUES
+                (@LoottableId, @LootdropId, @Multiplier, @DropLimit, @MinDrop, @Probability)";
+
+        public const string UpdateLootTableEntry = @"
+            UPDATE loottable_entries
+            SET multiplier = @Multiplier, droplimit = @DropLimit,
+                mindrop = @MinDrop, probability = @Probability
+            WHERE loottable_id = @LoottableId AND lootdrop_id = @LootdropId";
+
+        public const string DeleteLootTableEntry = @"
+            DELETE FROM loottable_entries
+            WHERE loottable_id = @LoottableId AND lootdrop_id = @LootdropId";
+
+        public const string InsertLootDropEntry = @"
+            INSERT INTO lootdrop_entries
+                (lootdrop_id, item_id, item_charges, equip_item, chance,
+                 disabled_chance, trivial_min_level, trivial_max_level,
+                 multiplier, npc_min_level, npc_max_level)
+            VALUES
+                (@LootdropId, @ItemId, @ItemCharges, @EquipItem, @Chance,
+                 @DisabledChance, @TrivialMinLevel, @TrivialMaxLevel,
+                 @Multiplier, @NpcMinLevel, @NpcMaxLevel)";
+
+        public const string UpdateLootDropEntry = @"
+            UPDATE lootdrop_entries
+            SET item_charges = @ItemCharges, equip_item = @EquipItem,
+                chance = @Chance, disabled_chance = @DisabledChance,
+                trivial_min_level = @TrivialMinLevel, trivial_max_level = @TrivialMaxLevel,
+                multiplier = @Multiplier,
+                npc_min_level = @NpcMinLevel, npc_max_level = @NpcMaxLevel
+            WHERE lootdrop_id = @LootdropId AND item_id = @ItemId";
+
+        public const string DeleteLootDropEntry = @"
+            DELETE FROM lootdrop_entries
+            WHERE lootdrop_id = @LootdropId AND item_id = @ItemId";
+
         // NPC picker search — substring match on npc_types.name. Caller passes @Filter
         // pre-wrapped with '%' wildcards (empty @Filter still returns rows, LIMIT
         // caps the load). Ordered by name so the UI list stays stable across

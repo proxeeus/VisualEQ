@@ -29,6 +29,12 @@ namespace VisualEQ.EditSystem
             public int NpcFactionEntryInserts;    // INSERTs on npc_faction_entries
             public int NpcFactionEntryUpdates;    // UPDATEs on npc_faction_entries
             public int NpcFactionEntryDeletes;    // DELETEs on npc_faction_entries
+            public int LootTableEntryInserts;     // INSERTs on loottable_entries
+            public int LootTableEntryUpdates;     // UPDATEs on loottable_entries
+            public int LootTableEntryDeletes;     // DELETEs on loottable_entries
+            public int LootDropEntryInserts;      // INSERTs on lootdrop_entries
+            public int LootDropEntryUpdates;      // UPDATEs on lootdrop_entries
+            public int LootDropEntryDeletes;      // DELETEs on lootdrop_entries
 
             // Maps pending-insert temp ids (negative) to their assigned AUTO_INCREMENT ids
             // (positive) after a successful INSERT. Consumers (OnCommitSucceeded) apply this
@@ -357,6 +363,115 @@ namespace VisualEQ.EditSystem
                                 }
                             }
 
+                            // ── Loot editor commits (Slice 6b) ─────────────────────
+                            // Same DELETE→INSERT→UPDATE ordering as the faction loop
+                            // so a delete+re-insert with the same composite PK in
+                            // one commit doesn't collide.
+
+                            int lteDeletes = 0, lteInserts = 0, lteUpdates = 0;
+                            foreach (var kv in buffer.LootTableEntries)
+                            {
+                                var op = kv.Value;
+                                if (op.Original != null && op.Current == null)
+                                {
+                                    lteDeletes += await connection.ExecuteAsync(
+                                        SqlQueries.DeleteLootTableEntry,
+                                        new { LoottableId = op.LoottableId, LootdropId = op.LootdropId },
+                                        tx);
+                                }
+                            }
+                            foreach (var kv in buffer.LootTableEntries)
+                            {
+                                var op = kv.Value;
+                                if (op.Original == null && op.Current != null)
+                                {
+                                    lteInserts += await connection.ExecuteAsync(
+                                        SqlQueries.InsertLootTableEntry,
+                                        new
+                                        {
+                                            LoottableId = op.LoottableId,
+                                            LootdropId  = op.LootdropId,
+                                            Multiplier  = op.Current.Multiplier,
+                                            DropLimit   = op.Current.DropLimit,
+                                            MinDrop     = op.Current.MinDrop,
+                                            Probability = op.Current.Probability,
+                                        },
+                                        tx);
+                                }
+                                else if (op.Original != null && op.Current != null)
+                                {
+                                    lteUpdates += await connection.ExecuteAsync(
+                                        SqlQueries.UpdateLootTableEntry,
+                                        new
+                                        {
+                                            LoottableId = op.LoottableId,
+                                            LootdropId  = op.LootdropId,
+                                            Multiplier  = op.Current.Multiplier,
+                                            DropLimit   = op.Current.DropLimit,
+                                            MinDrop     = op.Current.MinDrop,
+                                            Probability = op.Current.Probability,
+                                        },
+                                        tx);
+                                }
+                            }
+
+                            int ldeDeletes = 0, ldeInserts = 0, ldeUpdates = 0;
+                            foreach (var kv in buffer.LootDropEntries)
+                            {
+                                var op = kv.Value;
+                                if (op.Original != null && op.Current == null)
+                                {
+                                    ldeDeletes += await connection.ExecuteAsync(
+                                        SqlQueries.DeleteLootDropEntry,
+                                        new { LootdropId = op.LootdropId, ItemId = op.ItemId },
+                                        tx);
+                                }
+                            }
+                            foreach (var kv in buffer.LootDropEntries)
+                            {
+                                var op = kv.Value;
+                                if (op.Original == null && op.Current != null)
+                                {
+                                    ldeInserts += await connection.ExecuteAsync(
+                                        SqlQueries.InsertLootDropEntry,
+                                        new
+                                        {
+                                            LootdropId      = op.LootdropId,
+                                            ItemId          = op.ItemId,
+                                            ItemCharges     = op.Current.ItemCharges,
+                                            EquipItem       = op.Current.EquipItem,
+                                            Chance          = op.Current.Chance,
+                                            DisabledChance  = op.Current.DisabledChance,
+                                            TrivialMinLevel = op.Current.TrivialMinLevel,
+                                            TrivialMaxLevel = op.Current.TrivialMaxLevel,
+                                            Multiplier      = op.Current.Multiplier,
+                                            NpcMinLevel     = op.Current.NpcMinLevel,
+                                            NpcMaxLevel     = op.Current.NpcMaxLevel,
+                                        },
+                                        tx);
+                                }
+                                else if (op.Original != null && op.Current != null)
+                                {
+                                    ldeUpdates += await connection.ExecuteAsync(
+                                        SqlQueries.UpdateLootDropEntry,
+                                        new
+                                        {
+                                            LootdropId      = op.LootdropId,
+                                            ItemId          = op.ItemId,
+                                            ItemCharges     = op.Current.ItemCharges,
+                                            EquipItem       = op.Current.EquipItem,
+                                            Chance          = op.Current.Chance,
+                                            DisabledChance  = op.Current.DisabledChance,
+                                            TrivialMinLevel = op.Current.TrivialMinLevel,
+                                            TrivialMaxLevel = op.Current.TrivialMaxLevel,
+                                            Multiplier      = op.Current.Multiplier,
+                                            NpcMinLevel     = op.Current.NpcMinLevel,
+                                            NpcMaxLevel     = op.Current.NpcMaxLevel,
+                                        },
+                                        tx);
+                                }
+                            }
+
                             // Zone-point commits: DELETE first (so a delete+re-insert with
                             // the same target coord doesn't briefly duplicate a row), then
                             // INSERT (returns AUTO_INCREMENT ids we map back to the temp
@@ -474,6 +589,12 @@ namespace VisualEQ.EditSystem
                                 NpcFactionEntryInserts   = nfeInserts,
                                 NpcFactionEntryUpdates   = nfeUpdates,
                                 NpcFactionEntryDeletes   = nfeDeletes,
+                                LootTableEntryInserts    = lteInserts,
+                                LootTableEntryUpdates    = lteUpdates,
+                                LootTableEntryDeletes    = lteDeletes,
+                                LootDropEntryInserts     = ldeInserts,
+                                LootDropEntryUpdates     = ldeUpdates,
+                                LootDropEntryDeletes     = ldeDeletes,
                                 InsertedIdMap            = insertedIdMap,
                             };
                         }

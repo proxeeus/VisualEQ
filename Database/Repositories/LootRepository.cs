@@ -48,5 +48,13 @@ namespace VisualEQ.Database.Repositories
                 return await connection.ExecuteScalarAsync<int>(
                     SqlQueries.GetLootTableUsageCount, new { LoottableId = loottableId });
         }
+
+        public async Task<IEnumerable<ReferenceItem>> SearchLootdropsAsync(string filter, int limit)
+        {
+            var like = "%" + (filter ?? "") + "%";
+            using (var connection = CreateConnection())
+                return await connection.QueryAsync<ReferenceItem>(
+                    SqlQueries.SearchLootdrops, new { Filter = like, Limit = limit });
+        }
     }
 }
