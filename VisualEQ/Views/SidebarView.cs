@@ -4198,21 +4198,19 @@ namespace VisualEQ.Views
 
         // Single funnel for every NPC-field edit action. Records the action AND, for
         // visual-affecting fields, immediately re-runs Controller.RefreshNpcVisualForNpc
-        // so the on-screen model reflects the new value without waiting for save. If the
-        // instance actually got a new AniModel or a new Scale, re-frames the camera so
-        // the look-lock targets the new head/torso positions instead of the pre-swap ones.
+        // so the on-screen model reflects the new value without waiting for save.
+        //
+        // Camera re-framing is INTENTIONALLY not called here: it fires once when the
+        // user first focuses a visual field (see HandleNpcActivation) so they see what
+        // they're editing, and after that the user is in control — dragging Face from
+        // 0..15 should not yank the camera back to the head every value change.
         void RecordNpcFieldEdit(int npcId, string field, object from, object to, string display)
         {
             _view.Controller.RecordAction(
                 new VisualEQ.EditSystem.NpcFieldEditAction(npcId, field, from, to, display));
             if (IsNpcVisualField(field) && _displayedNpc != null && _displayedNpc.Id == npcId)
             {
-                var changed = _view.Controller.RefreshNpcVisualForNpc(npcId, _displayedNpc);
-                if (changed)
-                {
-                    var sp = _view.SelectedSpawn;
-                    if (sp != null) FrameNpcForField(sp, field);
-                }
+                _view.Controller.RefreshNpcVisualForNpc(npcId, _displayedNpc);
             }
         }
 
@@ -4262,15 +4260,25 @@ namespace VisualEQ.Views
             }
 
             // NPC's forward vector — camera sits in front of the face, looking back.
-            var facing = Vector3.Transform(new Vector3(0, 1, 0), sp.Model.Rotation);
+            // EQ character meshes are authored looking down their local +X axis. Placing
+            // the camera at target + face × distance lands it in front of the NPC; the
+            // subsequent LookAt(target) makes the NPC stare into the lens.
+            var facing = Vector3.Transform(new Vector3(1, 0, 0), sp.Model.Rotation);
             facing.Z = 0;
-            if (facing.LengthSquared() < 0.0001f) facing = new Vector3(0, 1, 0);
+            if (facing.LengthSquared() < 0.0001f) facing = new Vector3(1, 0, 0);
             facing = Vector3.Normalize(facing);
 
             var cameraPos = target + facing * distance;
             // FpsCamera.Update adds CameraHeight to Position before the LookAt matrix, so
             // pre-subtract it here to land the eye AT target-height (not target + 5.5).
             cameraPos.Z -= VisualEQ.Engine.FpsCamera.CameraHeight;
+
+            System.Console.WriteLine(
+                $"[FrameNpcForField/Z] hint={hint} race={_displayedNpc?.Race ?? -1} " +
+                $"size={_displayedNpc?.Size:F2} sp.Scale={sp.Model.Scale:F3} " +
+                $"scaleUsed={scale:F3} meshHeight={meshHeight:F1} " +
+                $"pos.Z={pos.Z:F2} target.Z={target.Z:F2} cameraPos.Z={cameraPos.Z:F2} " +
+                $"expectedEyeZ={cameraPos.Z + VisualEQ.Engine.FpsCamera.CameraHeight:F2}");
 
             Camera.FlyToLookAt(cameraPos, target, 0.35f);
         }
