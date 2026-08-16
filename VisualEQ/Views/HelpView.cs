@@ -63,6 +63,15 @@ namespace VisualEQ.Views
 
             ImGui.BeginWindow($"Cheat Sheet (F1 to close)###{Id}");
 
+            SectionHeader("Camera");
+            Row("W A S D",      "Move camera (forward / left / back / right)");
+            Row("Arrow keys",   "Look up / down / left / right");
+            Row("Shift + WASD", "Move faster (~3.3× speed)");
+            Row("Space",        "Fly camera to cursor (raycast onto terrain)");
+            Row("Home",         "Reset camera Z to 1000 (bird's-eye)");
+            Row("F",            "Frame selected spawn (face-on, wall-aware)");
+
+            ImGui.Spacing();
             SectionHeader("Keyboard");
             Row("F1",           "Show / hide this cheat sheet");
             Row("F8",           "Show / hide foliage (trees, pines, palms)");
@@ -71,9 +80,6 @@ namespace VisualEQ.Views
             Row("L",            "Toggle deferred lighting pass");
             Row("E",            "Toggle edit mode");
             Row("P",            "Toggle physics / gravity");
-            Row("Space",        "Fly camera to cursor");
-            Row("Home",         "Reset camera Z to 1000");
-            Row("F",            "Frame selected spawn");
             Row("Delete",       "Mark selected spawn for deletion (edit mode)");
             Row("Escape",       "Cancel drag / exit grid mode / clear selection");
             Row("Ctrl+Z / Y",   "Undo / redo (Ctrl+W also works on AZERTY)");
@@ -94,12 +100,15 @@ namespace VisualEQ.Views
             ImGui.Spacing();
             SectionHeader("Workflow");
             ImGui.Text("- Press E to enter edit mode before moving or saving spawns.");
-            ImGui.Text("- Sidebar (right) lists spawns; click to jump-frame, drag to");
+            ImGui.Text("- Sidebar (left) lists spawns; click to jump-frame, drag to");
             ImGui.Text("  move, Commit to save to the DB.");
             ImGui.Text("- Selected spawn shows a green wireframe cage (orange when");
             ImGui.Text("  it has a pending edit). Placeholder = yellow spike.");
             ImGui.Text("- Grid mode (sidebar toggle) turns LMB double-clicks into");
             ImGui.Text("  waypoint placements on the selected grid.");
+            ImGui.Text("- NPC / FK pickers are floating windows — drag by the title");
+            ImGui.Text("  bar to keep the sidebar visible while picking.");
+            ImGui.Text("- Recent zones show at the top of the main menu (last 8).");
             ImGui.Text("- Configure the EQEmu DB via the Database Connection window.");
             ImGui.Text("- Ctrl+Z undoes any spawn edit before commit.");
             ImGui.Text("- F8 hides Kunark trees when they block your view.");
