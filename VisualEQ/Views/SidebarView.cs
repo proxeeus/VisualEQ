@@ -6829,29 +6829,53 @@ namespace VisualEQ.Views
             }
 
             // ── AI & Behavior ──────────────────────────────────────
+            // Numeric fields packed into 3-col grids (matching Combat) and a
+            // 4-col grid for the four "See" detection flags. Combos + checkbox
+            // + rare_spawn (nullable) stay on their own lines — they're wider
+            // widgets whose layout doesn't align cleanly with the numeric grid.
             if (ImGui.CollapsingHeader($"AI & Behavior###{Id}ndAI", 0))
             {
-            NpcInt(npcId, "aggroradius",  "Aggro radius",  () => n.AggroRadius,  v => n.AggroRadius  = v, editable, 0);
-            NpcInt(npcId, "assistradius", "Assist radius", () => n.AssistRadius, v => n.AssistRadius = v, editable, 0);
-            NpcInt(npcId, "npc_aggro",    "npc_aggro",     () => n.NpcAggro,     v => n.NpcAggro     = v, editable);
+            const float AiCell  = 120f;
+            const float AiInput = 50f;
+
+            NpcIntInline(npcId, "aggroradius",  "Aggro rad",  () => n.AggroRadius,  v => n.AggroRadius  = v, editable, AiInput, 0);
+            ImGui.SameLine(AiCell);
+            NpcIntInline(npcId, "assistradius", "Assist rad", () => n.AssistRadius, v => n.AssistRadius = v, editable, AiInput, 0);
+            ImGui.SameLine(AiCell * 2);
+            NpcIntInline(npcId, "npc_aggro",    "npc_aggro",  () => n.NpcAggro,     v => n.NpcAggro     = v, editable, AiInput);
+
+            NpcFloatInline(npcId, "runspeed",   "Run spd",  () => n.Runspeed,  v => n.Runspeed  = v, editable, AiInput);
+            ImGui.SameLine(AiCell);
+            NpcIntInline  (npcId, "walkspeed",  "Walk spd", () => n.Walkspeed, v => n.Walkspeed = v, editable, AiInput, 0);
+            ImGui.SameLine(AiCell * 2);
+            NpcIntInline  (npcId, "underwater", "Undwtr",   () => n.Underwater, v => n.Underwater = v, editable, AiInput);
+
+            NpcIntInline(npcId, "spawn_limit", "Sp limit", () => n.SpawnLimit, v => n.SpawnLimit = v, editable, AiInput, 0);
+            ImGui.SameLine(AiCell);
+            NpcIntInline(npcId, "qglobal",     "Qglobal",  () => n.Qglobal,    v => n.Qglobal    = v, editable, AiInput);
+            ImGui.SameLine(AiCell * 2);
+            NpcIntInline(npcId, "emoteid",     "Emote id", () => n.EmoteId,    v => n.EmoteId    = v, editable, AiInput);
+
+            // "See" detection block — 4 tiny int fields, one row.
+            const float SeeCell  = 88f;
+            const float SeeInput = 38f;
+            NpcIntInline(npcId, "see_invis",         "See inv",   () => n.SeeInvis,        v => n.SeeInvis        = v, editable, SeeInput);
+            ImGui.SameLine(SeeCell);
+            NpcIntInline(npcId, "see_invis_undead",  "SeeInvU",   () => n.SeeInvisUndead,  v => n.SeeInvisUndead  = v, editable, SeeInput);
+            ImGui.SameLine(SeeCell * 2);
+            NpcIntInline(npcId, "see_hide",          "See hide",  () => n.SeeHide,         v => n.SeeHide         = v, editable, SeeInput);
+            ImGui.SameLine(SeeCell * 3);
+            NpcIntInline(npcId, "see_improved_hide", "SeeIHide",  () => n.SeeImprovedHide, v => n.SeeImprovedHide = v, editable, SeeInput);
+
+            // Wider widgets stay on their own rows.
             NpcCheckbox(npcId, "always_aggro", "always_aggro", () => n.AlwaysAggro, v => n.AlwaysAggro = v, editable);
-            NpcFloat(npcId, "runspeed",  "Run speed",  () => n.Runspeed,  v => n.Runspeed  = v, editable);
-            NpcInt(npcId, "walkspeed", "Walk speed", () => n.Walkspeed, v => n.Walkspeed = v, editable, 0);
-            NpcInt(npcId, "see_invis",         "See invis",         () => n.SeeInvis,        v => n.SeeInvis        = v, editable);
-            NpcInt(npcId, "see_invis_undead",  "See invis undead",  () => n.SeeInvisUndead,  v => n.SeeInvisUndead  = v, editable);
-            NpcInt(npcId, "see_hide",          "See hide",          () => n.SeeHide,         v => n.SeeHide         = v, editable);
-            NpcInt(npcId, "see_improved_hide", "See improved hide", () => n.SeeImprovedHide, v => n.SeeImprovedHide = v, editable);
             NpcEnumCombo(npcId, "stuck_behavior", "Stuck behavior",
                 () => n.StuckBehavior, v => n.StuckBehavior = v,
                 _npcStuckVals, _npcStuckLabels, editable);
             NpcEnumCombo(npcId, "flymode", "Flymode",
                 () => n.Flymode, v => n.Flymode = v,
                 _npcFlymodeVals, _npcFlymodeLabels, editable);
-            NpcInt(npcId, "underwater", "Underwater", () => n.Underwater, v => n.Underwater = v, editable);
-            NpcNullableInt(npcId, "rare_spawn", "Rare spawn", () => n.RareSpawn, v => n.RareSpawn = v, editable);
-            NpcInt(npcId, "spawn_limit", "Spawn limit", () => n.SpawnLimit, v => n.SpawnLimit = v, editable, 0);
-            NpcInt(npcId, "qglobal",  "Qglobal",  () => n.Qglobal,  v => n.Qglobal  = v, editable);
-            NpcInt(npcId, "emoteid",  "Emote id", () => n.EmoteId,  v => n.EmoteId  = v, editable);
+            NpcNullableIntInline(npcId, "rare_spawn", "Rare spawn", () => n.RareSpawn, v => n.RareSpawn = v, editable, 130f, 60f);
             ImGui.Text("Flags");
             // 2-column grid @ 170px cell pitch. Two columns (not three) because
             // "unique_spawn_by_name" alone is ~150px wide; a 3rd column would
