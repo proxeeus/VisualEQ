@@ -136,6 +136,7 @@ namespace VisualEQ.Views
             ImGui.Text("Tip: press F10 while a zone is loaded to return here.");
             ImGui.Separator();
 
+            RenderRecentZonesSection();
             RenderZonesSection();
             RenderDecodeSection();
             RenderSettingsSection();
@@ -150,6 +151,35 @@ namespace VisualEQ.Views
             }
 
             ImGui.EndWindow();
+        }
+
+        // Recent zones — newest first, capped at AppSettings.RecentZonesMax.
+        // Filtered against _zones so a deleted/re-decoded zone doesn't leave a
+        // dead entry. Rendered above Available Zones because the daily edit
+        // workflow is "swap between the 2-3 zones I'm currently working on."
+        void RenderRecentZonesSection()
+        {
+            var recent = _controller.Settings.RecentZones;
+            if (recent == null || recent.Count == 0) return;
+
+            // Cheap set-lookup — zone counts are in the low hundreds, one build
+            // per frame is fine.
+            var available = new HashSet<string>(_zones.Count, StringComparer.OrdinalIgnoreCase);
+            foreach (var z in _zones) available.Add(z.Name);
+
+            var visible = new List<string>(recent.Count);
+            foreach (var name in recent)
+                if (available.Contains(name)) visible.Add(name);
+            if (visible.Count == 0) return;
+
+            if (!ImGui.CollapsingHeader($"Recent ({visible.Count})###{Id}rz", TreeNodeFlags.DefaultOpen))
+                return;
+
+            foreach (var name in visible)
+            {
+                if (ImGui.Selectable($"{name}###{Id}rz_{name}"))
+                    BeginLoad(name);
+            }
         }
 
         void RenderZonesSection()
