@@ -1006,16 +1006,21 @@ namespace VisualEQ.Views
         {
             const float dlgW = 520f;
             const float dlgH = 460f;
+            // Default centered on first open; FirstUseEver lets the user drag it
+            // out of the way once and have that stick for the rest of the session
+            // (so a cross-reference workflow — pick, glance at sidebar, pick again
+            // — doesn't fight repositioning every frame).
             var pos = new Vector2((gui.Dimensions.X - dlgW) / 2, (gui.Dimensions.Y - dlgH) / 2);
+            ImGui.SetNextWindowPos(pos, Condition.FirstUseEver, Vector2.Zero);
+            ImGui.SetNextWindowSize(new Vector2(dlgW, dlgH), Condition.FirstUseEver);
 
-            ImGui.SetNextWindowPos(pos, Condition.Always, Vector2.Zero);
-            ImGui.SetNextWindowSize(new Vector2(dlgW, dlgH), Condition.Always);
+            // Movable + resizable + closable via the X. The prior modal-style
+            // NoTitleBar/NoMove/NoResize blocked the sidebar + 3D view; a floating
+            // window is friendlier for the "pick, cross-reference, pick again" loop.
+            const WindowFlags flags = WindowFlags.NoCollapse | WindowFlags.NoSavedSettings;
 
-            const WindowFlags flags = WindowFlags.NoTitleBar | WindowFlags.NoMove
-                                    | WindowFlags.NoResize   | WindowFlags.NoCollapse
-                                    | WindowFlags.NoSavedSettings;
-
-            ImGui.BeginWindow($"###{Id}NpcPickerDlg", flags);
+            bool open = true;
+            ImGui.BeginWindow($"Place spawn###{Id}NpcPickerDlg", ref open, flags);
 
             // Scene → DB coord swap for the readout so the numbers match sidebar / DB.
             var dbX = _npcPickerScenePos.Y;
@@ -1120,6 +1125,8 @@ namespace VisualEQ.Views
                 EndNpcPicker();
 
             ImGui.EndWindow();
+            // Title-bar X-close is equivalent to Cancel — same cleanup path.
+            if (!open) EndNpcPicker();
         }
 
         // Full-screen orange rectangle drawn via ImGui's overlay draw list. Sits on top of
@@ -5495,16 +5502,19 @@ namespace VisualEQ.Views
         {
             const float dlgW = 560f;
             const float dlgH = 480f;
+            // FirstUseEver so a user-dragged position sticks across re-opens
+            // during a session — see NpcPickerDialog for the rationale.
             var pos = new Vector2((gui.Dimensions.X - dlgW) / 2, (gui.Dimensions.Y - dlgH) / 2);
+            ImGui.SetNextWindowPos(pos, Condition.FirstUseEver, Vector2.Zero);
+            ImGui.SetNextWindowSize(new Vector2(dlgW, dlgH), Condition.FirstUseEver);
 
-            ImGui.SetNextWindowPos(pos, Condition.Always, Vector2.Zero);
-            ImGui.SetNextWindowSize(new Vector2(dlgW, dlgH), Condition.Always);
+            const WindowFlags flags = WindowFlags.NoCollapse | WindowFlags.NoSavedSettings;
 
-            const WindowFlags flags = WindowFlags.NoTitleBar | WindowFlags.NoMove
-                                    | WindowFlags.NoResize   | WindowFlags.NoCollapse
-                                    | WindowFlags.NoSavedSettings;
-
-            ImGui.BeginWindow($"###{Id}SearchPickerDlg", flags);
+            bool open = true;
+            var title = string.IsNullOrEmpty(_searchPickerLabel)
+                ? "Search"
+                : _searchPickerLabel;
+            ImGui.BeginWindow($"{title}###{Id}SearchPickerDlg", ref open, flags);
 
             ImGui.Text(_searchPickerLabel);
             ImGui.Separator();
@@ -5598,6 +5608,8 @@ namespace VisualEQ.Views
                 EndSearchPicker();
 
             ImGui.EndWindow();
+            // Title-bar X-close is equivalent to Cancel.
+            if (!open) EndSearchPicker();
         }
 
         // ── Slice 6c: clone / create-empty modals ───────────────────────
@@ -6339,16 +6351,20 @@ namespace VisualEQ.Views
         {
             const float dlgW = 520f;
             const float dlgH = 460f;
+            // FirstUseEver — see NpcPickerDialog rationale. FK pickers get re-
+            // opened often during faction / loot editing, so remembering the
+            // user's dragged position is a real win here.
             var pos = new Vector2((gui.Dimensions.X - dlgW) / 2, (gui.Dimensions.Y - dlgH) / 2);
+            ImGui.SetNextWindowPos(pos, Condition.FirstUseEver, Vector2.Zero);
+            ImGui.SetNextWindowSize(new Vector2(dlgW, dlgH), Condition.FirstUseEver);
 
-            ImGui.SetNextWindowPos(pos, Condition.Always, Vector2.Zero);
-            ImGui.SetNextWindowSize(new Vector2(dlgW, dlgH), Condition.Always);
+            const WindowFlags flags = WindowFlags.NoCollapse | WindowFlags.NoSavedSettings;
 
-            const WindowFlags flags = WindowFlags.NoTitleBar | WindowFlags.NoMove
-                                    | WindowFlags.NoResize   | WindowFlags.NoCollapse
-                                    | WindowFlags.NoSavedSettings;
-
-            ImGui.BeginWindow($"###{Id}FkPickerDlg", flags);
+            bool open = true;
+            var title = string.IsNullOrEmpty(_fkPickerLabel)
+                ? "Pick reference"
+                : $"Pick {_fkPickerLabel}";
+            ImGui.BeginWindow($"{title}###{Id}FkPickerDlg", ref open, flags);
 
             var cache = _view.Controller.ReferenceData;
             ImGui.Text($"Pick {_fkPickerLabel} for '{_fkPickerNpcDisplayName}'");
@@ -6362,6 +6378,7 @@ namespace VisualEQ.Views
                 if (ImGui.Button($"Close###{Id}fkClose", new Vector2(120, 28)))
                     EndFkPicker();
                 ImGui.EndWindow();
+                if (!open) EndFkPicker();
                 return;
             }
             if (state == VisualEQ.SpawnSystem.ReferenceDataCache.LoadState.Loading ||
@@ -6371,6 +6388,7 @@ namespace VisualEQ.Views
                 if (ImGui.Button($"Close###{Id}fkClose", new Vector2(120, 28)))
                     EndFkPicker();
                 ImGui.EndWindow();
+                if (!open) EndFkPicker();
                 return;
             }
             if (state == VisualEQ.SpawnSystem.ReferenceDataCache.LoadState.Error)
@@ -6379,6 +6397,7 @@ namespace VisualEQ.Views
                 if (ImGui.Button($"Close###{Id}fkClose", new Vector2(120, 28)))
                     EndFkPicker();
                 ImGui.EndWindow();
+                if (!open) EndFkPicker();
                 return;
             }
 
@@ -6454,6 +6473,8 @@ namespace VisualEQ.Views
                 EndFkPicker();
 
             ImGui.EndWindow();
+            // Title-bar X-close is equivalent to Cancel.
+            if (!open) EndFkPicker();
         }
 
         // ───────── NPC Details body (editable) ────────────────────────
