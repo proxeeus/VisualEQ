@@ -104,6 +104,12 @@ namespace VisualEQ.Views
             ImGui.Text("  move, Commit to save to the DB.");
             ImGui.Text("- Selected spawn shows a green wireframe cage (orange when");
             ImGui.Text("  it has a pending edit). Placeholder = yellow spike.");
+            ImGui.Text("- Top-center HUD shows the selected spawn's focused NPC.");
+            ImGui.Text("  Gold line means the spawngroup has multiple variants —");
+            ImGui.Text("  open Spawn Info and use \"< prev variant / next >\" to swap");
+            ImGui.Text("  the model + NPC editor onto a lower-chance sibling.");
+            ImGui.Text("- Spawn List search matches every NPC in every spawngroup, not");
+            ImGui.Text("  just the primary — a lower-chance NPC still shows up.");
             ImGui.Text("- Grid mode (sidebar toggle) turns LMB double-clicks into");
             ImGui.Text("  waypoint placements on the selected grid.");
             ImGui.Text("- NPC / FK pickers are floating windows — drag by the title");

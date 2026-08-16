@@ -901,27 +901,14 @@ namespace VisualEQ
             {
                 foreach (var sp in SpawnManager.SpawnPoints)
                 {
-                    var primary = sp.Record.Entries
-                        .OrderByDescending(e => e.Entry.Chance)
-                        .FirstOrDefault();
-                    if (primary?.Npc == null || primary.Npc.Id != npcId) continue;
+                    // Match on the focused entry (what's actually visible in scene), not
+                    // the highest-Chance entry — the user may have cycled focus onto a
+                    // lower-Chance sibling and edited it.
+                    var focused = sp.FocusedNpc;
+                    if (focused == null || focused.Id != npcId) continue;
 
-                    // NpcType (the light DB-baseline record on the spawn) carries every
-                    // field RebuildInstanceForNpc needs (race/gender/size/texture/helm/
-                    // face). Wrap it into a minimal NpcTypeFull so the shared refresh
-                    // path doesn't need a NpcType overload.
-                    var baseline = new Database.Models.NpcTypeFull
-                    {
-                        Id          = primary.Npc.Id,
-                        Race        = primary.Npc.Race,
-                        Gender      = primary.Npc.Gender,
-                        Size        = primary.Npc.Size,
-                        Texture     = primary.Npc.Texture,
-                        HelmTexture = primary.Npc.HelmTexture,
-                        Face        = primary.Npc.Face,
-                    };
-                    SpawnManager.RebuildInstanceForNpc(sp, baseline, Engine, CharacterModels,
-                        _modelCache, _availableModels, LastModelLoaded);
+                    SpawnManager.RebuildInstanceForNpc(sp, NpcTypeToMinimalFull(focused),
+                        Engine, CharacterModels, _modelCache, _availableModels, LastModelLoaded);
                 }
             }
 
@@ -1228,16 +1215,51 @@ namespace VisualEQ
             bool anyChanged = false;
             foreach (var sp in SpawnManager.SpawnPoints)
             {
-                var primary = sp.Record.Entries
-                    .OrderByDescending(e => e.Entry.Chance)
-                    .FirstOrDefault();
-                if (primary?.Npc == null || primary.Npc.Id != npcId) continue;
+                // Match on the focused entry so an edit to a lower-Chance sibling
+                // (currently focused by the sidebar cycler) still repaints its scene
+                // model. Spawns focused on a different NPC that happen to share the
+                // spawngroup are unaffected — they'll pick up the edit if the user
+                // later focuses onto this npcId.
+                var focused = sp.FocusedNpc;
+                if (focused == null || focused.Id != npcId) continue;
 
                 if (SpawnManager.RebuildInstanceForNpc(sp, effective, Engine, CharacterModels, _modelCache, _availableModels, LastModelLoaded))
                     anyChanged = true;
             }
             return anyChanged;
         }
+
+        // Sidebar cycler → focus change → model swap. Given a spawn whose
+        // FocusedEntryIndex just changed, rebuild the AniModel against the DB-baseline
+        // NpcType stored on sp.Record.Entries[focus]. Pending buffer overlays for the
+        // newly-focused NPC are NOT applied here (parity with the existing loop in
+        // ApplyPendingBuffer's revert path); the editor widget will refresh the visual
+        // when the user makes the next edit. Must be called on the GL thread — sidebar
+        // widget callbacks already run there.
+        public bool RefreshSpawnFocus(SpawnSystem.SpawnPoint sp)
+        {
+            if (sp == null || _availableModels == null) return false;
+            var focused = sp.FocusedNpc;
+            if (focused == null) return false;
+            return SpawnManager.RebuildInstanceForNpc(sp, NpcTypeToMinimalFull(focused),
+                Engine, CharacterModels, _modelCache, _availableModels, LastModelLoaded);
+        }
+
+        // Wrap a light DB-baseline NpcType (carried on SpawnRecord.Entries) into the
+        // minimal NpcTypeFull that SpawnManager.RebuildInstanceForNpc consumes. Only
+        // the fields that affect the rendered mesh matter (race / gender / size /
+        // texture / helm / face); everything else defaults to zero and is unread.
+        static Database.Models.NpcTypeFull NpcTypeToMinimalFull(Database.Models.NpcType n) =>
+            new Database.Models.NpcTypeFull
+            {
+                Id          = n.Id,
+                Race        = n.Race,
+                Gender      = n.Gender,
+                Size        = n.Size,
+                Texture     = n.Texture,
+                HelmTexture = n.HelmTexture,
+                Face        = n.Face,
+            };
 
         // Public wrappers for hotkey / sidebar button use. Return true if something changed.
         public bool TryUndo()
@@ -2455,7 +2477,10 @@ namespace VisualEQ
             {
                 TempSpawnId    = tempId,
                 SourceSpawnId  = src.Record.Spawn.Id,
-                DisplayName    = cloned.Entries.OrderByDescending(e => e.Entry.Chance).FirstOrDefault()?.Npc?.Name ?? "?",
+                // Undo-history label uses the source spawn's currently-focused NPC (the
+                // one the user was looking at when they pressed Ctrl+D) rather than the
+                // absolute highest-Chance entry, matching what's visible in the scene.
+                DisplayName    = src.FocusedNpc?.Name ?? cloned.Entries.FirstOrDefault()?.Npc?.Name ?? "?",
                 SpawnGroupName = newGroupName,
                 Zone           = cloned.Spawn.Zone,
                 Version        = cloned.Spawn.Version,
@@ -2929,14 +2954,12 @@ namespace VisualEQ
             }
         }
 
-        // Race for the primary (highest-Chance) NPC on this spawn. Race 0 falls
-        // back to the humanoid mesh-height default (6) via MeshHeightForRace,
-        // which is the right behavior for placeholder spawns.
-        static int GetRaceForSpawn(SpawnSystem.SpawnPoint sp)
-        {
-            var primary = sp.Record.Entries.OrderByDescending(e => e.Entry.Chance).FirstOrDefault();
-            return primary?.Npc?.Race ?? 0;
-        }
+        // Race for the currently-focused entry on this spawn — the one whose model
+        // is actually rendered. Race 0 falls back to the humanoid mesh-height default
+        // (6) via MeshHeightForRace, which is the right behavior for placeholder
+        // spawns.
+        static int GetRaceForSpawn(SpawnSystem.SpawnPoint sp) =>
+            sp.FocusedNpc?.Race ?? 0;
 
         // Builds path grid line list for the current grid source. Priority: sidebar-picked
         // grid (SelectedGridId, from the Grid List section, may be orphan → magenta) →

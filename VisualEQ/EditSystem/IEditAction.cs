@@ -110,10 +110,14 @@ namespace VisualEQ.EditSystem
             }
         }
 
+        // Snapshot label for the undo/pending list — uses the SpawnPoint's currently
+        // focused NPC (what the user was looking at when they rotated) so a shadowknight
+        // rotation labelled "shadowknight" instead of the spawngroup's highest-Chance
+        // sibling.
         static string PrimaryNameOf(SpawnPoint sp) =>
-            sp.Record.Entries
-                .OrderByDescending(e => e.Entry.Chance)
-                .FirstOrDefault()?.Npc?.Name ?? "?";
+            sp.FocusedNpc?.Name
+            ?? sp.Record.Entries.FirstOrDefault()?.Npc?.Name
+            ?? "?";
     }
 
     // Records a single position change on a spawn. Rotation is handled separately by
@@ -214,10 +218,13 @@ namespace VisualEQ.EditSystem
             }
         }
 
+        // Snapshot label for the undo/pending list — uses the SpawnPoint's currently
+        // focused NPC (what the user was looking at when they moved it) so the pending
+        // row matches their mental picture, not a lookup on the highest-Chance sibling.
         static string PrimaryName(SpawnPoint sp) =>
-            sp.Record.Entries
-                .OrderByDescending(e => e.Entry.Chance)
-                .FirstOrDefault()?.Npc?.Name ?? "?";
+            sp.FocusedNpc?.Name
+            ?? sp.Record.Entries.FirstOrDefault()?.Npc?.Name
+            ?? "?";
     }
 
     // Records a single position change to one waypoint (grid entry). Note: multiple spawns

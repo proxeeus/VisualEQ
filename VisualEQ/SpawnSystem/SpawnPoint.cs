@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using VisualEQ.Database.Models;
 using VisualEQ.Engine;
@@ -23,6 +24,25 @@ namespace VisualEQ.SpawnSystem
         public Vector3 OriginalPosition { get; }
         public float OriginalHeading { get; }
         public float CurrentHeading { get; private set; }
+
+        // Which of the spawngroup's Entries the sidebar (info panel + NPC editor) and
+        // scene model are currently focused on. Defaults at load to the highest-Chance
+        // entry (the "primary"), matching the previous fixed-primary behaviour. Changes
+        // via the sidebar's variant cycler or a search-result click. Not persisted —
+        // it's transient UI state, reset with the SpawnPoint on zone unload.
+        //
+        // Every downstream site that used to compute the primary from
+        // Entries.OrderByDescending(Chance).FirstOrDefault() now reads FocusedEntry
+        // instead, so an entry with a low spawn chance becomes visible + editable when
+        // the user cycles onto it.
+        public int FocusedEntryIndex { get; internal set; }
+
+        public SpawnEntryWithNpc FocusedEntry =>
+            (Record?.Entries != null && FocusedEntryIndex >= 0 && FocusedEntryIndex < Record.Entries.Count)
+                ? Record.Entries[FocusedEntryIndex]
+                : null;
+
+        public NpcType FocusedNpc => FocusedEntry?.Npc;
 
         // Populated by SpawnManager.ComputeStacks() at load time when this spawn2 row
         // shares an exact DB (x, y, z) with one or more sibling rows. When set, contains

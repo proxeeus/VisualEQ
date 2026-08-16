@@ -194,9 +194,23 @@ namespace VisualEQ.SpawnSystem
             Dictionary<string, string> availableModels,
             AniModel fallback)
         {
-            var primaryEntry = record.Entries
-                .OrderByDescending(e => e.Entry.Chance)
-                .FirstOrDefault();
+            // Initial focus = the index of the highest-Chance entry. Ties break to the
+            // first entry encountered (List order — usually the DB's row order). Stored on
+            // the SpawnPoint below so the sidebar cycler can shift focus to a lower-chance
+            // sibling without changing the load-time visual.
+            var primaryIndex = 0;
+            if (record.Entries != null && record.Entries.Count > 0)
+            {
+                float bestChance = float.NegativeInfinity;
+                for (int i = 0; i < record.Entries.Count; i++)
+                {
+                    var c = record.Entries[i]?.Entry?.Chance ?? 0f;
+                    if (c > bestChance) { bestChance = c; primaryIndex = i; }
+                }
+            }
+            var primaryEntry = (record.Entries != null && record.Entries.Count > primaryIndex)
+                ? record.Entries[primaryIndex]
+                : null;
             var npc = primaryEntry?.Npc;
 
             AniModel aniModel = null;
@@ -264,6 +278,7 @@ namespace VisualEQ.SpawnSystem
 
             engine.Add(instance);
             var sp = new SpawnPoint(record, instance, isPlaceholder);
+            sp.FocusedEntryIndex = primaryIndex;
             SpawnPoints.Add(sp);
             return (sp, isPlaceholder, triedCodes);
         }
@@ -466,9 +481,7 @@ namespace VisualEQ.SpawnSystem
 
             if (sp != null)
             {
-                var npcName = sp.Record.Entries
-                    .OrderByDescending(e => e.Entry.Chance)
-                    .FirstOrDefault()?.Npc?.Name ?? "???";
+                var npcName = sp.FocusedNpc?.Name ?? "???";
                 Console.WriteLine(
                     $"[SpawnManager] Selected #{sp.Record.Spawn.Id} '{sp.Record.Spawn.SpawnGroupName}' — {npcName}");
             }
