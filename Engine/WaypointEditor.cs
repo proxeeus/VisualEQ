@@ -100,11 +100,10 @@ namespace VisualEQ.Engine
         // anything was hit (so EngineCore.OnMouseDown can decide whether ModelSelector
         // should also run).
         // Ray-vs-point picker with a small fixed radius. Waypoints are markers, not
-        // volumes — clicking near one selects it; picks closest-to-camera when
-        // multiple candidates are within radius (rare — waypoints from different
-        // grids rarely overlap). Same rationale as ModelSelector.TrySelect for the
-        // small radius + small distance term: previously the 12+dist*0.008 base
-        // radius grew huge at distance and let far waypoints steal clicks.
+        // volumes. Ranks by aim quality (dist / radius) so a click landing dead-center
+        // on a farther waypoint isn't stolen by a nearer one whose radius merely
+        // brushes the ray — same rationale as ModelSelector.TrySelect. Camera distance
+        // only tiebreaks (rare with waypoints — different grids rarely overlap).
         public bool TrySelect(int mouseX, int mouseY)
         {
             if (_candidates.Count == 0) return false;
@@ -113,7 +112,9 @@ namespace VisualEQ.Engine
             var rayDir    = ScreenToWorldRay(mouseX, mouseY);
 
             Handle? best = null;
-            float bestProj = float.MaxValue;
+            float bestScore   = float.MaxValue;
+            float bestCamDist = float.MaxValue;
+            const float ScoreTieEpsilon = 0.05f;
 
             foreach (var wp in _candidates)
             {
@@ -129,10 +130,18 @@ namespace VisualEQ.Engine
                 var radius = 3f + proj * 0.005f;
                 if (dist > radius) continue;
 
-                if (proj < bestProj)
+                var score = dist / radius;
+                bool wins;
+                if (Math.Abs(score - bestScore) < ScoreTieEpsilon)
+                    wins = proj < bestCamDist;
+                else
+                    wins = score < bestScore;
+
+                if (wins)
                 {
                     best = wp;
-                    bestProj = proj;
+                    bestScore = score;
+                    bestCamDist = proj;
                 }
             }
 

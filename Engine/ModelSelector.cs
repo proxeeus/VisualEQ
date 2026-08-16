@@ -99,19 +99,13 @@ namespace VisualEQ.Engine
         // Ray-vs-vertical-cylinder picker. The ray from camera through the click pixel
         // is well-tested (ScreenToWorldRay powers FlyToCursor, WaypointEditor, and
         // ZonePointEditor); we take the closest approach between that ray and each
-        // model's vertical spine (feet → head), and pick the model whose spine sits
-        // inside a modest radius. Camera distance ranks candidates so overlapping
-        // spawns (EQEmu respawn-rotation stacks) resolve to the front one.
-        //
-        // The old world-sphere approach aimed at Position (feet) with a 15+dist*0.008
-        // radius that ballooned with distance — clicks nowhere near a distant model
-        // could still land inside its huge selection volume, letting it steal focus
-        // from nearby models. This version:
-        //   * aims at the spine, not the feet, so clicks on the head still hit
-        //   * uses a small model-scaled radius (~2 world units for a humanoid) so
-        //     distant models require actually clicking on the model, not near it
-        //   * keeps a small +dist*0.005 tolerance so distant-but-visible models don't
-        //     need pixel-perfect aim
+        // model's vertical spine (feet → head), and pick the model whose spine the
+        // ray passes CLOSEST to (best "aim quality"), normalized by its per-model
+        // radius so tiny distant models and big near ones compete fairly. Camera
+        // distance only breaks ties — so genuinely stacked EQEmu respawn-rotation
+        // spawns (identical XY) still resolve to the front one, but a nearby model
+        // whose fat radius merely brushes the ray no longer steals a click that
+        // landed dead-center on a farther model behind it.
         public bool TrySelect(int mouseX, int mouseY)
         {
             if (models.Count == 0)
@@ -124,7 +118,14 @@ namespace VisualEQ.Engine
             var rayDir    = ScreenToWorldRay(mouseX, mouseY);
 
             AniModelInstance best = null;
-            float bestCamDist = float.MaxValue;
+            float bestScore   = float.MaxValue; // normalized aim quality (0 = dead center, 1 = at radius edge)
+            float bestCamDist = float.MaxValue; // tiebreaker for aim scores within epsilon
+
+            // Aim scores within this fraction of each other are considered tied — fall
+            // back to camera distance. Loose enough that stacked spawns (score ≈ 0/0)
+            // and near-perfect aims both resolve to the front spawn, tight enough that
+            // a clearly better aim on a farther model still wins.
+            const float ScoreTieEpsilon = 0.05f;
 
             foreach (var model in models)
             {
@@ -138,7 +139,7 @@ namespace VisualEQ.Engine
                 var head     = feet + new Vector3(0, 0, height);
                 var torso    = feet + new Vector3(0, 0, height * 0.5f);
 
-                // Distance-along-ray to the torso (used for camera-distance ranking
+                // Distance-along-ray to the torso (used for camera-distance tiebreak
                 // + the "behind camera" cull).
                 var toTorso = torso - rayOrigin;
                 var proj = Vector3.Dot(toTorso, rayDir);
@@ -160,9 +161,20 @@ namespace VisualEQ.Engine
                 var radius = 2.5f * model.Scale + proj * 0.005f;
                 if (dist > radius) continue;
 
-                if (proj < bestCamDist)
+                // Normalized aim score. Smaller wins. Two models at score ~0 (both
+                // pierced through the middle) are considered a tie → front one wins.
+                var score = dist / radius;
+
+                bool wins;
+                if (Math.Abs(score - bestScore) < ScoreTieEpsilon)
+                    wins = proj < bestCamDist; // tie on aim quality → nearest wins
+                else
+                    wins = score < bestScore;  // clearly better aim wins outright
+
+                if (wins)
                 {
-                    best = model;
+                    best        = model;
+                    bestScore   = score;
                     bestCamDist = proj;
                 }
             }
