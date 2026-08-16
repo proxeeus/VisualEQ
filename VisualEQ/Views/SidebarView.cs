@@ -4178,6 +4178,72 @@ namespace VisualEQ.Views
             }
         }
 
+        // Compact NullableInt — checkbox + label + drag/(null placeholder) on ONE
+        // line instead of the block form's stacked two-line layout. Used by the
+        // Charm Overrides section where 7 fields would otherwise take 14 rows.
+        // Same widget IDs as the block form (###{Id}nnc{field} + ###{Id}nni{field})
+        // so undo history and the visual-refresh funnel keep working.
+        //
+        // labelWidth is the absolute X (relative to line start) where the value
+        // widget begins — pass the same value across sibling calls so labels of
+        // different lengths still line up their value columns.
+        void NpcNullableIntInline(int npcId, string field, string label,
+            System.Func<int?> read, System.Action<int?> write, bool editable,
+            float labelWidth, float inputWidth)
+        {
+            var current = read();
+            if (!editable)
+            {
+                ImGui.Text($"{label}: {(current?.ToString() ?? "(null)")}");
+                return;
+            }
+
+            var isSet = current.HasValue;
+            // Checkbox with no visible label so we can render the friendly label
+            // after via Text — keeps the row tight and lets us position the value
+            // widget at a fixed X.
+            if (ImGui.Checkbox($"###{Id}nnc{field}", ref isSet))
+            {
+                if (isSet && !current.HasValue)
+                {
+                    write(0);
+                    RecordNpcFieldEdit(npcId, field, (int?)null, (int?)0, _displayedNpc?.Name ?? "?");
+                }
+                else if (!isSet && current.HasValue)
+                {
+                    var before = current;
+                    write(null);
+                    RecordNpcFieldEdit(npcId, field, before, (int?)null, _displayedNpc?.Name ?? "?");
+                }
+            }
+            ImGui.SameLine();
+            ImGui.Text(label);
+            ImGui.SameLine(labelWidth);
+
+            if (isSet)
+            {
+                NsimGui.CimguiRaw.igPushItemWidth(inputWidth);
+                var cur = current ?? 0;
+                var val = (float)cur;
+                var changed = ImGui.DragFloat($"###{Id}nni{field}", ref val, 0f, 0f, 1f, "%.0f", 1f);
+                NsimGui.CimguiRaw.igPopItemWidth();
+                if (changed)
+                {
+                    var asInt = (int)System.Math.Round(val);
+                    if (asInt != cur)
+                    {
+                        write(asInt);
+                        RecordNpcFieldEdit(npcId, field, cur, asInt, _displayedNpc?.Name ?? "?");
+                    }
+                }
+            }
+            else
+            {
+                // Dim placeholder so the eye can scan which rows are unset.
+                ImGui.Text("(null)", new Vector4(0.55f, 0.55f, 0.55f, 1f));
+            }
+        }
+
         // Special-abilities editor (Slice 4). One row per SpecialAbilityCatalog entry
         // with an enable checkbox + a value input (int, DragFloat with drag disabled).
         // Any ability that has non-zero params 0..8 shows them read-only inline —
@@ -6890,15 +6956,22 @@ namespace VisualEQ.Views
             }
 
             // ── Charm overrides ────────────────────────────────────
+            // Inline layout: 7 fields on 7 rows instead of the block form's 14.
+            // Checkbox toggles set/null; when set, the value is edited in the
+            // 60px drag next to the label. Unset rows show a dim "(null)" so
+            // it's clear at a glance what's overridden vs. inheriting from the
+            // base stat.
             if (ImGui.CollapsingHeader($"Charm overrides (null = use base stat)###{Id}ndCharm", 0))
             {
-            NpcNullableInt(npcId, "charm_ac",               "Charm AC",                () => n.CharmAc,               v => n.CharmAc               = v, editable);
-            NpcNullableInt(npcId, "charm_atk",              "Charm ATK",               () => n.CharmAtk,              v => n.CharmAtk              = v, editable);
-            NpcNullableInt(npcId, "charm_min_dmg",          "Charm min damage",        () => n.CharmMinDmg,           v => n.CharmMinDmg           = v, editable);
-            NpcNullableInt(npcId, "charm_max_dmg",          "Charm max damage",        () => n.CharmMaxDmg,           v => n.CharmMaxDmg           = v, editable);
-            NpcNullableInt(npcId, "charm_attack_delay",     "Charm attack delay",      () => n.CharmAttackDelay,      v => n.CharmAttackDelay      = v, editable);
-            NpcNullableInt(npcId, "charm_accuracy_rating", "Charm accuracy rating",    () => n.CharmAccuracyRating,   v => n.CharmAccuracyRating   = v, editable);
-            NpcNullableInt(npcId, "charm_avoidance_rating","Charm avoidance rating",   () => n.CharmAvoidanceRating,  v => n.CharmAvoidanceRating  = v, editable);
+            const float CharmLabelWidth = 180f;
+            const float CharmInputWidth = 60f;
+            NpcNullableIntInline(npcId, "charm_ac",               "Charm AC",                () => n.CharmAc,               v => n.CharmAc               = v, editable, CharmLabelWidth, CharmInputWidth);
+            NpcNullableIntInline(npcId, "charm_atk",              "Charm ATK",               () => n.CharmAtk,              v => n.CharmAtk              = v, editable, CharmLabelWidth, CharmInputWidth);
+            NpcNullableIntInline(npcId, "charm_min_dmg",          "Charm min damage",        () => n.CharmMinDmg,           v => n.CharmMinDmg           = v, editable, CharmLabelWidth, CharmInputWidth);
+            NpcNullableIntInline(npcId, "charm_max_dmg",          "Charm max damage",        () => n.CharmMaxDmg,           v => n.CharmMaxDmg           = v, editable, CharmLabelWidth, CharmInputWidth);
+            NpcNullableIntInline(npcId, "charm_attack_delay",     "Charm attack delay",      () => n.CharmAttackDelay,      v => n.CharmAttackDelay      = v, editable, CharmLabelWidth, CharmInputWidth);
+            NpcNullableIntInline(npcId, "charm_accuracy_rating",  "Charm accuracy rating",   () => n.CharmAccuracyRating,   v => n.CharmAccuracyRating   = v, editable, CharmLabelWidth, CharmInputWidth);
+            NpcNullableIntInline(npcId, "charm_avoidance_rating", "Charm avoidance rating",  () => n.CharmAvoidanceRating,  v => n.CharmAvoidanceRating  = v, editable, CharmLabelWidth, CharmInputWidth);
             }
 
             // ── Provenance ─────────────────────────────────────────
