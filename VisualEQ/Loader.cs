@@ -429,6 +429,19 @@ namespace VisualEQ
                     IReadOnlyList<IReadOnlyList<float>> TruncateToFirst(IReadOnlyList<IReadOnlyList<float>> vbs) =>
                         singleFrame && vbs.Count > 1 ? new[] { vbs[0] } : vbs;
 
+                    // Bounds computed from the IDLE animation the spawn will actually
+                    // render (matches SpawnManager.SpawnAnimationCandidates order:
+                    // P01 > P02 > P03 > L01 > L02 > L03 > O01 > STA > POS > bind). Using
+                    // bind pose gave wrong Z for dragons — their bind has legs way down
+                    // (MinZ ≈ -7) but P01 tucks the body up (MinZ ≈ -3), so foot-aligning
+                    // to bind's MinZ leaves the rendered mesh floating above ground.
+                    // Group 0 (always render) + group 1 (base head) only. Skip helmet
+                    // variants (group ≥ 2) — they don't affect ground contact.
+                    string[] idleOrder = { "P01", "P02", "P03", "L01", "L02", "L03", "O01", "STA", "POS" };
+                    string idleAnim = idleOrder.FirstOrDefault(a => anisets.ContainsKey(a)) ?? "";
+                    float minX = float.MaxValue, maxX = float.MinValue;
+                    float minY = float.MaxValue, maxY = float.MinValue;
+                    float minZ = float.MaxValue, maxZ = float.MinValue;
                     oams.ForEach((oam, i) =>
                     {
                         if (!ShouldRender(i)) return;
@@ -441,8 +454,33 @@ namespace VisualEQ
                             geom = new MeshGeometry(oam.IndexBuffer.ToArray(), built);
                             _meshGeometryCache[geomKey] = geom;
                         }
+                        var g = i < groups.Length ? groups[i] : 0u;
+                        if (g == 0 || g == 1)
+                        {
+                            // Pick the SAME anim buffer SpawnManager will render for this mesh.
+                            OESAnimationBuffer picked = null;
+                            if (idleAnim != "" && anisets.TryGetValue(idleAnim, out var abList) && i < abList.Count)
+                                picked = abList[i];
+                            if (picked == null) picked = oam.Find<OESAnimationBuffer>().First(); // bind fallback
+                            var buf = picked.VertexBuffers[0];
+                            for (int v = 0; v < buf.Count; v += 8)
+                            {
+                                var x = buf[v];
+                                var y = buf[v + 1];
+                                var z = buf[v + 2];
+                                if (x < minX) minX = x; if (x > maxX) maxX = x;
+                                if (y < minY) minY = y; if (y > maxY) maxY = y;
+                                if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+                            }
+                        }
                         animodel.Add(new AnimatedMesh(materials[i], geom));
                     });
+                    if (minZ < float.MaxValue)
+                    {
+                        animodel.AuthoredMinX = minX; animodel.AuthoredMaxX = maxX;
+                        animodel.AuthoredMinY = minY; animodel.AuthoredMaxY = maxY;
+                        animodel.AuthoredMinZ = minZ; animodel.AuthoredMaxZ = maxZ;
+                    }
 
                     return animodel;
                 }

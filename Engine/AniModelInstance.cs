@@ -12,6 +12,7 @@ namespace VisualEQ.Engine
         Vector3 _Position;
         Quaternion _Rotation = Quaternion.Identity;
         float _Scale = 1f;
+        float _RenderZBias;
 
         public Vector3 Position
         {
@@ -35,10 +36,31 @@ namespace VisualEQ.Engine
             set { _Scale = value <= 0f ? 1f : value; RebuildTransform(); }
         }
 
-        void RebuildTransform() =>
-            Transform = Matrix4x4.CreateScale(_Scale)
+        // Render-time-only Z shift, added to Position.Z at draw time — NOT
+        // reflected back through the Position getter. SpawnManager uses this to
+        // foot-align meshes whose authored origin is well above the visual feet
+        // (dragons/wurms have MinZ around -20, so at scale 1× they sink 20 units
+        // below spawn.z). Kept out of Position so drag / save keep reading the
+        // raw scene Z = DB spawn.z.
+        public float RenderZBias
+        {
+            get => _RenderZBias;
+            set { _RenderZBias = value; RebuildTransform(); }
+        }
+
+        // Pre-shift the mesh vertices so the authored XY-center is at (0,0),
+        // THEN scale/rotate/translate. Without this, rotation happens around
+        // the artist's model-space origin — which for dragons/wurms sits at
+        // one end of the body — so the visible mesh renders off to the side
+        // of Position (green DB spawn cage on the floor, dragon in the wall).
+        void RebuildTransform()
+        {
+            var c = Model?.AuthoredCenterXY ?? Vector3.Zero;
+            Transform = Matrix4x4.CreateTranslation(-c)
+                      * Matrix4x4.CreateScale(_Scale)
                       * Matrix4x4.CreateFromQuaternion(_Rotation)
-                      * Matrix4x4.CreateTranslation(_Position);
+                      * Matrix4x4.CreateTranslation(new Vector3(_Position.X, _Position.Y, _Position.Z + _RenderZBias));
+        }
 
         string _Animation = "";
         float AnimationStartTime = FrameTime;

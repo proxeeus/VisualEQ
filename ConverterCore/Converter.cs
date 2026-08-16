@@ -242,31 +242,44 @@ namespace VisualEQ.ConverterCore
                 foreach (var wld in wlds)
                     foreach (var (aname, actor) in wld.GetFragments<Fragment14>())
                     {
+                        // Per-model try/catch so one bad actor doesn't kill the whole zip
+                        // (fragment errors used to escape all the way out of the `using`, which
+                        // still flushed the partial zip on Dispose but skipped main.oes writing
+                        // — silent load failure at runtime, every NPC in the zone rendered as
+                        // the placeholder ORC). Log and drop the model instead; other models
+                        // in the same chr still make it into main.oes.
                         var model = new OESCharacter(aname.Substring(0, aname.Length - "_ACTORDEF".Length));
-                        root.Add(model);
-                        var skin = new OESSkin();
-                        model.Add(skin);
-                        foreach (var elem in actor.References)
-                            switch (elem.Value)
-                            {
-                                case Fragment11 f11:
-                                    GenerateAnimatedMeshes(wld, zip, model, skin, f11.Reference.Value);
-                                    break;
-                                case Fragment2D f2d:
-                                    // Non-skeletal actor (BOAT, SHIP, EYE, ...). The Fragment14
-                                    // references a Fragment2D directly, which points at a
-                                    // Fragment36 static mesh. Emit it as a single-frame animated
-                                    // mesh so the runtime loader still finds a bind pose under
-                                    // `animations[""]`.
-                                    if (f2d.Reference.Value is Fragment36 f36)
-                                        GenerateStaticMesh(wld, zip, model, skin, f36);
-                                    else
-                                        WriteLine($"[Converter] Fragment2D on '{aname}' resolved to null Fragment36");
-                                    break;
-                                default:
-                                    WriteLine($"Unknown reference from 0x14 fragment on '{aname}' to {elem.Value}");
-                                    break;
-                            }
+                        try
+                        {
+                            var skin = new OESSkin();
+                            model.Add(skin);
+                            foreach (var elem in actor.References)
+                                switch (elem.Value)
+                                {
+                                    case Fragment11 f11:
+                                        GenerateAnimatedMeshes(wld, zip, model, skin, f11.Reference.Value);
+                                        break;
+                                    case Fragment2D f2d:
+                                        // Non-skeletal actor (BOAT, SHIP, EYE, ...). The Fragment14
+                                        // references a Fragment2D directly, which points at a
+                                        // Fragment36 static mesh. Emit it as a single-frame animated
+                                        // mesh so the runtime loader still finds a bind pose under
+                                        // `animations[""]`.
+                                        if (f2d.Reference.Value is Fragment36 f36)
+                                            GenerateStaticMesh(wld, zip, model, skin, f36);
+                                        else
+                                            WriteLine($"[Converter] Fragment2D on '{aname}' resolved to null Fragment36");
+                                        break;
+                                    default:
+                                        WriteLine($"Unknown reference from 0x14 fragment on '{aname}' to {elem.Value}");
+                                        break;
+                                }
+                            root.Add(model);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[Converter] Skipping character '{model.Name}' in {aname}: {ex.GetType().Name}: {ex.Message}");
+                        }
                     }
                 OESFile.Write(zip.CreateEntry("main.oes", CompressionLevel.Optimal).Open(), root);
             }
@@ -414,6 +427,14 @@ namespace VisualEQ.ConverterCore
             {
                 var alreadyIn = new HashSet<string>(meshesToProcess.Select(m => m.Name), StringComparer.OrdinalIgnoreCase);
                 var assetUpper = model.Name.ToUpperInvariant();
+                // Sort orphan helmet Fragment36s by name before append. LANTERN does
+                // the same via SkeletonHierarchy.cs:440 (`SecondaryMeshes.OrderBy(x => x.Name)`)
+                // — WLD encounter order isn't guaranteed to be ascending, so relying
+                // on it swaps helmet variants. Concrete regression: DR2 in eastwastes
+                // lists HE02 before HE01, which allocates group 2 = HE02 and group 3
+                // = HE01. Loader maps helmTexture=1 → group 2 → wrong dragon head
+                // (Vyemm gets Dozekar's head and vice versa).
+                var helmetSecondaries = new List<(Fragment36 Mesh, string Name)>();
                 foreach (var (fragName, f36) in wld.GetFragments<Fragment36>())
                 {
                     if (alreadyIn.Contains(fragName)) continue;
@@ -424,8 +445,10 @@ namespace VisualEQ.ConverterCore
                     if (!stripped.StartsWith(assetUpper + "HE")) continue;
                     var suffix = stripped.Substring(assetUpper.Length + 2, 2);
                     if (!int.TryParse(suffix, out var num) || num == 0) continue;
-                    meshesToProcess.Add((f36, fragName));
+                    helmetSecondaries.Add((f36, fragName));
                 }
+                helmetSecondaries.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+                meshesToProcess.AddRange(helmetSecondaries);
             }
 
             // Pull LANTERN's alternate animation-source for this model. When
@@ -479,8 +502,16 @@ namespace VisualEQ.ConverterCore
                 int GetMaxFrames(AniTreePrecursor pct) =>
                     pct.Children.Select(GetMaxFrames).Concat(new[] { pct.Frames.Length }).Max();
 
+                // Bones can have fewer keyframes than the max frame count for the
+                // anim (e.g. some bones are static across all frames while others
+                // animate). Clamp per-bone to `Frames.Length-1` — previously we
+                // used the raw `frame` index whenever Length > 1, which threw
+                // IndexOutOfRangeException for e.g. templeveeshan's chr where a
+                // model has a 4-frame animation but one bone carries only 2
+                // keyframes. Crash killed the whole chr conversion mid-run,
+                // leaving a partial zip with textures but no main.oes.
                 AniTreeFrame BuildFrame(AniTreePrecursor pct, int frame) =>
-                    new AniTreeFrame { Index = pct.Index, Transform = pct.Frames[pct.Frames.Length > 1 ? frame : 0], Children = pct.Children.Select(x => BuildFrame(x, frame)).ToArray() };
+                    new AniTreeFrame { Index = pct.Index, Transform = pct.Frames[Math.Min(frame, pct.Frames.Length - 1)], Children = pct.Children.Select(x => BuildFrame(x, frame)).ToArray() };
 
                 return GetMaxFrames(pc).Times(i => BuildFrame(pc, i)).ToArray();
             }
@@ -583,7 +614,7 @@ namespace VisualEQ.ConverterCore
             var f36HelmetGroup = new uint[meshesToProcess.Count];
             {
                 var assetName = model.Name.ToUpperInvariant();
-                var nextSecondary = 2u; // groups 2, 3, 4… allocated in encounter order
+                var nextSecondary = 2u; // groups 2, 3, 4… allocated in sorted-name order
                 for (var mi = 0; mi < meshesToProcess.Count; mi++)
                 {
                     var fragName = meshesToProcess[mi].Name;

@@ -2902,7 +2902,11 @@ namespace VisualEQ
                 }
                 else continue;
 
-                var basePos = sp.Model.Position;
+                // Base the spike at rendered feet so it visually attaches to the mesh,
+                // not the raw spawn.z (which sits below the mesh for RenderZBias-lifted
+                // dragons/wurms). Falls back to Position when authored bounds aren't set.
+                var authMinZ = sp.Model.Model?.AuthoredMinZ ?? 0f;
+                var basePos = sp.Model.Position + new Vector3(0, 0, authMinZ * sp.Model.Scale + sp.Model.RenderZBias);
                 lines.Add((basePos, basePos + new Vector3(0, 0, height), color));
             }
 
@@ -2920,23 +2924,29 @@ namespace VisualEQ
 
             var pos    = sp.Model.Position;
             var scale  = Math.Max(0.1f, sp.Model.Scale);
-            var meshH  = SpawnSystem.SpawnManager.MeshHeightForRace(GetRaceForSpawn(sp));
-            var height = meshH * scale;
-            // Radius slightly tighter than ModelSelector's 2.5×scale picking radius
-            // so the cage sits against the mesh, not visibly floating away from it.
-            var radius = 2f * scale;
 
-            // Spine — feet to a bit above head so the cage pokes above the model
-            // and reads as "attached to this thing" from a top-down camera angle.
-            var feet = pos;
-            var top  = pos + new Vector3(0, 0, height + 4f);
+            // Use the actual rendered bounds (matches ModelSelector picker's cylinder).
+            // AuthoredMinZ/MaxZ are per-model from the idle animation; RenderZBias is
+            // the ground-alignment lift that isn't reflected in Position. Falling back
+            // to the per-race table when bounds aren't computed (older cached models).
+            var authoredMinZ = sp.Model.Model?.AuthoredMinZ ?? 0f;
+            var authoredMaxZ = sp.Model.Model?.AuthoredMaxZ ?? 0f;
+            var authoredHeight = authoredMaxZ - authoredMinZ;
+            if (authoredHeight <= 0.1f)
+            {
+                authoredHeight = SpawnSystem.SpawnManager.MeshHeightForRace(GetRaceForSpawn(sp));
+                authoredMinZ = 0f;
+            }
+            var height = authoredHeight * scale;
+            var radius = Math.Max(2f, authoredHeight * 0.4f) * scale;
+
+            var feet = pos + new Vector3(0, 0, authoredMinZ * scale + sp.Model.RenderZBias);
+            var top  = feet + new Vector3(0, 0, height + 4f);
             lines.Add((feet, top, color));
 
-            // Three hoops. Feet slightly above the ground plane, waist mid-body,
-            // head just below the crown.
-            EmitHoop(lines, pos + new Vector3(0, 0, height * 0.05f), radius, color);
-            EmitHoop(lines, pos + new Vector3(0, 0, height * 0.50f), radius, color);
-            EmitHoop(lines, pos + new Vector3(0, 0, height * 0.95f), radius, color);
+            EmitHoop(lines, feet + new Vector3(0, 0, height * 0.05f), radius, color);
+            EmitHoop(lines, feet + new Vector3(0, 0, height * 0.50f), radius, color);
+            EmitHoop(lines, feet + new Vector3(0, 0, height * 0.95f), radius, color);
         }
 
         static void EmitHoop(
