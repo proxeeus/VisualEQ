@@ -207,6 +207,7 @@ namespace VisualEQ.Views
         private int _commitLootTableEntryCountSnapshot;
         private int _commitLootDropEntryCountSnapshot;
         private int _commitLootTableCountSnapshot;
+        private int _commitNpcFactionRowCountSnapshot;
 
         // Simple confirm modals — no extra state beyond "is it open?" + a snapshot count
         // so the dialog can display consistent numbers even if the buffer mutates while
@@ -323,6 +324,27 @@ namespace VisualEQ.Views
         // Duplicate-NPC confirm modal. Captures the source id + owning
         // spawngroup at Begin time so the follow-up repoint targets the same
         // spawn even if the user switches selection mid-modal.
+        // Slice 7b — "Manage Faction Sets" pop-out browser. Reuses the
+        // ReferenceDataCache preload for the row list (20k rows, fine in
+        // memory). "Assign to current NPC" fires a buffered NPC edit for
+        // npc_faction_id — same commit path as an FK picker selection.
+        // "Create new set" opens an inline sub-form (name + primaryfaction
+        // via nested FK picker + ignore flag), fires CreateEmptyNpcFaction
+        // + buffered assign on the returned id.
+        private bool _factionMgrActive;
+        private readonly byte[] _factionMgrFilterBuf = new byte[64];
+        private int _factionMgrSelectedIdx = -1;
+        private int _factionMgrTargetNpcId;
+        private int _factionMgrTargetOldNpcFactionId;
+        private string _factionMgrTargetNpcName;
+        // Create sub-form
+        private bool _factionMgrCreateFormOpen;
+        private readonly byte[] _factionMgrCreateNameBuf = new byte[128];
+        private int _factionMgrCreatePrimaryFaction;
+        private bool _factionMgrCreateIgnoreAssist;
+        private System.Threading.Tasks.Task<int> _factionMgrCreateTask;
+        private string _factionMgrCreateError;
+
         private bool _duplicateConfirmActive;
         private int _duplicateConfirmSourceNpcId;
         private string _duplicateConfirmSourceName;
@@ -600,6 +622,8 @@ namespace VisualEQ.Views
                     RenderCreateEmptyDialog(gui);
                 else if (_duplicateConfirmActive)
                     RenderDuplicateConfirmDialog(gui);
+                else if (_factionMgrActive)
+                    RenderManageFactionSetsDialog(gui);
             }
         }
 
@@ -670,6 +694,7 @@ namespace VisualEQ.Views
             _commitLootTableEntryCountSnapshot  = buffer.LootTableEntries.Count;
             _commitLootDropEntryCountSnapshot   = buffer.LootDropEntries.Count;
             _commitLootTableCountSnapshot       = buffer.LootTables.Count;
+            _commitNpcFactionRowCountSnapshot   = buffer.NpcFactions.Count;
             _commitPhase = CommitPhase.Confirm;
             _commitResult = null;
         }
@@ -698,7 +723,8 @@ namespace VisualEQ.Views
                     // next render (which now reflects Insert/Update/Delete).
                     if (_commitResult.NpcFactionEntryInserts > 0 ||
                         _commitResult.NpcFactionEntryUpdates > 0 ||
-                        _commitResult.NpcFactionEntryDeletes > 0)
+                        _commitResult.NpcFactionEntryDeletes > 0 ||
+                        _commitResult.NpcFactionRowsWritten  > 0)
                     {
                         _factionEntriesFetchedFor = null;
                         _factionEntriesData       = null;
@@ -776,6 +802,8 @@ namespace VisualEQ.Views
                 ImGui.Text($"  {_commitLootDropEntryCountSnapshot} lootdrop-entry op(s)");
             if (_commitLootTableCountSnapshot > 0)
                 ImGui.Text($"  {_commitLootTableCountSnapshot} loottable header op(s)");
+            if (_commitNpcFactionRowCountSnapshot > 0)
+                ImGui.Text($"  {_commitNpcFactionRowCountSnapshot} faction-set header op(s)");
             ImGui.Separator();
             ImGui.Text($"Target: {db.Server}/{db.Database}");
             ImGui.Text("Runs as a single transaction — all-or-nothing.");
@@ -855,6 +883,8 @@ namespace VisualEQ.Views
                     ImGui.Text($"  {r.LootDropEntryDeletes} lootdrop_entries row(s) deleted");
                 if (r.LootTableRowsWritten > 0)
                     ImGui.Text($"  {r.LootTableRowsWritten} loottable row(s) updated");
+                if (r.NpcFactionRowsWritten > 0)
+                    ImGui.Text($"  {r.NpcFactionRowsWritten} npc_faction row(s) updated");
                 ImGui.Separator();
                 ImGui.Text("Buffer + undo history cleared.");
                 var touchedZonePoints = r.ZonePointRowsWritten + r.ZonePointInsertsWritten + r.ZonePointDeletesWritten;
@@ -4029,25 +4059,33 @@ namespace VisualEQ.Views
             }
 
             // ── Header: set name + primary faction + ignore-assist flag ──────
-            var setName = _factionSetData?.Name;
-            if (string.IsNullOrWhiteSpace(setName)) setName = "(unnamed set)";
-            ImGui.Text($"Set #{npcFactionId} — \"{setName}\"");
+            // Slice 7b: header fields are editable in edit mode via a dedicated
+            // dynamic UPDATE loop against npc_faction. Overlay the pending edit
+            // dict onto the fetched set metadata so widgets always render the
+            // effective (post-edit) value.
+            var effectiveSet = OverlayEffectiveNpcFactionSet(npcFactionId, _factionSetData);
+            var setName = string.IsNullOrWhiteSpace(effectiveSet?.Name) ? "(unnamed set)" : effectiveSet.Name;
 
-            // Primary faction: JOIN-resolved name (empty when set has none or the fk
-            // is dangling). Format as "Name (#id)" — name first for scannability.
-            string primaryLine;
-            if (_factionSetData == null)
-                primaryLine = "(loading…)";
-            else if (_factionSetData.PrimaryFaction == 0)
-                primaryLine = "(none)";
-            else if (!string.IsNullOrWhiteSpace(_factionSetData.PrimaryFactionName))
-                primaryLine = $"{_factionSetData.PrimaryFactionName} (#{_factionSetData.PrimaryFaction})";
+            if (editable && effectiveSet != null)
+            {
+                RenderNpcFactionHeaderEditRow(npcId, npcFactionId, effectiveSet);
+            }
             else
-                primaryLine = $"? (#{_factionSetData.PrimaryFaction})";
-            ImGui.Text($"Primary faction: {primaryLine}");
-
-            var ignoreAssist = _factionSetData != null && _factionSetData.IgnorePrimaryAssist != 0;
-            ImGui.Text($"Ignore primary assist: {(ignoreAssist ? "Yes" : "No")}");
+            {
+                ImGui.Text($"Set #{npcFactionId} — \"{setName}\"");
+                string primaryLine;
+                if (effectiveSet == null)
+                    primaryLine = "(loading…)";
+                else if (effectiveSet.PrimaryFaction == 0)
+                    primaryLine = "(none)";
+                else if (!string.IsNullOrWhiteSpace(effectiveSet.PrimaryFactionName))
+                    primaryLine = $"{effectiveSet.PrimaryFactionName} (#{effectiveSet.PrimaryFaction})";
+                else
+                    primaryLine = $"? (#{effectiveSet.PrimaryFaction})";
+                ImGui.Text($"Primary faction: {primaryLine}");
+                var ignoreAssistRO = effectiveSet != null && effectiveSet.IgnorePrimaryAssist != 0;
+                ImGui.Text($"Ignore primary assist: {(ignoreAssistRO ? "Yes" : "No")}");
+            }
 
             ImGui.Separator();
 
@@ -4786,6 +4824,114 @@ namespace VisualEQ.Views
         // Slice 6c follow-up — clone the DB baseline loottable and overlay the
         // pending buffer op (if any) so widgets see the effective (post-edit)
         // values. Returns null if baseline is null (loottable row missing).
+        // Slice 7b — overlay pending NpcFactions edits onto the fetched set
+        // metadata so the header widgets always render the effective (post-
+        // edit) value. Returns null if baseline is null.
+        VisualEQ.Database.Models.NpcFactionSet OverlayEffectiveNpcFactionSet(
+            int npcFactionId, VisualEQ.Database.Models.NpcFactionSet baseline)
+        {
+            if (baseline == null) return null;
+            var eff = new VisualEQ.Database.Models.NpcFactionSet
+            {
+                Id                  = baseline.Id,
+                Name                = baseline.Name,
+                PrimaryFaction      = baseline.PrimaryFaction,
+                IgnorePrimaryAssist = baseline.IgnorePrimaryAssist,
+                PrimaryFactionName  = baseline.PrimaryFactionName,
+            };
+            var buffer = _view.Controller.PendingBuffer;
+            if (buffer != null && buffer.NpcFactions.TryGetValue(npcFactionId, out var edit))
+            {
+                foreach (var kv in edit.CurrentValues)
+                {
+                    switch (kv.Key)
+                    {
+                        case "name":
+                            eff.Name = kv.Value;
+                            break;
+                        case "primaryfaction":
+                            eff.PrimaryFaction = int.Parse(kv.Value, System.Globalization.CultureInfo.InvariantCulture);
+                            // Try to resolve the name from the FactionList cache;
+                            // fall back to null so the render shows "? (#id)".
+                            var cache = _view.Controller.ReferenceData;
+                            var newName = cache?.GetNameLookup(VisualEQ.SpawnSystem.ReferenceDataCache.Table.FactionList);
+                            eff.PrimaryFactionName = newName != null && newName.TryGetValue(eff.PrimaryFaction, out var pn) ? pn : null;
+                            break;
+                        case "ignore_primary_assist":
+                            eff.IgnorePrimaryAssist = (sbyte)int.Parse(kv.Value, System.Globalization.CultureInfo.InvariantCulture);
+                            break;
+                    }
+                }
+            }
+            return eff;
+        }
+
+        // Slice 7b — inline header editor for one npc_faction row. Primary
+        // faction opens the FactionList FK picker via a callback path (writes
+        // directly to a buffered NpcFactionFieldEditAction instead of an
+        // NpcFieldEditAction). Ignore-assist is a checkbox that fires on click.
+        // Name editing deferred — needs the NpcText-style deferred-write
+        // machinery, punted for scope.
+        void RenderNpcFactionHeaderEditRow(int npcId, int npcFactionId,
+            VisualEQ.Database.Models.NpcFactionSet effective)
+        {
+            var setName = string.IsNullOrWhiteSpace(effective.Name) ? "(unnamed set)" : effective.Name;
+            ImGui.Text($"Set #{npcFactionId} — \"{setName}\"");
+
+            // Primary faction row: read-only label + Change / Clear buttons.
+            var primaryText = effective.PrimaryFaction == 0
+                ? "(none)"
+                : (!string.IsNullOrWhiteSpace(effective.PrimaryFactionName)
+                    ? $"{effective.PrimaryFactionName} (#{effective.PrimaryFaction})"
+                    : $"? (#{effective.PrimaryFaction})");
+            ImGui.Text($"Primary faction: {primaryText}");
+            ImGui.SameLine();
+            if (ImGui.Button($"Change###{Id}nfPfBtn{npcFactionId}", new Vector2(80, 22)))
+            {
+                var currentPf = effective.PrimaryFaction;
+                var displayName = string.IsNullOrWhiteSpace(effective.Name) ? "?" : effective.Name;
+                BeginFkPicker(
+                    VisualEQ.SpawnSystem.ReferenceDataCache.Table.FactionList,
+                    "primaryfaction", "Primary faction",
+                    npcId, currentPf,
+                    onPicked: pickedFactionId =>
+                    {
+                        if (pickedFactionId == currentPf) return;
+                        _view.Controller.RecordAction(new NpcFactionFieldEditAction(
+                            npcFactionId, "primaryfaction", currentPf, pickedFactionId, displayName));
+                    });
+            }
+            if (effective.PrimaryFaction != 0)
+            {
+                ImGui.SameLine();
+                if (ImGui.Button($"Clear###{Id}nfPfClr{npcFactionId}", new Vector2(60, 22)))
+                {
+                    var currentPf = effective.PrimaryFaction;
+                    var displayName = string.IsNullOrWhiteSpace(effective.Name) ? "?" : effective.Name;
+                    _view.Controller.RecordAction(new NpcFactionFieldEditAction(
+                        npcFactionId, "primaryfaction", currentPf, 0, displayName));
+                }
+            }
+
+            // Ignore-primary-assist checkbox.
+            var ignoreOn = effective.IgnorePrimaryAssist != 0;
+            if (ImGui.Checkbox($"Ignore primary assist###{Id}nfIpa{npcFactionId}", ref ignoreOn))
+            {
+                var beforeI = (int)effective.IgnorePrimaryAssist;
+                var afterI  = ignoreOn ? 1 : 0;
+                if (beforeI != afterI)
+                {
+                    var displayName = string.IsNullOrWhiteSpace(effective.Name) ? "?" : effective.Name;
+                    _view.Controller.RecordAction(new NpcFactionFieldEditAction(
+                        npcFactionId, "ignore_primary_assist", beforeI, afterI, displayName));
+                }
+            }
+
+            // Slice 7b — open the pop-out browser for cross-NPC set management.
+            if (ImGui.Button($"Manage faction sets…###{Id}nfMgr{npcFactionId}", new Vector2(180, 22)))
+                BeginManageFactionSets(npcId, npcFactionId);
+        }
+
         VisualEQ.Database.Models.LootTable OverlayEffectiveLootTable(
             int loottableId, VisualEQ.Database.Models.LootTable baseline)
         {
@@ -5844,6 +5990,251 @@ namespace VisualEQ.Views
             _displayedNpc           = null;
             _npcUsageFetchedForId   = null;
             _npcUsageCount          = 0;
+        }
+
+        // ── Slice 7b: Manage Faction Sets pop-out browser ────────────────
+        //
+        // Filterable list of npc_faction rows sourced from ReferenceDataCache
+        // (preloaded, 20k rows). Row actions: "Assign to current NPC" fires a
+        // buffered NPC edit for npc_faction_id, exactly like an FK picker
+        // selection would. An inline "+ New faction set" form creates a fresh
+        // npc_faction row (name + optional primaryfaction + ignore flag),
+        // then routes the assign through the same buffered path.
+        //
+        // Coexists with the FK picker: opening the primaryfaction picker
+        // inside the create form temporarily hides this window (modal
+        // dispatch order — FK picker is earlier). Control returns after Select
+        // or Cancel.
+        void BeginManageFactionSets(int npcId, int currentNpcFactionId)
+        {
+            _factionMgrActive                 = true;
+            _factionMgrTargetNpcId            = npcId;
+            _factionMgrTargetOldNpcFactionId  = currentNpcFactionId;
+            _factionMgrTargetNpcName          = _displayedNpc?.Name ?? "?";
+            _factionMgrSelectedIdx            = -1;
+            _factionMgrCreateFormOpen         = false;
+            _factionMgrCreatePrimaryFaction   = 0;
+            _factionMgrCreateIgnoreAssist     = false;
+            _factionMgrCreateTask             = null;
+            _factionMgrCreateError            = null;
+            System.Array.Clear(_factionMgrFilterBuf,     0, _factionMgrFilterBuf.Length);
+            System.Array.Clear(_factionMgrCreateNameBuf, 0, _factionMgrCreateNameBuf.Length);
+        }
+
+        void EndManageFactionSets()
+        {
+            _factionMgrActive = false;
+            _factionMgrCreateTask = null;
+        }
+
+        void RenderManageFactionSetsDialog(Gui gui)
+        {
+            const float dlgW = 560f;
+            float dlgH = _factionMgrCreateFormOpen ? 620f : 500f;
+            var pos = new Vector2((gui.Dimensions.X - dlgW) / 2, (gui.Dimensions.Y - dlgH) / 2);
+
+            ImGui.SetNextWindowPos(pos, Condition.Always, Vector2.Zero);
+            ImGui.SetNextWindowSize(new Vector2(dlgW, dlgH), Condition.Always);
+
+            const WindowFlags flags = WindowFlags.NoTitleBar | WindowFlags.NoMove
+                                    | WindowFlags.NoResize   | WindowFlags.NoCollapse
+                                    | WindowFlags.NoSavedSettings;
+
+            ImGui.BeginWindow($"###{Id}FacMgrDlg", flags);
+
+            ImGui.Text($"Manage Faction Sets (target: '{_factionMgrTargetNpcName}')");
+            ImGui.Separator();
+
+            var cache = _view.Controller.ReferenceData;
+            if (cache == null)
+            {
+                ImGui.Text("No database connection is configured.", new Vector4(0.95f, 0.35f, 0.25f, 1f));
+                if (ImGui.Button($"Close###{Id}fmClose", new Vector2(120, 28)))
+                    EndManageFactionSets();
+                ImGui.EndWindow();
+                return;
+            }
+
+            var state = cache.GetState(VisualEQ.SpawnSystem.ReferenceDataCache.Table.NpcFaction);
+            if (state == VisualEQ.SpawnSystem.ReferenceDataCache.LoadState.NotLoaded ||
+                state == VisualEQ.SpawnSystem.ReferenceDataCache.LoadState.Loading)
+            {
+                cache.GetItems(VisualEQ.SpawnSystem.ReferenceDataCache.Table.NpcFaction); // force-warm
+                ImGui.Text("Loading faction sets…");
+                if (ImGui.Button($"Close###{Id}fmClose", new Vector2(120, 28)))
+                    EndManageFactionSets();
+                ImGui.EndWindow();
+                return;
+            }
+
+            var items = cache.GetItems(VisualEQ.SpawnSystem.ReferenceDataCache.Table.NpcFaction);
+
+            ImGui.Text("Filter (id or name substring):");
+            ImGui.InputText($"###{Id}fmF", _factionMgrFilterBuf, (uint)_factionMgrFilterBuf.Length, InputTextFlags.Default, null);
+            var filter = ReadBuffer(_factionMgrFilterBuf).Trim();
+
+            var filtered = new List<VisualEQ.Database.Models.ReferenceItem>(256);
+            if (string.IsNullOrEmpty(filter))
+            {
+                for (int i = 0; i < items.Count && filtered.Count < 250; i++)
+                    filtered.Add(items[i]);
+            }
+            else
+            {
+                int filterId;
+                bool filterIsInt = int.TryParse(filter, out filterId);
+                foreach (var it in items)
+                {
+                    if (filterIsInt && it.Id == filterId) { filtered.Add(it); continue; }
+                    if (!string.IsNullOrEmpty(it.Name) &&
+                        it.Name.IndexOf(filter, System.StringComparison.OrdinalIgnoreCase) >= 0)
+                        filtered.Add(it);
+                    if (filtered.Count >= 500) break;
+                }
+            }
+
+            ImGui.Text($"{filtered.Count} match(es) shown");
+            ImGui.BeginChild($"###{Id}fmList", new Vector2(0, _factionMgrCreateFormOpen ? 220 : 320), true, WindowFlags.Default);
+            for (int i = 0; i < filtered.Count; i++)
+            {
+                var it = filtered[i];
+                var lbl = $"{it.Id}  {it.Name}###{Id}fmR{it.Id}";
+                if (ImGui.Selectable(lbl, i == _factionMgrSelectedIdx))
+                    _factionMgrSelectedIdx = i;
+            }
+            ImGui.EndChild();
+
+            ImGui.Separator();
+
+            // Assign action for the currently-highlighted row.
+            var canAssign = _factionMgrSelectedIdx >= 0 && _factionMgrSelectedIdx < filtered.Count;
+            if (canAssign)
+            {
+                var picked = filtered[_factionMgrSelectedIdx];
+                if (ImGui.Button($"Assign #{picked.Id} to this NPC###{Id}fmOk", new Vector2(220, 28)))
+                {
+                    if (picked.Id != _factionMgrTargetOldNpcFactionId)
+                    {
+                        RecordNpcFieldEdit(_factionMgrTargetNpcId, "npc_faction_id",
+                            _factionMgrTargetOldNpcFactionId, picked.Id, _factionMgrTargetNpcName);
+                    }
+                    EndManageFactionSets();
+                    ImGui.EndWindow();
+                    return;
+                }
+            }
+            else
+            {
+                ImGui.Text("(pick a row to enable Assign)");
+            }
+            ImGui.SameLine();
+            if (ImGui.Button($"Close###{Id}fmX", new Vector2(120, 28)))
+            {
+                EndManageFactionSets();
+                ImGui.EndWindow();
+                return;
+            }
+
+            ImGui.Separator();
+
+            // Create sub-form. Collapsed by default; opens inline within the
+            // same window rather than as a nested modal.
+            if (!_factionMgrCreateFormOpen)
+            {
+                if (ImGui.Button($"+ New faction set…###{Id}fmNewOpen", new Vector2(180, 24)))
+                    _factionMgrCreateFormOpen = true;
+            }
+            else
+            {
+                ImGui.Text("Create new faction set:");
+                ImGui.Text("Name:");
+                ImGui.InputText($"###{Id}fmNewName", _factionMgrCreateNameBuf, (uint)_factionMgrCreateNameBuf.Length, InputTextFlags.Default, null);
+                var newName = ReadBuffer(_factionMgrCreateNameBuf).Trim();
+
+                // Primary faction: read-only label + Change button that opens
+                // the FactionList FK picker via a callback.
+                var pfLabel = _factionMgrCreatePrimaryFaction == 0
+                    ? "(none)"
+                    : (cache.ResolveLabel(VisualEQ.SpawnSystem.ReferenceDataCache.Table.FactionList, _factionMgrCreatePrimaryFaction));
+                ImGui.Text($"Primary faction: {pfLabel}");
+                ImGui.SameLine();
+                if (ImGui.Button($"Change###{Id}fmNewPfBtn", new Vector2(80, 22)))
+                {
+                    var currentPf = _factionMgrCreatePrimaryFaction;
+                    BeginFkPicker(
+                        VisualEQ.SpawnSystem.ReferenceDataCache.Table.FactionList,
+                        "primaryfaction_new", "Primary faction (new set)",
+                        _factionMgrTargetNpcId, currentPf,
+                        onPicked: pickedFactionId => { _factionMgrCreatePrimaryFaction = pickedFactionId; });
+                }
+                if (_factionMgrCreatePrimaryFaction != 0)
+                {
+                    ImGui.SameLine();
+                    if (ImGui.Button($"Clear###{Id}fmNewPfClr", new Vector2(60, 22)))
+                        _factionMgrCreatePrimaryFaction = 0;
+                }
+
+                ImGui.Checkbox($"Ignore primary assist###{Id}fmNewIpa", ref _factionMgrCreateIgnoreAssist);
+
+                // Reap the create task on completion.
+                if (_factionMgrCreateTask != null && _factionMgrCreateTask.IsCompleted)
+                {
+                    if (_factionMgrCreateTask.IsFaulted)
+                    {
+                        _factionMgrCreateError = _factionMgrCreateTask.Exception?.GetBaseException().Message ?? "unknown error";
+                        _factionMgrCreateTask  = null;
+                    }
+                    else
+                    {
+                        var newId = _factionMgrCreateTask.Result;
+                        _factionMgrCreateTask = null;
+                        // Buffered assign to current NPC. Reload of the cache
+                        // isn't strictly needed — the sidebar just uses the id;
+                        // but for accuracy, drop the NpcFaction cache so the
+                        // row shows in the next open of this window.
+                        RecordNpcFieldEdit(_factionMgrTargetNpcId, "npc_faction_id",
+                            _factionMgrTargetOldNpcFactionId, newId, _factionMgrTargetNpcName);
+                        EndManageFactionSets();
+                        ImGui.EndWindow();
+                        return;
+                    }
+                }
+
+                if (_factionMgrCreateError != null)
+                    ImGui.Text($"Error: {_factionMgrCreateError}", new Vector4(0.95f, 0.35f, 0.25f, 1f));
+                else if (_factionMgrCreateTask != null)
+                    ImGui.Text("Creating…");
+
+                var busy = _factionMgrCreateTask != null;
+                var canCreate = !busy && !string.IsNullOrWhiteSpace(newName);
+                if (canCreate && ImGui.Button($"Create + assign###{Id}fmNewOk", new Vector2(180, 24)))
+                {
+                    var factory = _view.Controller.DbFactory;
+                    if (factory == null)
+                    {
+                        _factionMgrCreateError = "No database connection is configured.";
+                    }
+                    else
+                    {
+                        _factionMgrCreateError = null;
+                        var repo = new VisualEQ.Database.Repositories.FactionRepository(factory);
+                        var capturedName    = newName;
+                        var capturedPf      = _factionMgrCreatePrimaryFaction;
+                        var capturedIgnore  = _factionMgrCreateIgnoreAssist ? 1 : 0;
+                        _factionMgrCreateTask = System.Threading.Tasks.Task.Run(async () =>
+                            await repo.CreateEmptyNpcFactionAsync(capturedName, capturedPf, capturedIgnore));
+                    }
+                }
+                else if (!canCreate)
+                {
+                    ImGui.Text(busy ? "(waiting for DB…)" : "(name required)");
+                }
+                ImGui.SameLine();
+                if (ImGui.Button($"Cancel new###{Id}fmNewX", new Vector2(120, 24)))
+                    _factionMgrCreateFormOpen = false;
+            }
+
+            ImGui.EndWindow();
         }
 
         void RenderFkPickerDialog(Gui gui)
