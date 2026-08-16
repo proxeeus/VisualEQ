@@ -312,6 +312,32 @@ namespace VisualEQ.Views
         private VisualEQ.Database.Models.NpcTypeFull _npcDetailsData;
         private string _npcDetailsError;
 
+        // Slice 7a — shared-record indicator + duplicate flow.
+        // Usage count fetches alongside the NPC details; keyed on the same npc
+        // id, so re-selecting a spawn with the same NPC is still a cache hit.
+        // Task nulled at the same points as the details fetch.
+        private System.Threading.Tasks.Task<int> _npcUsageTask;
+        private int? _npcUsageFetchedForId;
+        private int _npcUsageCount;
+
+        // Duplicate-NPC confirm modal. Captures the source id + owning
+        // spawngroup at Begin time so the follow-up repoint targets the same
+        // spawn even if the user switches selection mid-modal.
+        private bool _duplicateConfirmActive;
+        private int _duplicateConfirmSourceNpcId;
+        private string _duplicateConfirmSourceName;
+        private int _duplicateConfirmSpawnGroupId;
+        private int _duplicateConfirmUsage;
+        private System.Threading.Tasks.Task<int> _duplicateTask;
+        private string _duplicateError;
+        // Set true when a duplicate finishes so the sidebar (running on the
+        // main GL thread) can pump the follow-up on its next Render tick.
+        // Follow-up = repoint spawnentry + swap in-memory Record.Entries + drop
+        // NPC details cache so the sidebar fetches the fresh clone.
+        private int _duplicateFollowUpNewNpcId;
+        private int _duplicateFollowUpOldNpcId;
+        private int _duplicateFollowUpSpawnGroupId;
+
         // Displayed NPC = clone of the DB row with any pending buffer edits overlaid. Widgets
         // mutate this directly for live drag feedback; the buffer entry is only touched at
         // widget-release time by NpcFieldEditAction. Rebuilt from baseline + overlay whenever
@@ -572,6 +598,8 @@ namespace VisualEQ.Views
                     RenderCloneConfirmDialog(gui);
                 else if (_createEmptyActive)
                     RenderCreateEmptyDialog(gui);
+                else if (_duplicateConfirmActive)
+                    RenderDuplicateConfirmDialog(gui);
             }
         }
 
@@ -3231,6 +3259,28 @@ namespace VisualEQ.Views
                 _npcDetailsFetchTask = System.Threading.Tasks.Task.Run(async () =>
                     await repo.GetNpcByIdAsync(npcId));
             }
+
+            // Slice 7a — usage count runs alongside details. Small query; keyed
+            // on the same npc id so re-selecting a spawn with the same NPC
+            // avoids a re-fetch. Reap independently — completes in parallel
+            // with the details task, its result seeds _npcUsageCount.
+            if (_npcUsageTask != null && _npcUsageTask.IsCompleted)
+            {
+                if (!_npcUsageTask.IsFaulted)
+                    _npcUsageCount = _npcUsageTask.Result;
+                _npcUsageFetchedForId = npcId;
+                _npcUsageTask         = null;
+            }
+            if (_npcUsageTask == null && _npcUsageFetchedForId != npcId)
+            {
+                var factory = _view.Controller.DbFactory;
+                if (factory != null)
+                {
+                    var repo = new VisualEQ.Database.Repositories.NpcRepository(factory);
+                    _npcUsageTask = System.Threading.Tasks.Task.Run(async () =>
+                        await repo.GetUsageCountAsync(npcId));
+                }
+            }
         }
 
         // Rebuild _displayedNpc from baseline + pending overlay when either changes.
@@ -5637,6 +5687,165 @@ namespace VisualEQ.Views
             }
         }
 
+        // ── Slice 7a: duplicate NPC ─────────────────────────────────────
+        //
+        // Sequence:
+        //   1. RequestDuplicateForSelectedSpawn — captures the owning spawn's
+        //      spawngroupID and opens the confirm modal.
+        //   2. Modal fires DuplicateAsync + RepointSpawnEntryAsync in one
+        //      Task.Run chain so the two writes travel together.
+        //   3. On completion, ApplyDuplicateFollowUp mutates the in-memory
+        //      SpawnEntryWithNpc so the sidebar's "primary NPC" now resolves
+        //      to the clone, and drops the NPC-details / usage caches so the
+        //      next render fetches the fresh row.
+        //
+        // Immediate DB writes (not buffered) — same rationale as the loot
+        // clone flows. Undo isn't wired for this action (users can delete the
+        // clone manually if they change their mind).
+        void RequestDuplicateForSelectedSpawn(int currentNpcId, string npcName)
+        {
+            var sp = _view.SelectedSpawn;
+            if (sp?.Record?.Spawn == null) return;
+            BeginDuplicateConfirm(currentNpcId, npcName, sp.Record.Spawn.SpawnGroupId, _npcUsageCount);
+        }
+
+        void BeginDuplicateConfirm(int npcId, string name, int spawnGroupId, int usage)
+        {
+            _duplicateConfirmActive       = true;
+            _duplicateConfirmSourceNpcId  = npcId;
+            _duplicateConfirmSourceName   = name ?? "?";
+            _duplicateConfirmSpawnGroupId = spawnGroupId;
+            _duplicateConfirmUsage        = usage;
+            _duplicateTask                = null;
+            _duplicateError               = null;
+        }
+
+        void EndDuplicateConfirm()
+        {
+            _duplicateConfirmActive = false;
+            _duplicateTask          = null;
+        }
+
+        void RenderDuplicateConfirmDialog(Gui gui)
+        {
+            const float dlgW = 520f;
+            const float dlgH = 260f;
+            var pos = new Vector2((gui.Dimensions.X - dlgW) / 2, (gui.Dimensions.Y - dlgH) / 2);
+
+            ImGui.SetNextWindowPos(pos, Condition.Always, Vector2.Zero);
+            ImGui.SetNextWindowSize(new Vector2(dlgW, dlgH), Condition.Always);
+
+            const WindowFlags flags = WindowFlags.NoTitleBar | WindowFlags.NoMove
+                                    | WindowFlags.NoResize   | WindowFlags.NoCollapse
+                                    | WindowFlags.NoSavedSettings;
+
+            ImGui.BeginWindow($"###{Id}DupCfmDlg", flags);
+
+            ImGui.Text($"Duplicate NPC \"{_duplicateConfirmSourceName}\" (#{_duplicateConfirmSourceNpcId})?");
+            ImGui.Separator();
+            ImGui.Text($"A copy of this npc_types row will be created (name suffixed with \" (clone)\").");
+            ImGui.Text($"This spawn (spawngroup #{_duplicateConfirmSpawnGroupId}) will point at the clone.");
+            var others = System.Math.Max(0, _duplicateConfirmUsage - 1);
+            if (others > 0)
+            {
+                ImGui.Text($"The other {others} spawn entr{(others == 1 ? "y" : "ies")} using the source keep pointing at it.");
+            }
+            else
+            {
+                // usage <= 1 means this spawn is the only user — duplicating
+                // will leave the source npc_types row unreferenced. Not broken
+                // (unreferenced rows cost nothing), just wasteful. Users may
+                // still want this as a "clone as template" flow.
+                ImGui.Text("Note: this NPC has no other spawn entries — the source row will be left orphaned.",
+                    new Vector4(0.95f, 0.75f, 0.25f, 1f));
+            }
+
+            // Reap async result. Task returns the new npc id after BOTH
+            // DuplicateAsync and RepointSpawnEntryAsync have committed.
+            if (_duplicateTask != null && _duplicateTask.IsCompleted)
+            {
+                if (_duplicateTask.IsFaulted)
+                {
+                    _duplicateError = _duplicateTask.Exception?.GetBaseException().Message ?? "unknown error";
+                    _duplicateTask  = null;
+                }
+                else
+                {
+                    var newId = _duplicateTask.Result;
+                    _duplicateTask = null;
+                    ApplyDuplicateFollowUp(newId);
+                    EndDuplicateConfirm();
+                    ImGui.EndWindow();
+                    return;
+                }
+            }
+
+            if (_duplicateError != null)
+                ImGui.Text($"Error: {_duplicateError}", new Vector4(0.95f, 0.35f, 0.25f, 1f));
+            else if (_duplicateTask != null)
+                ImGui.Text("Duplicating…");
+
+            ImGui.Separator();
+            var busy = _duplicateTask != null;
+            if (!busy && ImGui.Button($"Duplicate###{Id}dupOk", new Vector2(140, 28)))
+            {
+                var factory = _view.Controller.DbFactory;
+                if (factory == null)
+                {
+                    _duplicateError = "No database connection is configured.";
+                }
+                else
+                {
+                    _duplicateError = null;
+                    var repo = new VisualEQ.Database.Repositories.NpcRepository(factory);
+                    var sourceId = _duplicateConfirmSourceNpcId;
+                    var sgId     = _duplicateConfirmSpawnGroupId;
+                    _duplicateTask = System.Threading.Tasks.Task.Run(async () =>
+                    {
+                        var newId = await repo.DuplicateAsync(sourceId);
+                        await repo.RepointSpawnEntryAsync(sgId, sourceId, newId);
+                        return newId;
+                    });
+                }
+            }
+            ImGui.SameLine();
+            if (ImGui.Button($"Cancel###{Id}dupX", new Vector2(140, 28)))
+                EndDuplicateConfirm();
+
+            ImGui.EndWindow();
+        }
+
+        // Point the in-memory SpawnRecord at the freshly-cloned npc_types row
+        // and drop the sidebar's NPC caches so the next render fetches the
+        // clone (with " (clone)" name suffix). Only the primary entry's NpcId
+        // needs updating — the source-npc's other spawnentries in this
+        // spawngroup (if any) still reference the original.
+        void ApplyDuplicateFollowUp(int newNpcId)
+        {
+            var sp = _view.SelectedSpawn;
+            if (sp == null) return;
+
+            foreach (var e in sp.Record.Entries)
+            {
+                if (e.Entry != null && e.Entry.NpcId == _duplicateConfirmSourceNpcId)
+                {
+                    e.Entry.NpcId = newNpcId;
+                    if (e.Npc != null) e.Npc.Id = newNpcId;
+                }
+            }
+
+            // Drop caches so the sidebar re-fetches the clone. Prefer nulling
+            // _displayedNpc + _npcDetailsData rather than just clearing the
+            // "fetched-for" id — otherwise the render would flash "NPC row
+            // not found" for a frame (id-mismatch check) before the fetch
+            // lands. Nulling shows "Loading NPC details…" instead.
+            _npcDetailsFetchedForId = null;
+            _npcDetailsData         = null;
+            _displayedNpc           = null;
+            _npcUsageFetchedForId   = null;
+            _npcUsageCount          = 0;
+        }
+
         void RenderFkPickerDialog(Gui gui)
         {
             const float dlgW = 520f;
@@ -5808,6 +6017,35 @@ namespace VisualEQ.Views
 
             // ── Identity ───────────────────────────────────────────
             ImGui.Text($"[id {n.Id}]");
+
+            // Slice 7a — shared-record indicator + Ctrl+D duplicate. Usage > 1
+            // means edits here silently affect every other spawn using this
+            // npc_types row. The Duplicate button clones the row and repoints
+            // THIS spawn's spawnentry so subsequent edits scope to it alone.
+            var usageReady = _npcUsageFetchedForId == npcId;
+            if (usageReady)
+            {
+                if (_npcUsageCount > 1)
+                    ImGui.Text($"⚠ Used by {_npcUsageCount} spawn entr{(_npcUsageCount == 1 ? "y" : "ies")} — edits affect them all.",
+                        new Vector4(0.95f, 0.75f, 0.25f, 1f));
+                else
+                    ImGui.Text($"Used by {_npcUsageCount} spawn entr{(_npcUsageCount == 1 ? "y" : "ies")}.");
+            }
+            else
+            {
+                ImGui.Text("Usage: (loading…)");
+            }
+
+            if (editable)
+            {
+                // Button-only (no hotkey): Ctrl+D is already bound to spawn2
+                // row duplication in EngineCore. Two separate operations —
+                // this one clones the npc_types row + re-points THIS spawn's
+                // spawnentry so subsequent edits scope to it alone.
+                if (ImGui.Button($"Duplicate NPC (for this spawn)###{Id}ndDup{npcId}", new Vector2(240, 22)))
+                    RequestDuplicateForSelectedSpawn(npcId, n.Name);
+            }
+
             NpcText(npcId, "name", "Name", _npcNameBuf, () => n.Name, v => n.Name = v, editable);
             NpcText(npcId, "lastname", "Last name", _npcLastNameBuf, () => n.LastName, v => n.LastName = v, editable);
             NpcInt(npcId, "level", "Level", () => n.Level, v => n.Level = v, editable, 1, 127);

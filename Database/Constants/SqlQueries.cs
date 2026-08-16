@@ -146,6 +146,24 @@ namespace VisualEQ.Database.Constants
         //   _INT        → SQL column literally starts with an underscore; aliased to Int_
         //                 (matches the C# property name we picked to sidestep the C# keyword)
         //   STR/STA/... → all-caps DB names aliased to Pascal so callers don't need to shout
+        // Slice 7a — count how many spawnentry rows reference an npc_types row.
+        // Feeds the "Uses: N spawn entr(y|ies)" indicator in the sidebar header
+        // so users know they're editing a shared record before touching fields.
+        // A count > 1 is the trigger for the Ctrl+D "duplicate before edit" hint.
+        public const string GetNpcTypeUsageCount = @"
+            SELECT COUNT(*) FROM spawnentry WHERE npcID = @NpcId";
+
+        // Slice 7a — repoint a single spawnentry row from one npc id to another.
+        // Called immediately after a successful DuplicateNpcType so THIS spawn
+        // now references the clone; every other spawn using the source keeps
+        // pointing at the original. Scoped to (spawngroupID, npcID) so a
+        // sibling spawnentry in the same spawngroup with a different npcID is
+        // untouched. Composite PK preserved.
+        public const string RepointSpawnEntry = @"
+            UPDATE spawnentry
+            SET npcID = @NewNpcId
+            WHERE spawngroupID = @SpawnGroupId AND npcID = @OldNpcId";
+
         public const string GetNpcTypeById = @"
             SELECT
                 id                     AS Id,
