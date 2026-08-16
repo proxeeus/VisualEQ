@@ -1906,7 +1906,18 @@ namespace VisualEQ.Views
             }
 
             ImGui.Text("Edit heading (0–511):");
-            var changed = ImGui.SliderFloat($"###{Id}siHead", ref _headingBuffer, 0f, 511f, "%.0f", 1f);
+            // Dual input: coarse slider (visual position within 0-511) plus a
+            // narrow DragFloat for precise typed / fine-adjusted values. Both
+            // write to the same _headingBuffer so the release-detection state
+            // machine below (IsAnyItemActive + `changed` OR) covers either.
+            NsimGui.CimguiRaw.igPushItemWidth(-70f);
+            var sliderChanged = ImGui.SliderFloat($"###{Id}siHead", ref _headingBuffer, 0f, 511f, "%.0f", 1f);
+            NsimGui.CimguiRaw.igPopItemWidth();
+            ImGui.SameLine();
+            NsimGui.CimguiRaw.igPushItemWidth(60f);
+            var dragChanged = ImGui.DragFloat($"###{Id}siHeadNum", ref _headingBuffer, 1f, 0f, 511f, "%.0f", 1f);
+            NsimGui.CimguiRaw.igPopItemWidth();
+            var changed = sliderChanged || dragChanged;
             var sliderActive = ImGui.IsAnyItemActive();
 
             if (changed)
@@ -2391,7 +2402,15 @@ namespace VisualEQ.Views
                 return;
 
             ImGui.Text("Filter (name substring):");
+            // Negative push-width leaves ~30px on the right for the clear
+            // button so InputText + Button fit on one row regardless of the
+            // user's current sidebar width.
+            NsimGui.CimguiRaw.igPushItemWidth(-30f);
             ImGui.InputText($"###{Id}slF", _spawnListFilter, (uint)_spawnListFilter.Length, InputTextFlags.Default, null);
+            NsimGui.CimguiRaw.igPopItemWidth();
+            ImGui.SameLine();
+            if (ImGui.Button($"X###{Id}slFx", new Vector2(22, 22)))
+                Array.Clear(_spawnListFilter, 0, _spawnListFilter.Length);
             var filter = ReadBuffer(_spawnListFilter).Trim();
 
             var ctrl = _view.Controller;
@@ -2471,7 +2490,12 @@ namespace VisualEQ.Views
             }
 
             ImGui.Text("Filter (id substring):");
+            NsimGui.CimguiRaw.igPushItemWidth(-30f);
             ImGui.InputText($"###{Id}glF", _gridListFilter, (uint)_gridListFilter.Length, InputTextFlags.Default, null);
+            NsimGui.CimguiRaw.igPopItemWidth();
+            ImGui.SameLine();
+            if (ImGui.Button($"X###{Id}glFx", new Vector2(22, 22)))
+                Array.Clear(_gridListFilter, 0, _gridListFilter.Length);
             var filter = ReadBuffer(_gridListFilter).Trim();
 
             // Sort order: pending [N] first (negative ids → top), then attached [A],
