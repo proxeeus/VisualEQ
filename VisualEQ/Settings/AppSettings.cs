@@ -37,6 +37,13 @@ namespace VisualEQ.Settings
         public float SidebarWidth { get; set; } = 380f;
         public List<string> SidebarSectionOrder { get; set; } = new List<string>();
 
+        // Most-recently-loaded zones (short names, e.g. "freporte"), newest first.
+        // Populated on every successful LoadZoneFromMenu — used to render a
+        // "Recent" section in MainMenuView so switching zones doesn't require
+        // scrolling the full alphabetical list.
+        public List<string> RecentZones { get; set; } = new List<string>();
+        public const int RecentZonesMax = 8;
+
         // Spawn state markers — vertical colored lines above spawns (see SpawnMarkers).
         public bool ShowPlaceholderMarkers { get; set; } = true;
         public bool ShowDirtyMarkers { get; set; } = true;

@@ -1539,6 +1539,13 @@ namespace VisualEQ
             PendingBuffer = new EditBuffer { Zone = name, CreatedAt = DateTime.UtcNow };
             _bufferDirty = false;
             ZoneChanged?.Invoke(name);
+
+            // Promote to the top of the recent-zones list. Covers every zone-load
+            // entry point (menu state machine, CLI arg, LoadZoneFromMenu) since
+            // they all funnel through here. Prefetch does NOT call LoadZone —
+            // it goes straight to the repositories — so background warms don't
+            // pollute the recent list.
+            RecordRecentZone(name);
         }
 
         // Tears down the current zone's scene state so a new zone can be loaded on top.
@@ -1909,6 +1916,22 @@ namespace VisualEQ
 
             LoadZoneSpawnsSync(name);
             LoadZonePointsSync(name);
+            // Recent-zones tracking lives in LoadZone (called above) so every
+            // load path is covered.
+        }
+
+        // Newest-first, deduped, capped to AppSettings.RecentZonesMax. Persisted
+        // to settings.json so the list survives app restarts.
+        void RecordRecentZone(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return;
+            var list = Settings.RecentZones;
+            list.RemoveAll(z => string.Equals(z, name, StringComparison.OrdinalIgnoreCase));
+            list.Insert(0, name);
+            if (list.Count > AppSettings.RecentZonesMax)
+                list.RemoveRange(AppSettings.RecentZonesMax, list.Count - AppSettings.RecentZonesMax);
+            try { SettingsManager.Save(Settings); }
+            catch (Exception ex) { Console.WriteLine($"[Controller] RecentZones save failed: {ex.Message}"); }
         }
 
         // Fetches trilogy_zone_points for the zone and hands them to ZonePointManager.
