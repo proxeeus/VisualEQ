@@ -13,5 +13,11 @@ namespace VisualEQ.Database.Repositories.Interfaces
         Task<IEnumerable<LootTableEntry>> GetLootTableEntriesAsync(int loottableId);
         Task<IEnumerable<LootDropEntry>>  GetLootDropEntriesBatchAsync(IEnumerable<int> lootdropIds);
         Task<int> GetLootTableUsageCountAsync(int loottableId);
+
+        // Slice 6b — SEARCH picker for the "add lootdrop to loottable" flow.
+        // Filter is substring-matched against lootdrop.name; empty filter returns
+        // the first `limit` alphabetical rows so users can browse when they don't
+        // have a specific search term.
+        Task<IEnumerable<ReferenceItem>> SearchLootdropsAsync(string filter, int limit);
     }
 }

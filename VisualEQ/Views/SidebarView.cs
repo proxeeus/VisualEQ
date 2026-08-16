@@ -204,6 +204,8 @@ namespace VisualEQ.Views
         private int _commitGridWholeInsertsSnapshot;
         private int _commitNpcCountSnapshot;
         private int _commitNpcFactionEntryCountSnapshot;
+        private int _commitLootTableEntryCountSnapshot;
+        private int _commitLootDropEntryCountSnapshot;
 
         // Simple confirm modals — no extra state beyond "is it open?" + a snapshot count
         // so the dialog can display consistent numbers even if the buffer mutates while
@@ -342,6 +344,26 @@ namespace VisualEQ.Views
         // When set (e.g. faction-entry-add), the callback owns what to do with the
         // picked id — the picker just closes.
         private System.Action<int> _fkPickerOnPicked;
+
+        // ── Slice 6b: SEARCH picker state ────────────────────────────────
+        // Same shape as the cache-backed FK picker above, but fetch is server-
+        // side (LIKE query per filter change) instead of client-side filter
+        // over a preloaded list. Used for lootdrops (24k rows) and items (80k
+        // rows) — anything too big to preload into ReferenceDataCache.
+        private bool _searchPickerActive;
+        private string _searchPickerLabel;
+        private readonly byte[] _searchPickerFilterBuf = new byte[64];
+        private string _searchPickerLastFilter = "";
+        private int _searchPickerSelectedIdx = -1;
+        private System.Collections.Generic.List<VisualEQ.Database.Models.ReferenceItem> _searchPickerResults;
+        private System.Threading.Tasks.Task<System.Collections.Generic.List<VisualEQ.Database.Models.ReferenceItem>> _searchPickerTask;
+        private string _searchPickerTaskFilter; // filter that the in-flight task is fetching for
+        private string _searchPickerError;
+        // Delegate captured at Begin time — the picker calls this each time the
+        // filter changes and awaits the result. Returning empty is fine; nulls
+        // treated as error.
+        private System.Func<string, System.Threading.Tasks.Task<System.Collections.Generic.List<VisualEQ.Database.Models.ReferenceItem>>> _searchPickerFetch;
+        private System.Action<VisualEQ.Database.Models.ReferenceItem> _searchPickerOnPicked;
 
         // Faction-entries fetch state (Slice 5). Keyed by npc_faction_id (from the
         // currently-selected NPC's NpcTypeFull.NpcFactionId). Cache is npc_faction-
@@ -509,6 +531,8 @@ namespace VisualEQ.Views
                     RenderNpcPickerDialog(gui);
                 else if (_fkPickerActive)
                     RenderFkPickerDialog(gui);
+                else if (_searchPickerActive)
+                    RenderSearchPickerDialog(gui);
             }
         }
 
@@ -576,6 +600,8 @@ namespace VisualEQ.Views
             _commitGridWholeInsertsSnapshot = buffer.GridInserts.Count;
             _commitNpcCountSnapshot         = buffer.Npcs.Count;
             _commitNpcFactionEntryCountSnapshot = buffer.NpcFactionEntries.Count;
+            _commitLootTableEntryCountSnapshot  = buffer.LootTableEntries.Count;
+            _commitLootDropEntryCountSnapshot   = buffer.LootDropEntries.Count;
             _commitPhase = CommitPhase.Confirm;
             _commitResult = null;
         }
@@ -609,6 +635,20 @@ namespace VisualEQ.Views
                         _factionEntriesFetchedFor = null;
                         _factionEntriesData       = null;
                         _factionSetData           = null;
+                    }
+                    // Loot editor (Slice 6b) — same idea: any successful write
+                    // to loottable_entries or lootdrop_entries makes the
+                    // cached baseline stale, so drop it and let the next
+                    // render re-fetch.
+                    if (_commitResult.LootTableEntryInserts > 0 ||
+                        _commitResult.LootTableEntryUpdates > 0 ||
+                        _commitResult.LootTableEntryDeletes > 0 ||
+                        _commitResult.LootDropEntryInserts  > 0 ||
+                        _commitResult.LootDropEntryUpdates  > 0 ||
+                        _commitResult.LootDropEntryDeletes  > 0)
+                    {
+                        _lootFetchedForLoottableId = null;
+                        _lootData                  = null;
                     }
                 }
                 _commitPhase = CommitPhase.Result;
@@ -661,6 +701,10 @@ namespace VisualEQ.Views
                 ImGui.Text($"  {_commitNpcCountSnapshot} NPC edit(s)");
             if (_commitNpcFactionEntryCountSnapshot > 0)
                 ImGui.Text($"  {_commitNpcFactionEntryCountSnapshot} faction-entry op(s)");
+            if (_commitLootTableEntryCountSnapshot > 0)
+                ImGui.Text($"  {_commitLootTableEntryCountSnapshot} loottable-entry op(s)");
+            if (_commitLootDropEntryCountSnapshot > 0)
+                ImGui.Text($"  {_commitLootDropEntryCountSnapshot} lootdrop-entry op(s)");
             ImGui.Separator();
             ImGui.Text($"Target: {db.Server}/{db.Database}");
             ImGui.Text("Runs as a single transaction — all-or-nothing.");
@@ -726,6 +770,18 @@ namespace VisualEQ.Views
                     ImGui.Text($"  {r.NpcFactionEntryUpdates} npc_faction_entries row(s) updated");
                 if (r.NpcFactionEntryDeletes > 0)
                     ImGui.Text($"  {r.NpcFactionEntryDeletes} npc_faction_entries row(s) deleted");
+                if (r.LootTableEntryInserts > 0)
+                    ImGui.Text($"  {r.LootTableEntryInserts} loottable_entries row(s) inserted");
+                if (r.LootTableEntryUpdates > 0)
+                    ImGui.Text($"  {r.LootTableEntryUpdates} loottable_entries row(s) updated");
+                if (r.LootTableEntryDeletes > 0)
+                    ImGui.Text($"  {r.LootTableEntryDeletes} loottable_entries row(s) deleted");
+                if (r.LootDropEntryInserts > 0)
+                    ImGui.Text($"  {r.LootDropEntryInserts} lootdrop_entries row(s) inserted");
+                if (r.LootDropEntryUpdates > 0)
+                    ImGui.Text($"  {r.LootDropEntryUpdates} lootdrop_entries row(s) updated");
+                if (r.LootDropEntryDeletes > 0)
+                    ImGui.Text($"  {r.LootDropEntryDeletes} lootdrop_entries row(s) deleted");
                 ImGui.Separator();
                 ImGui.Text("Buffer + undo history cleared.");
                 var touchedZonePoints = r.ZonePointRowsWritten + r.ZonePointInsertsWritten + r.ZonePointDeletesWritten;
@@ -4212,8 +4268,14 @@ namespace VisualEQ.Views
         //
         // Requires loottable_id > 0. NPCs without one get a hint pointing at
         // References (where the loottable FK picker lives). Editing arrives in
-        // Slice 6b; this slice's `editable` flag is currently ignored — the
-        // widget is display-only regardless.
+        // Slice 6b: full CRUD on loottable_entries + lootdrop_entries via the
+        // shared EditBuffer path. Overlay merge composes DB baseline + pending
+        // ops so the widget shows the "effective" state pre-commit; per-row
+        // widgets emit LootTableEntryEditAction / LootDropEntryEditAction; the
+        // Add flows open the search picker and INSERT with sensible defaults.
+        //
+        // Assigning a loottable to an NPC (npc_types.loottable_id itself) is
+        // handled by the existing FK picker in References — no duplication here.
         void NpcLootEditor(int npcId, int loottableId, bool editable)
         {
             if (loottableId <= 0)
@@ -4258,81 +4320,419 @@ namespace VisualEQ.Views
             ImGui.Text($"Used by: {data.UsageCount} NPC(s)");
             ImGui.Separator();
 
-            // ── Per-lootdrop cards ──────────────────────────────────────
-            if (data.Entries.Count == 0)
-            {
+            // ── Per-lootdrop cards (with overlay merge) ─────────────────
+            var effectiveLTE = ComputeEffectiveLootTableEntries(loottableId, data);
+
+            if (effectiveLTE.Count == 0)
                 ImGui.Text("(no lootdrops in this loottable)");
+
+            foreach (var entry in effectiveLTE)
+            {
+                RenderLootTableEntryRow(loottableId, entry, data, editable);
+            }
+
+            if (editable)
+            {
+                ImGui.Separator();
+                if (ImGui.Button($"+ Add lootdrop to loottable…###{Id}ndAddLD{loottableId}", new Vector2(220, 24)))
+                {
+                    var factory = _view.Controller.DbFactory;
+                    if (factory != null)
+                    {
+                        var repo = new VisualEQ.Database.Repositories.LootRepository(factory);
+                        BeginSearchPicker(
+                            $"Add lootdrop to loottable #{loottableId}",
+                            async filter => (await repo.SearchLootdropsAsync(filter, 200)).ToList(),
+                            picked =>
+                            {
+                                // Duplicate-guard: if the lootdrop is already in the
+                                // effective list (baseline + pending inserts), no-op.
+                                if (effectiveLTE.Any(e => e.LootdropId == picked.Id)) return;
+                                var newSnap = new LootTableEntrySnapshot
+                                {
+                                    Multiplier  = 1,
+                                    DropLimit   = 1,
+                                    MinDrop     = 1,
+                                    Probability = 100f,
+                                };
+                                _view.Controller.RecordAction(new LootTableEntryEditAction(
+                                    loottableId, picked.Id, null, newSnap, picked.Name));
+                            });
+                    }
+                }
+            }
+        }
+
+        void RenderLootTableEntryRow(int loottableId,
+            VisualEQ.Database.Models.LootTableEntry entry,
+            LootFetchResult data, bool editable)
+        {
+            var dropName = string.IsNullOrWhiteSpace(entry.LootdropName) ? "(unnamed)" : entry.LootdropName;
+            var items = data.ItemsByLootdrop.TryGetValue(entry.LootdropId, out var baseline)
+                ? baseline
+                : new List<VisualEQ.Database.Models.LootDropEntry>();
+            var effectiveItems = ComputeEffectiveLootDropEntries(entry.LootdropId, items);
+
+            var header = $"{dropName} (#{entry.LootdropId})  — {effectiveItems.Count} item(s), prob {entry.Probability:0.##}%###{Id}ndLD{entry.LootdropId}";
+            if (!ImGui.CollapsingHeader(header, 0)) return;
+
+            // Roll-param edit row: mindrop / droplimit / mult / probability + X.
+            if (editable)
+            {
+                RenderLootTableEntryEditRow(loottableId, entry, dropName);
+            }
+            else
+            {
+                ImGui.Text($"  mindrop {entry.MinDrop}   droplimit {entry.DropLimit}   mult {entry.Multiplier}   prob {entry.Probability:0.##}");
+            }
+
+            // Items table — column headers + rows + add button.
+            var contentW = ImGui.GetContentRegionAvailable().X;
+            if (contentW < 320f) contentW = 320f;
+
+            const float wChance = 55f;
+            const float wMult   = 35f;
+            const float wEqp    = 35f;
+            const float wRemove = 22f;
+            const float colGap  = 6f;
+            var xRemove = contentW - wRemove;
+            var xEqp    = xRemove - colGap - wEqp;
+            var xMult   = xEqp    - colGap - wMult;
+            var xChance = xMult   - colGap - wChance;
+
+            ImGui.Text("  Item");
+            ImGui.SameLine(xChance); ImGui.Text("Chance");
+            ImGui.SameLine(xMult);   ImGui.Text("Mult");
+            ImGui.SameLine(xEqp);    ImGui.Text("Eqp");
+            ImGui.Separator();
+
+            if (effectiveItems.Count == 0)
+            {
+                ImGui.Text("  (no items)");
+            }
+
+            foreach (var it in effectiveItems)
+            {
+                RenderLootDropEntryRow(entry.LootdropId, entry.Probability, it, xChance, xMult, xEqp, xRemove, editable);
+            }
+
+            if (editable)
+            {
+                if (ImGui.Button($"+ Add item to lootdrop…###{Id}ndAddIt{entry.LootdropId}", new Vector2(200, 22)))
+                {
+                    var factory = _view.Controller.DbFactory;
+                    if (factory != null)
+                    {
+                        var repo = new VisualEQ.Database.Repositories.ItemRepository(factory);
+                        var currentEffective = effectiveItems;
+                        var lootdropId = entry.LootdropId;
+                        BeginSearchPicker(
+                            $"Add item to lootdrop #{lootdropId}",
+                            async filter => (await repo.SearchItemsAsync(filter, 200)).ToList(),
+                            picked =>
+                            {
+                                if (currentEffective.Any(e => e.ItemId == picked.Id)) return;
+                                var newSnap = new LootDropEntrySnapshot
+                                {
+                                    ItemCharges = 1,
+                                    EquipItem   = 0,
+                                    Chance      = 100f,
+                                    Multiplier  = 1,
+                                };
+                                _view.Controller.RecordAction(new LootDropEntryEditAction(
+                                    lootdropId, picked.Id, null, newSnap, picked.Name));
+                            });
+                    }
+                }
+            }
+        }
+
+        // loottable_entries roll-param edit row. mindrop / droplimit / mult are
+        // byte fields (0..255); probability is float (0..100). All emit
+        // LootTableEntryEditAction — same buffer op, per-field mutation.
+        void RenderLootTableEntryEditRow(int loottableId,
+            VisualEQ.Database.Models.LootTableEntry entry, string dropName)
+        {
+            ImGui.Text("  Roll:");
+            ImGui.SameLine();
+            var minDropF = (float)entry.MinDrop;
+            NsimGui.CimguiRaw.igPushItemWidth(55f);
+            var minDropChanged = ImGui.DragFloat($"min##{Id}lteMD{loottableId}_{entry.LootdropId}",
+                ref minDropF, 0f, 0f, 0f, "%.0f", 1f);
+            NsimGui.CimguiRaw.igPopItemWidth();
+
+            ImGui.SameLine();
+            var dropLimF = (float)entry.DropLimit;
+            NsimGui.CimguiRaw.igPushItemWidth(55f);
+            var dropLimChanged = ImGui.DragFloat($"lim##{Id}lteDL{loottableId}_{entry.LootdropId}",
+                ref dropLimF, 0f, 0f, 0f, "%.0f", 1f);
+            NsimGui.CimguiRaw.igPopItemWidth();
+
+            ImGui.SameLine();
+            var multF = (float)entry.Multiplier;
+            NsimGui.CimguiRaw.igPushItemWidth(45f);
+            var multChanged = ImGui.DragFloat($"mult##{Id}lteM{loottableId}_{entry.LootdropId}",
+                ref multF, 0f, 0f, 0f, "%.0f", 1f);
+            NsimGui.CimguiRaw.igPopItemWidth();
+
+            ImGui.SameLine();
+            var probF = entry.Probability;
+            NsimGui.CimguiRaw.igPushItemWidth(65f);
+            var probChanged = ImGui.DragFloat($"%##{Id}lteP{loottableId}_{entry.LootdropId}",
+                ref probF, 0f, 0f, 100f, "%.2f", 1f);
+            NsimGui.CimguiRaw.igPopItemWidth();
+
+            ImGui.SameLine();
+            var removePressed = ImGui.Button($"Remove lootdrop##{Id}lteX{loottableId}_{entry.LootdropId}", new Vector2(130, 22));
+
+            if (minDropChanged || dropLimChanged || multChanged || probChanged)
+            {
+                var newSnap = new LootTableEntrySnapshot
+                {
+                    Multiplier  = (byte)ClampByte((int)System.Math.Round(multF)),
+                    DropLimit   = (byte)ClampByte((int)System.Math.Round(dropLimF)),
+                    MinDrop     = (byte)ClampByte((int)System.Math.Round(minDropF)),
+                    Probability = System.Math.Max(0f, System.Math.Min(100f, probF)),
+                };
+                if (!SnapshotEqualsLTE(newSnap, entry))
+                {
+                    var from = new LootTableEntrySnapshot
+                    {
+                        Multiplier  = entry.Multiplier,
+                        DropLimit   = entry.DropLimit,
+                        MinDrop     = entry.MinDrop,
+                        Probability = entry.Probability,
+                    };
+                    _view.Controller.RecordAction(new LootTableEntryEditAction(
+                        loottableId, entry.LootdropId, from, newSnap, dropName));
+                }
+            }
+
+            if (removePressed)
+            {
+                var from = new LootTableEntrySnapshot
+                {
+                    Multiplier  = entry.Multiplier,
+                    DropLimit   = entry.DropLimit,
+                    MinDrop     = entry.MinDrop,
+                    Probability = entry.Probability,
+                };
+                _view.Controller.RecordAction(new LootTableEntryEditAction(
+                    loottableId, entry.LootdropId, from, null, dropName));
+            }
+        }
+
+        void RenderLootDropEntryRow(int lootdropId, float lootdropProbability,
+            VisualEQ.Database.Models.LootDropEntry it,
+            float xChance, float xMult, float xEqp, float xRemove, bool editable)
+        {
+            var itemName = string.IsNullOrWhiteSpace(it.ItemName) ? "?" : it.ItemName;
+            ImGui.Text($"  {itemName} (#{it.ItemId})");
+
+            if (!editable)
+            {
+                var effective = lootdropProbability >= 100f || lootdropProbability <= 0f
+                    ? it.Chance
+                    : (it.Chance / 100f) * (lootdropProbability / 100f) * 100f;
+                ImGui.SameLine(xChance); ImGui.Text($"{effective:0.##}");
+                ImGui.SameLine(xMult);   ImGui.Text(it.Multiplier.ToString());
+                ImGui.SameLine(xEqp);    ImGui.Text(it.EquipItem != 0 ? "Yes" : "No");
                 return;
             }
 
-            foreach (var entry in data.Entries)
+            // Editable row — inline DragFloat widgets + checkbox + X. Fields
+            // outside the four primary columns (charges, trivial min/max, npc
+            // min/max, disabled_chance) are preserved via the snapshot copy
+            // but not exposed inline; they can be edited by removing + re-
+            // adding the row via the picker (advanced) or via a future polish
+            // slice.
+            var chanceF = it.Chance;
+            ImGui.SameLine(xChance);
+            NsimGui.CimguiRaw.igPushItemWidth(55f);
+            var chChanged = ImGui.DragFloat($"##{Id}ldeCh{lootdropId}_{it.ItemId}",
+                ref chanceF, 0f, 0f, 0f, "%.2f", 1f);
+            NsimGui.CimguiRaw.igPopItemWidth();
+
+            var multF = (float)it.Multiplier;
+            ImGui.SameLine(xMult);
+            NsimGui.CimguiRaw.igPushItemWidth(35f);
+            var multChanged = ImGui.DragFloat($"##{Id}ldeMu{lootdropId}_{it.ItemId}",
+                ref multF, 0f, 0f, 0f, "%.0f", 1f);
+            NsimGui.CimguiRaw.igPopItemWidth();
+
+            var eqpOn = it.EquipItem != 0;
+            ImGui.SameLine(xEqp);
+            var eqpChanged = ImGui.Checkbox($"##{Id}ldeEq{lootdropId}_{it.ItemId}", ref eqpOn);
+
+            ImGui.SameLine(xRemove);
+            var removePressed = ImGui.Button($"X##{Id}ldeX{lootdropId}_{it.ItemId}", new Vector2(22, 22));
+
+            if (chChanged || multChanged || eqpChanged)
             {
-                var items = data.ItemsByLootdrop.TryGetValue(entry.LootdropId, out var lst)
-                    ? lst
-                    : new List<VisualEQ.Database.Models.LootDropEntry>();
-
-                var dropName = string.IsNullOrWhiteSpace(entry.LootdropName)
-                    ? "(unnamed)"
-                    : entry.LootdropName;
-
-                // Header includes item count + probability so a collapsed row
-                // still gives you the "does this roll matter?" info.
-                var header = $"{dropName} (#{entry.LootdropId})  — {items.Count} item(s), prob {entry.Probability:0.##}%###{Id}ndLD{entry.LootdropId}";
-                if (!ImGui.CollapsingHeader(header, 0))
-                    continue;
-
-                ImGui.Text($"  mindrop {entry.MinDrop}   droplimit {entry.DropLimit}   multiplier {entry.Multiplier}");
-
-                if (items.Count == 0)
+                var newSnap = SnapshotLDE(it);
+                newSnap.Chance     = System.Math.Max(0f, chanceF);
+                newSnap.Multiplier = (byte)ClampByte((int)System.Math.Round(multF));
+                newSnap.EquipItem  = (byte)(eqpOn ? 1 : 0);
+                if (!SnapshotEqualsLDE(newSnap, it))
                 {
-                    ImGui.Text("  (no items in this lootdrop)");
-                    continue;
-                }
-
-                // Column layout — mirrors the faction editor's scale-to-content
-                // approach. Fixed widget widths; name column absorbs the rest.
-                var contentW = ImGui.GetContentRegionAvailable().X;
-                if (contentW < 320f) contentW = 320f;
-
-                const float wChance = 55f;    // "100.00"
-                const float wMult   = 35f;    // "1"
-                const float wChg    = 35f;    // "1"
-                const float wEqp    = 35f;    // "Yes"
-                const float colGap  = 6f;
-
-                var xEqp    = contentW - wEqp;
-                var xChg    = xEqp    - colGap - wChg;
-                var xMult   = xChg    - colGap - wMult;
-                var xChance = xMult   - colGap - wChance;
-
-                ImGui.Text("  Item");
-                ImGui.SameLine(xChance); ImGui.Text("Chance");
-                ImGui.SameLine(xMult);   ImGui.Text("Mult");
-                ImGui.SameLine(xChg);    ImGui.Text("Chg");
-                ImGui.SameLine(xEqp);    ImGui.Text("Eqp");
-                ImGui.Separator();
-
-                foreach (var it in items)
-                {
-                    var itemName = string.IsNullOrWhiteSpace(it.ItemName) ? "?" : it.ItemName;
-                    // Two-space leading indent so the row visually nests under
-                    // the CollapsingHeader.
-                    ImGui.Text($"  {itemName} (#{it.ItemId})");
-
-                    // "Effective chance" mirrors peqphpeditor's calc: when the
-                    // lootdrop's own probability < 100, the item's chance is
-                    // scaled by (probability/100). Otherwise raw chance is what
-                    // shows — same value the server rolls against.
-                    var effective = entry.Probability >= 100f || entry.Probability <= 0f
-                        ? it.Chance
-                        : (it.Chance / 100f) * (entry.Probability / 100f) * 100f;
-
-                    ImGui.SameLine(xChance); ImGui.Text($"{effective:0.##}");
-                    ImGui.SameLine(xMult);   ImGui.Text(it.Multiplier.ToString());
-                    ImGui.SameLine(xChg);    ImGui.Text(it.ItemCharges.ToString());
-                    ImGui.SameLine(xEqp);    ImGui.Text(it.EquipItem != 0 ? "Yes" : "No");
+                    _view.Controller.RecordAction(new LootDropEntryEditAction(
+                        lootdropId, it.ItemId, SnapshotLDE(it), newSnap, itemName));
                 }
             }
+
+            if (removePressed)
+            {
+                _view.Controller.RecordAction(new LootDropEntryEditAction(
+                    lootdropId, it.ItemId, SnapshotLDE(it), null, itemName));
+            }
+        }
+
+        static int ClampByte(int v) => v < 0 ? 0 : (v > 255 ? 255 : v);
+
+        static LootDropEntrySnapshot SnapshotLDE(VisualEQ.Database.Models.LootDropEntry e) =>
+            new LootDropEntrySnapshot
+            {
+                ItemCharges     = e.ItemCharges,
+                EquipItem       = e.EquipItem,
+                Chance          = e.Chance,
+                DisabledChance  = e.DisabledChance,
+                TrivialMinLevel = e.TrivialMinLevel,
+                TrivialMaxLevel = e.TrivialMaxLevel,
+                Multiplier      = e.Multiplier,
+                NpcMinLevel     = e.NpcMinLevel,
+                NpcMaxLevel     = e.NpcMaxLevel,
+            };
+
+        static bool SnapshotEqualsLTE(LootTableEntrySnapshot s, VisualEQ.Database.Models.LootTableEntry e) =>
+            s.Multiplier  == e.Multiplier
+         && s.DropLimit   == e.DropLimit
+         && s.MinDrop     == e.MinDrop
+         && s.Probability == e.Probability;
+
+        static bool SnapshotEqualsLDE(LootDropEntrySnapshot s, VisualEQ.Database.Models.LootDropEntry e) =>
+            s.ItemCharges     == e.ItemCharges
+         && s.EquipItem       == e.EquipItem
+         && s.Chance          == e.Chance
+         && s.DisabledChance  == e.DisabledChance
+         && s.TrivialMinLevel == e.TrivialMinLevel
+         && s.TrivialMaxLevel == e.TrivialMaxLevel
+         && s.Multiplier      == e.Multiplier
+         && s.NpcMinLevel     == e.NpcMinLevel
+         && s.NpcMaxLevel     == e.NpcMaxLevel;
+
+        // Merge baseline loottable_entries + pending buffer ops → effective list.
+        // Same overlay-merge shape as ComputeEffectiveFactionEntries; propagates
+        // LootdropName from baseline JOIN on update, from op.LootdropName on
+        // insert.
+        List<VisualEQ.Database.Models.LootTableEntry> ComputeEffectiveLootTableEntries(
+            int loottableId, LootFetchResult data)
+        {
+            var byId = new Dictionary<int, VisualEQ.Database.Models.LootTableEntry>();
+            foreach (var e in data.Entries)
+                byId[e.LootdropId] = new VisualEQ.Database.Models.LootTableEntry
+                {
+                    LoottableId = e.LoottableId,
+                    LootdropId  = e.LootdropId,
+                    Multiplier  = e.Multiplier,
+                    DropLimit   = e.DropLimit,
+                    MinDrop     = e.MinDrop,
+                    Probability = e.Probability,
+                    LootdropName = e.LootdropName,
+                };
+
+            var buffer = _view.Controller.PendingBuffer;
+            if (buffer != null)
+            {
+                foreach (var kv in buffer.LootTableEntries)
+                {
+                    var op = kv.Value;
+                    if (op.LoottableId != loottableId) continue;
+                    if (op.Current == null)
+                    {
+                        byId.Remove(op.LootdropId);
+                    }
+                    else
+                    {
+                        byId.TryGetValue(op.LootdropId, out var existing);
+                        var name = existing != null && !string.IsNullOrEmpty(existing.LootdropName)
+                            ? existing.LootdropName
+                            : op.LootdropName;
+                        byId[op.LootdropId] = new VisualEQ.Database.Models.LootTableEntry
+                        {
+                            LoottableId  = loottableId,
+                            LootdropId   = op.LootdropId,
+                            Multiplier   = op.Current.Multiplier,
+                            DropLimit    = op.Current.DropLimit,
+                            MinDrop      = op.Current.MinDrop,
+                            Probability  = op.Current.Probability,
+                            LootdropName = name,
+                        };
+                    }
+                }
+            }
+            return byId.Values.OrderBy(e => string.IsNullOrWhiteSpace(e.LootdropName)
+                ? "�" + e.LootdropId : e.LootdropName).ToList();
+        }
+
+        List<VisualEQ.Database.Models.LootDropEntry> ComputeEffectiveLootDropEntries(
+            int lootdropId, List<VisualEQ.Database.Models.LootDropEntry> baseline)
+        {
+            var byId = new Dictionary<int, VisualEQ.Database.Models.LootDropEntry>();
+            if (baseline != null)
+                foreach (var e in baseline)
+                    byId[e.ItemId] = new VisualEQ.Database.Models.LootDropEntry
+                    {
+                        LootdropId      = e.LootdropId,
+                        ItemId          = e.ItemId,
+                        ItemCharges     = e.ItemCharges,
+                        EquipItem       = e.EquipItem,
+                        Chance          = e.Chance,
+                        DisabledChance  = e.DisabledChance,
+                        TrivialMinLevel = e.TrivialMinLevel,
+                        TrivialMaxLevel = e.TrivialMaxLevel,
+                        Multiplier      = e.Multiplier,
+                        NpcMinLevel     = e.NpcMinLevel,
+                        NpcMaxLevel     = e.NpcMaxLevel,
+                        ItemName        = e.ItemName,
+                    };
+
+            var buffer = _view.Controller.PendingBuffer;
+            if (buffer != null)
+            {
+                foreach (var kv in buffer.LootDropEntries)
+                {
+                    var op = kv.Value;
+                    if (op.LootdropId != lootdropId) continue;
+                    if (op.Current == null)
+                    {
+                        byId.Remove(op.ItemId);
+                    }
+                    else
+                    {
+                        byId.TryGetValue(op.ItemId, out var existing);
+                        var name = existing != null && !string.IsNullOrEmpty(existing.ItemName)
+                            ? existing.ItemName
+                            : op.ItemName;
+                        byId[op.ItemId] = new VisualEQ.Database.Models.LootDropEntry
+                        {
+                            LootdropId      = lootdropId,
+                            ItemId          = op.ItemId,
+                            ItemCharges     = op.Current.ItemCharges,
+                            EquipItem       = op.Current.EquipItem,
+                            Chance          = op.Current.Chance,
+                            DisabledChance  = op.Current.DisabledChance,
+                            TrivialMinLevel = op.Current.TrivialMinLevel,
+                            TrivialMaxLevel = op.Current.TrivialMaxLevel,
+                            Multiplier      = op.Current.Multiplier,
+                            NpcMinLevel     = op.Current.NpcMinLevel,
+                            NpcMaxLevel     = op.Current.NpcMaxLevel,
+                            ItemName        = name,
+                        };
+                    }
+                }
+            }
+            return byId.Values.OrderBy(e => string.IsNullOrWhiteSpace(e.ItemName)
+                ? "�" + e.ItemId : e.ItemName).ToList();
         }
 
         // Fetch pump for the loot editor. One Task.Run spawns all three queries
@@ -4557,6 +4957,149 @@ namespace VisualEQ.Views
             _fkPickerActive = false;
             _fkPickerFieldName = null;
             _fkPickerOnPicked  = null;
+        }
+
+        // ── Slice 6b: SEARCH picker (server-side LIKE fetch per keystroke) ──
+        //
+        // Caller supplies a `fetch` delegate that takes the current filter and
+        // returns matching rows. This picker fires the delegate whenever the
+        // filter changes; stale results are discarded by comparing the fetching
+        // filter to the current filter when a task completes. No debounce timer
+        // — on a local DB the queries land fast enough that keystroke-lag is
+        // negligible, and the stale-result check keeps race conditions clean.
+        void BeginSearchPicker(string label,
+            System.Func<string, System.Threading.Tasks.Task<System.Collections.Generic.List<VisualEQ.Database.Models.ReferenceItem>>> fetch,
+            System.Action<VisualEQ.Database.Models.ReferenceItem> onPicked)
+        {
+            _searchPickerActive     = true;
+            _searchPickerLabel      = label ?? "Search";
+            _searchPickerFetch      = fetch;
+            _searchPickerOnPicked   = onPicked;
+            _searchPickerResults    = null;
+            _searchPickerTask       = null;
+            _searchPickerTaskFilter = null;
+            _searchPickerLastFilter = null; // forces the first-frame fetch
+            _searchPickerError      = null;
+            _searchPickerSelectedIdx = -1;
+            System.Array.Clear(_searchPickerFilterBuf, 0, _searchPickerFilterBuf.Length);
+        }
+
+        void EndSearchPicker()
+        {
+            _searchPickerActive   = false;
+            _searchPickerFetch    = null;
+            _searchPickerOnPicked = null;
+            _searchPickerResults  = null;
+            _searchPickerTask     = null;
+        }
+
+        void RenderSearchPickerDialog(Gui gui)
+        {
+            const float dlgW = 560f;
+            const float dlgH = 480f;
+            var pos = new Vector2((gui.Dimensions.X - dlgW) / 2, (gui.Dimensions.Y - dlgH) / 2);
+
+            ImGui.SetNextWindowPos(pos, Condition.Always, Vector2.Zero);
+            ImGui.SetNextWindowSize(new Vector2(dlgW, dlgH), Condition.Always);
+
+            const WindowFlags flags = WindowFlags.NoTitleBar | WindowFlags.NoMove
+                                    | WindowFlags.NoResize   | WindowFlags.NoCollapse
+                                    | WindowFlags.NoSavedSettings;
+
+            ImGui.BeginWindow($"###{Id}SearchPickerDlg", flags);
+
+            ImGui.Text(_searchPickerLabel);
+            ImGui.Separator();
+
+            ImGui.Text("Filter (substring, name or id):");
+            ImGui.InputText($"###{Id}spF", _searchPickerFilterBuf, (uint)_searchPickerFilterBuf.Length, InputTextFlags.Default, null);
+            var filter = ReadBuffer(_searchPickerFilterBuf).Trim();
+
+            // Keystroke → new fetch. Compares against last-issued filter so we
+            // don't re-fire the same query every frame. Task-completion path
+            // discards stale results (older filter than the one currently in
+            // the buffer).
+            if (_searchPickerFetch != null && filter != _searchPickerLastFilter)
+            {
+                _searchPickerLastFilter = filter;
+                _searchPickerTaskFilter = filter;
+                _searchPickerError      = null;
+                var capturedFilter = filter;
+                var capturedFetch   = _searchPickerFetch;
+                _searchPickerTask = System.Threading.Tasks.Task.Run(async () =>
+                {
+                    var result = await capturedFetch(capturedFilter);
+                    return result ?? new System.Collections.Generic.List<VisualEQ.Database.Models.ReferenceItem>();
+                });
+            }
+
+            // Reap the in-flight task; discard results if the filter has moved
+            // on since we launched.
+            if (_searchPickerTask != null && _searchPickerTask.IsCompleted)
+            {
+                if (_searchPickerTask.IsFaulted)
+                {
+                    _searchPickerError = _searchPickerTask.Exception?.GetBaseException().Message ?? "unknown error";
+                }
+                else if (_searchPickerTaskFilter == _searchPickerLastFilter)
+                {
+                    _searchPickerResults = _searchPickerTask.Result;
+                    _searchPickerSelectedIdx = -1;
+                }
+                _searchPickerTask = null;
+            }
+
+            if (_searchPickerError != null)
+            {
+                ImGui.Text($"Error: {_searchPickerError}", new Vector4(0.95f, 0.35f, 0.25f, 1f));
+            }
+            else if (_searchPickerTask != null || _searchPickerResults == null)
+            {
+                ImGui.Text("Searching…");
+            }
+            else
+            {
+                ImGui.Text($"{_searchPickerResults.Count} match(es) shown");
+            }
+
+            ImGui.BeginChild($"###{Id}spList", new Vector2(0, 340), true, WindowFlags.Default);
+            if (_searchPickerResults != null)
+            {
+                for (int i = 0; i < _searchPickerResults.Count; i++)
+                {
+                    var it = _searchPickerResults[i];
+                    var lbl = $"{it.Id}  {it.Name}###{Id}spR{it.Id}";
+                    if (ImGui.Selectable(lbl, i == _searchPickerSelectedIdx))
+                        _searchPickerSelectedIdx = i;
+                }
+            }
+            ImGui.EndChild();
+
+            ImGui.Separator();
+            var pickEnabled = _searchPickerResults != null
+                              && _searchPickerSelectedIdx >= 0
+                              && _searchPickerSelectedIdx < _searchPickerResults.Count;
+            if (pickEnabled)
+            {
+                if (ImGui.Button($"Select###{Id}spOk", new Vector2(140, 28)))
+                {
+                    var picked = _searchPickerResults[_searchPickerSelectedIdx];
+                    var cb = _searchPickerOnPicked;
+                    EndSearchPicker();
+                    cb?.Invoke(picked);
+                    ImGui.EndWindow();
+                    return;
+                }
+            }
+            else
+            {
+                ImGui.Text("(pick a row to enable Select)");
+            }
+            ImGui.SameLine();
+            if (ImGui.Button($"Cancel###{Id}spX", new Vector2(140, 28)))
+                EndSearchPicker();
+
+            ImGui.EndWindow();
         }
 
         void RenderFkPickerDialog(Gui gui)
