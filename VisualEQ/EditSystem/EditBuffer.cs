@@ -43,7 +43,11 @@ namespace VisualEQ.EditSystem
         //         loottable, with roll params), and LootDropEntries keyed by
         //         "lootdropId:itemId" (which items sit under a lootdrop, with
         //         chance / equip / etc.).
-        public int SchemaVersion { get; set; } = 11;
+        //   v12 — Loottable header edits (Slice 6c follow-up). LootTables dict
+        //         keyed by loottable id; each LootTableEdit holds sparse
+        //         OriginalValues / CurrentValues (name / mincash / maxcash /
+        //         avgcoin) mirroring the NpcEdit shape.
+        public int SchemaVersion { get; set; } = 12;
 
         public Dictionary<int, SpawnEdit> Spawns { get; set; } = new Dictionary<int, SpawnEdit>();
 
@@ -109,20 +113,28 @@ namespace VisualEQ.EditSystem
         public Dictionary<string, LootDropEntryOp> LootDropEntries { get; set; }
             = new Dictionary<string, LootDropEntryOp>();
 
+        // Pending loottable-header edits (Slice 6c follow-up). Key = loottable id.
+        // Sparse per-field updates — CurrentValues holds only the columns the
+        // user touched, same shape as NpcEdit.
+        public Dictionary<int, LootTableEdit> LootTables { get; set; }
+            = new Dictionary<int, LootTableEdit>();
+
         public bool IsEmpty =>
             Spawns.Count == 0 && SpawnDeletes.Count == 0 && SpawnInserts.Count == 0 && GridEntries.Count == 0 &&
             ZonePoints.Count == 0 && ZonePointInserts.Count == 0 && ZonePointDeletes.Count == 0 &&
             Grids.Count == 0 && GridInserts.Count == 0 &&
             GridEntryInserts.Count == 0 && GridEntryDeletes.Count == 0 &&
             Npcs.Count == 0 && NpcFactionEntries.Count == 0 &&
-            LootTableEntries.Count == 0 && LootDropEntries.Count == 0;
+            LootTableEntries.Count == 0 && LootDropEntries.Count == 0 &&
+            LootTables.Count == 0;
         public int TotalPending =>
             Spawns.Count + SpawnDeletes.Count + SpawnInserts.Count + GridEntries.Count +
             ZonePoints.Count + ZonePointInserts.Count + ZonePointDeletes.Count +
             Grids.Count + GridInserts.Count +
             GridEntryInserts.Count + GridEntryDeletes.Count +
             Npcs.Count + NpcFactionEntries.Count +
-            LootTableEntries.Count + LootDropEntries.Count;
+            LootTableEntries.Count + LootDropEntries.Count +
+            LootTables.Count;
 
         // Composite key helper for npc_faction_entries: (npcFactionId, factionId).
         public static string NpcFactionEntryKey(int npcFactionId, int factionId) =>
@@ -401,6 +413,21 @@ namespace VisualEQ.EditSystem
         public byte   Multiplier      { get; set; }
         public ushort NpcMinLevel     { get; set; }
         public ushort NpcMaxLevel     { get; set; }
+    }
+
+    // Sparse per-field edit for one loottable row (Slice 6c follow-up).
+    // Mirrors NpcEdit — Original/Current dicts keyed by column name, so the
+    // commit path can build a dynamic SET clause for just the fields the user
+    // touched. Currently used for name / mincash / maxcash / avgcoin; adding a
+    // new column is a single-line entry in LootTableFieldCatalog + a case in
+    // the widget wiring.
+    public class LootTableEdit
+    {
+        public int LoottableId { get; set; }
+        public string DisplayName { get; set; }
+        public Dictionary<string, string> OriginalValues { get; set; } = new Dictionary<string, string>();
+        public Dictionary<string, string> CurrentValues  { get; set; } = new Dictionary<string, string>();
+        public DateTime LastModifiedAt { get; set; }
     }
 
     // A brand-new trilogy_zone_points row waiting to be INSERTed on commit. Holds every

@@ -33,7 +33,7 @@ namespace VisualEQ.Database.Repositories.Interfaces
         // bare row with just a name.
         Task<int> CloneLootTableAsync(int sourceId);
         Task<int> CloneLootDropAsync(int sourceId);
-        Task<int> CreateEmptyLootTableAsync(string name);
+        Task<int> CreateEmptyLootTableAsync(string name, int minCash, int maxCash, int avgCoin);
         Task<int> CreateEmptyLootDropAsync(string name);
 
         // Post-clone: swap the loottable_entries row's lootdrop_id from old →

@@ -540,13 +540,14 @@ namespace VisualEQ.Database.Constants
             SET lootdrop_id = @NewLootdropId
             WHERE loottable_id = @LoottableId AND lootdrop_id = @OldLootdropId";
 
-        // Fresh empty loottable — user supplies just a name; defaults elsewhere.
-        // The row is committed immediately; the sidebar then routes the NPC's
-        // npc_types.loottable_id through the normal buffered edit path so
-        // discarding the session doesn't leave a rogue assignment.
+        // Fresh loottable — user supplies name + cash range in the create
+        // modal (Slice 6c follow-up). The row is committed immediately; the
+        // sidebar then routes the NPC's npc_types.loottable_id through the
+        // normal buffered edit path so discarding the session doesn't leave
+        // a rogue assignment.
         public const string CreateEmptyLootTable = @"
             INSERT INTO loottable (name, mincash, maxcash, avgcoin)
-            VALUES (@Name, 0, 0, 0)";
+            VALUES (@Name, @MinCash, @MaxCash, @AvgCoin)";
 
         // Fresh empty lootdrop — used by the ""+ New empty lootdrop"" path in
         // the add-lootdrop search picker. Caller wires the returned id into a

@@ -110,7 +110,7 @@ namespace VisualEQ.Database.Repositories
             }
         }
 
-        public async Task<int> CreateEmptyLootTableAsync(string name)
+        public async Task<int> CreateEmptyLootTableAsync(string name, int minCash, int maxCash, int avgCoin)
         {
             // LAST_INSERT_ID() is per-connection in MySQL, and Dapper closes
             // auto-opened connections after each call. Splitting INSERT + SELECT
@@ -121,7 +121,7 @@ namespace VisualEQ.Database.Repositories
             using (var connection = CreateConnection())
                 return await connection.ExecuteScalarAsync<int>(
                     SqlQueries.CreateEmptyLootTable + "; SELECT LAST_INSERT_ID();",
-                    new { Name = name ?? "" });
+                    new { Name = name ?? "", MinCash = minCash, MaxCash = maxCash, AvgCoin = avgCoin });
         }
 
         public async Task<int> CreateEmptyLootDropAsync(string name)
