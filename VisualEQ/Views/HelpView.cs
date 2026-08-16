@@ -96,6 +96,8 @@ namespace VisualEQ.Views
             ImGui.Text("- Press E to enter edit mode before moving or saving spawns.");
             ImGui.Text("- Sidebar (right) lists spawns; click to jump-frame, drag to");
             ImGui.Text("  move, Commit to save to the DB.");
+            ImGui.Text("- Selected spawn shows a green wireframe cage (orange when");
+            ImGui.Text("  it has a pending edit). Placeholder = yellow spike.");
             ImGui.Text("- Grid mode (sidebar toggle) turns LMB double-clicks into");
             ImGui.Text("  waypoint placements on the selected grid.");
             ImGui.Text("- Configure the EQEmu DB via the Database Connection window.");
