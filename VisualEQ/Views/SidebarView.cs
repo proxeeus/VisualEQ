@@ -1080,7 +1080,7 @@ namespace VisualEQ.Views
             }
             else if (_npcPickerFetchTask != null)
             {
-                ImGui.Text("Searching…");
+                LoadingText("Searching");
             }
             else
             {
@@ -2530,6 +2530,30 @@ namespace VisualEQ.Views
         static string ReadBuffer(byte[] buf) =>
             System.Text.Encoding.UTF8.GetString(buf).TrimEnd('\0');
 
+        // Classic ASCII spinner cycled off Globals.FrameTime — proves the app
+        // hasn't hung when an async fetch is in flight. 5 fps feels alive
+        // without being distracting; ASCII (not Unicode braille) so it renders
+        // in whatever font the ImGui.NET default atlas ends up using.
+        static string Spinner()
+        {
+            switch ((int)(FrameTime * 5f) % 4)
+            {
+                case 0:  return "|";
+                case 1:  return "/";
+                case 2:  return "-";
+                default: return "\\";
+            }
+        }
+
+        // Standard loading indicator — dim gray so a fetch-in-flight doesn't
+        // steal focus, spinner glyph so the user can tell the UI is still
+        // ticking. Pass the label WITHOUT trailing ellipsis / spinner — this
+        // helper appends the spinner uniformly.
+        static void LoadingText(string label)
+        {
+            ImGui.Text($"{label} {Spinner()}", new Vector4(0.65f, 0.65f, 0.65f, 1.0f));
+        }
+
         void RenderZonePointsSection(int index)
         {
             RenderReorderHandles(index, "zp");
@@ -3243,7 +3267,7 @@ namespace VisualEQ.Views
             // NPC's fields when the user selects a different spawn.
             if (_npcDetailsInFlightForId == npcId)
             {
-                ImGui.Text("Loading NPC details…");
+                LoadingText("Loading NPC details");
                 return;
             }
             if (_npcDetailsFetchedForId == npcId && _npcDetailsError != null)
@@ -4149,7 +4173,7 @@ namespace VisualEQ.Views
             MaintainFactionEntriesFetch(npcFactionId);
             if (_factionEntriesInFlightFor == npcFactionId)
             {
-                ImGui.Text("Loading faction entries…");
+                LoadingText("Loading faction entries");
                 return;
             }
             if (_factionEntriesFetchedFor == npcFactionId && _factionEntriesError != null)
@@ -4546,7 +4570,7 @@ namespace VisualEQ.Views
             MaintainLootFetch(loottableId);
             if (_lootInFlightForLoottableId == loottableId)
             {
-                ImGui.Text("Loading loot…");
+                LoadingText("Loading loot");
                 return;
             }
             if (_lootFetchedForLoottableId == loottableId && _lootError != null)
@@ -5563,7 +5587,7 @@ namespace VisualEQ.Views
             }
             else if (_searchPickerTask != null || _searchPickerResults == null)
             {
-                ImGui.Text("Searching…");
+                LoadingText("Searching");
             }
             else
             {
@@ -6170,7 +6194,7 @@ namespace VisualEQ.Views
                 state == VisualEQ.SpawnSystem.ReferenceDataCache.LoadState.Loading)
             {
                 cache.GetItems(VisualEQ.SpawnSystem.ReferenceDataCache.Table.NpcFaction); // force-warm
-                ImGui.Text("Loading faction sets…");
+                LoadingText("Loading faction sets");
                 if (ImGui.Button($"Close###{Id}fmClose", new Vector2(120, 28)))
                     EndManageFactionSets();
                 ImGui.EndWindow();
@@ -6384,7 +6408,7 @@ namespace VisualEQ.Views
             if (state == VisualEQ.SpawnSystem.ReferenceDataCache.LoadState.Loading ||
                 state == VisualEQ.SpawnSystem.ReferenceDataCache.LoadState.NotLoaded)
             {
-                ImGui.Text("Loading reference data…");
+                LoadingText("Loading reference data");
                 if (ImGui.Button($"Close###{Id}fkClose", new Vector2(120, 28)))
                     EndFkPicker();
                 ImGui.EndWindow();
@@ -6543,7 +6567,7 @@ namespace VisualEQ.Views
             }
             else
             {
-                ImGui.Text("Usage: (loading…)");
+                LoadingText("Usage");
             }
 
             if (editable)
