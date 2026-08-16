@@ -1228,7 +1228,7 @@ namespace VisualEQ.Views
         void RenderStatusSection(int index)
         {
             RenderReorderHandles(index, "s");
-            if (!ImGui.CollapsingHeader($"Status###{Id}s", TreeNodeFlags.DefaultOpen))
+            if (!ImGui.CollapsingHeader($"Status###{Id}s", 0))
                 return;
 
             var ctrl = _view.Controller;
@@ -1263,7 +1263,7 @@ namespace VisualEQ.Views
         void RenderSpawnInfoSection(int index)
         {
             RenderReorderHandles(index, "si");
-            if (!ImGui.CollapsingHeader($"Spawn Info###{Id}si", TreeNodeFlags.DefaultOpen))
+            if (!ImGui.CollapsingHeader($"Spawn Info###{Id}si", 0))
                 return;
 
             var sp = _view.SelectedSpawn;
@@ -3210,7 +3210,7 @@ namespace VisualEQ.Views
         void RenderNpcDetailsSection(int index)
         {
             RenderReorderHandles(index, "nd");
-            if (!ImGui.CollapsingHeader($"NPC Details###{Id}nd", TreeNodeFlags.DefaultOpen))
+            if (!ImGui.CollapsingHeader($"NPC Details###{Id}nd", 0))
                 return;
 
             var sp = _view.SelectedSpawn;
