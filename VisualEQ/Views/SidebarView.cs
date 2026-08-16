@@ -206,6 +206,7 @@ namespace VisualEQ.Views
         private int _commitNpcFactionEntryCountSnapshot;
         private int _commitLootTableEntryCountSnapshot;
         private int _commitLootDropEntryCountSnapshot;
+        private int _commitLootTableCountSnapshot;
 
         // Simple confirm modals — no extra state beyond "is it open?" + a snapshot count
         // so the dialog can display consistent numbers even if the buffer mutates while
@@ -409,12 +410,46 @@ namespace VisualEQ.Views
         // Composite of everything the loot widget needs to render one loottable.
         // Held in one place so the widget's "have I got data yet?" check is a
         // single null-guard rather than three-way task juggling.
+        // ── Slice 6c: clone + create-empty modal state ─────────────────
+        // Two modals share their fetch/error state; only one can be up at a
+        // time. Clone flows: async DB write on Confirm, then buffered NPC
+        // edit / LTE insert so the link between owning NPC/loottable and the
+        // new row lands with the normal commit path. Create-empty flows: same
+        // shape, plus a name-entry buffer.
+        //
+        // On success: invalidate the loot fetch so the widget re-reads.
+        private bool _cloneConfirmActive;
+        private string _cloneConfirmKind;           // "loottable" or "lootdrop"
+        private int _cloneConfirmSourceId;
+        private string _cloneConfirmSourceName;
+        private int _cloneConfirmSourceUsage;       // pre-fetched usage count for the message
+        private int _cloneConfirmContextNpcId;              // loottable: NPC to repoint via buffered edit
+        private int _cloneConfirmContextOldLoottableId;     // loottable: baseline id to include in the buffered edit's "from"
+        private int _cloneConfirmContextLoottableId;        // lootdrop: which loottable's LTE row gets repointed
+        private System.Threading.Tasks.Task<int> _cloneTask;
+        private string _cloneError;
+
+        private bool _createEmptyActive;
+        private string _createEmptyKind;                    // "loottable" or "lootdrop"
+        private readonly byte[] _createEmptyNameBuf = new byte[128];
+        // Cash inputs (loottable kind only). Held as floats for DragFloat
+        // compatibility; parsed as ints on Confirm.
+        private float _createEmptyMinCash;
+        private float _createEmptyMaxCash;
+        private float _createEmptyAvgCoin;
+        private int _createEmptyContextNpcId;               // loottable: NPC to repoint via buffered edit
+        private int _createEmptyContextOldLoottableId;      // loottable: current value for the buffered edit's "from"
+        private int _createEmptyContextLoottableId;         // lootdrop: which loottable's LTE row gets inserted
+        private System.Threading.Tasks.Task<int> _createEmptyTask;
+        private string _createEmptyError;
+
         sealed class LootFetchResult
         {
             public VisualEQ.Database.Models.LootTable LootTable;
             public System.Collections.Generic.List<VisualEQ.Database.Models.LootTableEntry> Entries;
             public System.Collections.Generic.Dictionary<int, System.Collections.Generic.List<VisualEQ.Database.Models.LootDropEntry>> ItemsByLootdrop;
-            public int UsageCount;
+            public int UsageCount;                                                 // # of NPCs pointing at this loottable
+            public System.Collections.Generic.Dictionary<int, int> LootdropUsage;  // lootdrop id → # of loottables referencing it (Slice 6c)
         }
 
         public SidebarWidget(SidebarView view)
@@ -533,6 +568,10 @@ namespace VisualEQ.Views
                     RenderFkPickerDialog(gui);
                 else if (_searchPickerActive)
                     RenderSearchPickerDialog(gui);
+                else if (_cloneConfirmActive)
+                    RenderCloneConfirmDialog(gui);
+                else if (_createEmptyActive)
+                    RenderCreateEmptyDialog(gui);
             }
         }
 
@@ -602,6 +641,7 @@ namespace VisualEQ.Views
             _commitNpcFactionEntryCountSnapshot = buffer.NpcFactionEntries.Count;
             _commitLootTableEntryCountSnapshot  = buffer.LootTableEntries.Count;
             _commitLootDropEntryCountSnapshot   = buffer.LootDropEntries.Count;
+            _commitLootTableCountSnapshot       = buffer.LootTables.Count;
             _commitPhase = CommitPhase.Confirm;
             _commitResult = null;
         }
@@ -645,7 +685,8 @@ namespace VisualEQ.Views
                         _commitResult.LootTableEntryDeletes > 0 ||
                         _commitResult.LootDropEntryInserts  > 0 ||
                         _commitResult.LootDropEntryUpdates  > 0 ||
-                        _commitResult.LootDropEntryDeletes  > 0)
+                        _commitResult.LootDropEntryDeletes  > 0 ||
+                        _commitResult.LootTableRowsWritten  > 0)
                     {
                         _lootFetchedForLoottableId = null;
                         _lootData                  = null;
@@ -705,6 +746,8 @@ namespace VisualEQ.Views
                 ImGui.Text($"  {_commitLootTableEntryCountSnapshot} loottable-entry op(s)");
             if (_commitLootDropEntryCountSnapshot > 0)
                 ImGui.Text($"  {_commitLootDropEntryCountSnapshot} lootdrop-entry op(s)");
+            if (_commitLootTableCountSnapshot > 0)
+                ImGui.Text($"  {_commitLootTableCountSnapshot} loottable header op(s)");
             ImGui.Separator();
             ImGui.Text($"Target: {db.Server}/{db.Database}");
             ImGui.Text("Runs as a single transaction — all-or-nothing.");
@@ -782,6 +825,8 @@ namespace VisualEQ.Views
                     ImGui.Text($"  {r.LootDropEntryUpdates} lootdrop_entries row(s) updated");
                 if (r.LootDropEntryDeletes > 0)
                     ImGui.Text($"  {r.LootDropEntryDeletes} lootdrop_entries row(s) deleted");
+                if (r.LootTableRowsWritten > 0)
+                    ImGui.Text($"  {r.LootTableRowsWritten} loottable row(s) updated");
                 ImGui.Separator();
                 ImGui.Text("Buffer + undo history cleared.");
                 var touchedZonePoints = r.ZonePointRowsWritten + r.ZonePointInsertsWritten + r.ZonePointDeletesWritten;
@@ -4280,7 +4325,28 @@ namespace VisualEQ.Views
         {
             if (loottableId <= 0)
             {
-                ImGui.Text("(no loottable assigned — pick one in the References section)");
+                // Slice 6c fix: don't dead-end the user. Offer both an
+                // existing-loottable picker AND the create-new flow directly
+                // from the loot section — otherwise "no loottable assigned"
+                // becomes a black hole they can only escape via References,
+                // and the create-new path (which lives here) isn't reachable
+                // at all until they've assigned one.
+                ImGui.Text("No loottable assigned.");
+                if (!editable)
+                {
+                    ImGui.Text("(read-only mode — flip to edit to assign one)");
+                    return;
+                }
+                if (ImGui.Button($"Pick existing loottable…###{Id}ndPickLT0", new Vector2(200, 24)))
+                {
+                    BeginFkPicker(
+                        VisualEQ.SpawnSystem.ReferenceDataCache.Table.LootTable,
+                        "loottable_id", "Loot table",
+                        npcId, 0);
+                }
+                ImGui.SameLine();
+                if (ImGui.Button($"+ New empty loottable…###{Id}ndNewLT0", new Vector2(200, 24)))
+                    BeginCreateEmptyLootTable(npcId, 0);
                 return;
             }
 
@@ -4305,19 +4371,46 @@ namespace VisualEQ.Views
             var table = data.LootTable;
 
             // ── Header block ────────────────────────────────────────────
-            var ltName = string.IsNullOrWhiteSpace(table?.Name) ? "(unnamed)" : table.Name;
+            // Overlay merged view: the fetched LootTable is the DB baseline;
+            // pending LootTables buffer op (if any) shadows the four editable
+            // fields. Widgets always render the effective (post-overlay) value
+            // so a mid-edit re-render reflects the latest keystroke.
+            var effectiveTable = OverlayEffectiveLootTable(loottableId, table);
+            var ltName = string.IsNullOrWhiteSpace(effectiveTable?.Name) ? "(unnamed)" : effectiveTable.Name;
             ImGui.Text($"Loottable #{loottableId} — \"{ltName}\"");
-            if (table != null)
+            if (effectiveTable != null)
             {
-                ImGui.Text($"Cash: min {table.MinCash} / max {table.MaxCash} / avg {table.AvgCoin}");
-                if (table.MinExpansion != -1 || table.MaxExpansion != -1)
-                    ImGui.Text($"Expansion window: {table.MinExpansion} .. {table.MaxExpansion}");
-                if (!string.IsNullOrEmpty(table.ContentFlags))
-                    ImGui.Text($"Content flags: {table.ContentFlags}");
-                if (!string.IsNullOrEmpty(table.ContentFlagsDisabled))
-                    ImGui.Text($"Content flags disabled: {table.ContentFlagsDisabled}");
+                if (editable)
+                {
+                    RenderLootTableHeaderEditRow(loottableId, effectiveTable, ltName);
+                }
+                else
+                {
+                    ImGui.Text($"Cash: min {effectiveTable.MinCash} / max {effectiveTable.MaxCash} / avg {effectiveTable.AvgCoin}");
+                }
+                if (effectiveTable.MinExpansion != -1 || effectiveTable.MaxExpansion != -1)
+                    ImGui.Text($"Expansion window: {effectiveTable.MinExpansion} .. {effectiveTable.MaxExpansion}");
+                if (!string.IsNullOrEmpty(effectiveTable.ContentFlags))
+                    ImGui.Text($"Content flags: {effectiveTable.ContentFlags}");
+                if (!string.IsNullOrEmpty(effectiveTable.ContentFlagsDisabled))
+                    ImGui.Text($"Content flags disabled: {effectiveTable.ContentFlagsDisabled}");
             }
             ImGui.Text($"Used by: {data.UsageCount} NPC(s)");
+
+            // Slice 6c — shared-loottable warning + clone button. Only surfaces
+            // when > 1 NPC points at this loottable (any edit here silently
+            // affects everyone).
+            if (editable && data.UsageCount > 1)
+            {
+                ImGui.Text("⚠ Shared — edits affect every NPC above.", new Vector4(0.95f, 0.75f, 0.25f, 1f));
+                if (ImGui.Button($"Clone loottable for this NPC###{Id}ndCloneLT{loottableId}", new Vector2(240, 22)))
+                    BeginCloneLootTable(loottableId, table?.Name, data.UsageCount, npcId);
+            }
+            if (editable)
+            {
+                if (ImGui.Button($"+ New empty loottable…###{Id}ndNewLT{loottableId}", new Vector2(200, 22)))
+                    BeginCreateEmptyLootTable(npcId, loottableId);
+            }
             ImGui.Separator();
 
             // ── Per-lootdrop cards (with overlay merge) ─────────────────
@@ -4360,6 +4453,9 @@ namespace VisualEQ.Views
                             });
                     }
                 }
+                ImGui.SameLine();
+                if (ImGui.Button($"+ New empty lootdrop…###{Id}ndNewLD{loottableId}", new Vector2(200, 24)))
+                    BeginCreateEmptyLootDrop(loottableId);
             }
         }
 
@@ -4375,6 +4471,23 @@ namespace VisualEQ.Views
 
             var header = $"{dropName} (#{entry.LootdropId})  — {effectiveItems.Count} item(s), prob {entry.Probability:0.##}%###{Id}ndLD{entry.LootdropId}";
             if (!ImGui.CollapsingHeader(header, 0)) return;
+
+            // Slice 6c — per-lootdrop shared-warning + clone button. The
+            // usage-count lookup is per-lootdrop across all loottables (batched
+            // fetch); if > 1, editing items here quietly changes loot for
+            // every other loottable that references the same lootdrop.
+            var lootdropUsage = 1;
+            if (data.LootdropUsage != null)
+                data.LootdropUsage.TryGetValue(entry.LootdropId, out lootdropUsage);
+            if (lootdropUsage <= 0) lootdropUsage = 1;
+
+            if (editable && lootdropUsage > 1)
+            {
+                ImGui.Text($"  ⚠ Shared with {lootdropUsage - 1} other loottable(s) — item edits affect them all.",
+                    new Vector4(0.95f, 0.75f, 0.25f, 1f));
+                if (ImGui.Button($"  Clone lootdrop for this loottable###{Id}ndCloneLD{entry.LootdropId}", new Vector2(260, 22)))
+                    BeginCloneLootDrop(entry.LootdropId, dropName, lootdropUsage, loottableId);
+            }
 
             // Roll-param edit row: mindrop / droplimit / mult / probability + X.
             if (editable)
@@ -4620,6 +4733,95 @@ namespace VisualEQ.Views
          && s.NpcMinLevel     == e.NpcMinLevel
          && s.NpcMaxLevel     == e.NpcMaxLevel;
 
+        // Slice 6c follow-up — clone the DB baseline loottable and overlay the
+        // pending buffer op (if any) so widgets see the effective (post-edit)
+        // values. Returns null if baseline is null (loottable row missing).
+        VisualEQ.Database.Models.LootTable OverlayEffectiveLootTable(
+            int loottableId, VisualEQ.Database.Models.LootTable baseline)
+        {
+            if (baseline == null) return null;
+            var eff = new VisualEQ.Database.Models.LootTable
+            {
+                Id                    = baseline.Id,
+                Name                  = baseline.Name,
+                MinCash               = baseline.MinCash,
+                MaxCash               = baseline.MaxCash,
+                AvgCoin               = baseline.AvgCoin,
+                MinExpansion          = baseline.MinExpansion,
+                MaxExpansion          = baseline.MaxExpansion,
+                ContentFlags          = baseline.ContentFlags,
+                ContentFlagsDisabled  = baseline.ContentFlagsDisabled,
+            };
+            var buffer = _view.Controller.PendingBuffer;
+            if (buffer != null && buffer.LootTables.TryGetValue(loottableId, out var edit))
+            {
+                foreach (var kv in edit.CurrentValues)
+                {
+                    switch (kv.Key)
+                    {
+                        case "name":    eff.Name    = kv.Value; break;
+                        case "mincash": eff.MinCash = int.Parse(kv.Value, System.Globalization.CultureInfo.InvariantCulture); break;
+                        case "maxcash": eff.MaxCash = int.Parse(kv.Value, System.Globalization.CultureInfo.InvariantCulture); break;
+                        case "avgcoin": eff.AvgCoin = int.Parse(kv.Value, System.Globalization.CultureInfo.InvariantCulture); break;
+                    }
+                }
+            }
+            return eff;
+        }
+
+        // Slice 6c follow-up — inline editors for the loottable header fields
+        // (mincash / maxcash / avgcoin). Name edit deferred to avoid crowding
+        // the header; when needed, use `+ New empty loottable` with the desired
+        // name, then re-point via the FK picker. Emits LootTableFieldEditAction
+        // per changed field so undo/redo works one field at a time.
+        void RenderLootTableHeaderEditRow(int loottableId,
+            VisualEQ.Database.Models.LootTable effective, string displayName)
+        {
+            ImGui.Text("Cash:");
+            ImGui.SameLine();
+            var minF = (float)effective.MinCash;
+            NsimGui.CimguiRaw.igPushItemWidth(80f);
+            var minChanged = ImGui.DragFloat($"min##{Id}lthMin{loottableId}",
+                ref minF, 0f, 0f, 0f, "%.0f", 1f);
+            NsimGui.CimguiRaw.igPopItemWidth();
+
+            ImGui.SameLine();
+            var maxF = (float)effective.MaxCash;
+            NsimGui.CimguiRaw.igPushItemWidth(80f);
+            var maxChanged = ImGui.DragFloat($"max##{Id}lthMax{loottableId}",
+                ref maxF, 0f, 0f, 0f, "%.0f", 1f);
+            NsimGui.CimguiRaw.igPopItemWidth();
+
+            ImGui.SameLine();
+            var avgF = (float)effective.AvgCoin;
+            NsimGui.CimguiRaw.igPushItemWidth(80f);
+            var avgChanged = ImGui.DragFloat($"avg##{Id}lthAvg{loottableId}",
+                ref avgF, 0f, 0f, 0f, "%.0f", 1f);
+            NsimGui.CimguiRaw.igPopItemWidth();
+
+            if (minChanged)
+            {
+                var newVal = (int)System.Math.Max(0, System.Math.Round(minF));
+                if (newVal != effective.MinCash)
+                    _view.Controller.RecordAction(new LootTableFieldEditAction(
+                        loottableId, "mincash", effective.MinCash, newVal, displayName));
+            }
+            if (maxChanged)
+            {
+                var newVal = (int)System.Math.Max(0, System.Math.Round(maxF));
+                if (newVal != effective.MaxCash)
+                    _view.Controller.RecordAction(new LootTableFieldEditAction(
+                        loottableId, "maxcash", effective.MaxCash, newVal, displayName));
+            }
+            if (avgChanged)
+            {
+                var newVal = (int)System.Math.Max(0, System.Math.Round(avgF));
+                if (newVal != effective.AvgCoin)
+                    _view.Controller.RecordAction(new LootTableFieldEditAction(
+                        loottableId, "avgcoin", effective.AvgCoin, newVal, displayName));
+            }
+        }
+
         // Merge baseline loottable_entries + pending buffer ops → effective list.
         // Same overlay-merge shape as ComputeEffectiveFactionEntries; propagates
         // LootdropName from baseline JOIN on update, from op.LootdropName on
@@ -4783,6 +4985,7 @@ namespace VisualEQ.Views
                     var itemsByDrop = itemsFlat
                         .GroupBy(i => i.LootdropId)
                         .ToDictionary(g => g.Key, g => g.ToList());
+                    var lootdropUsage = await repo.GetLootDropUsageCountsAsync(lootdropIds);
 
                     return new LootFetchResult
                     {
@@ -4790,6 +4993,7 @@ namespace VisualEQ.Views
                         Entries         = entries,
                         ItemsByLootdrop = itemsByDrop,
                         UsageCount      = usage,
+                        LootdropUsage   = lootdropUsage,
                     };
                 });
             }
@@ -5100,6 +5304,337 @@ namespace VisualEQ.Views
                 EndSearchPicker();
 
             ImGui.EndWindow();
+        }
+
+        // ── Slice 6c: clone / create-empty modals ───────────────────────
+        //
+        // BeginCloneLootTable / BeginCloneLootDrop open the same confirm modal
+        // with different context. The modal fires the clone on Confirm and,
+        // after the async DB write lands, records the follow-up buffered edit
+        // (NPC repoint / LTE repoint). Success closes the modal + invalidates
+        // the loot cache.
+        void BeginCloneLootTable(int loottableId, string loottableName, int usageCount, int npcId)
+        {
+            _cloneConfirmActive              = true;
+            _cloneConfirmKind                = "loottable";
+            _cloneConfirmSourceId            = loottableId;
+            _cloneConfirmSourceName          = loottableName ?? "?";
+            _cloneConfirmSourceUsage         = usageCount;
+            _cloneConfirmContextNpcId        = npcId;
+            _cloneConfirmContextOldLoottableId = loottableId;
+            _cloneConfirmContextLoottableId  = 0;
+            _cloneTask                       = null;
+            _cloneError                      = null;
+        }
+
+        void BeginCloneLootDrop(int lootdropId, string lootdropName, int usageCount, int owningLoottableId)
+        {
+            _cloneConfirmActive               = true;
+            _cloneConfirmKind                 = "lootdrop";
+            _cloneConfirmSourceId             = lootdropId;
+            _cloneConfirmSourceName           = lootdropName ?? "?";
+            _cloneConfirmSourceUsage          = usageCount;
+            _cloneConfirmContextLoottableId   = owningLoottableId;
+            _cloneConfirmContextNpcId         = 0;
+            _cloneConfirmContextOldLoottableId = 0;
+            _cloneTask                        = null;
+            _cloneError                       = null;
+        }
+
+        void EndCloneConfirm()
+        {
+            _cloneConfirmActive = false;
+            _cloneTask          = null;
+        }
+
+        void RenderCloneConfirmDialog(Gui gui)
+        {
+            const float dlgW = 500f;
+            const float dlgH = 240f;
+            var pos = new Vector2((gui.Dimensions.X - dlgW) / 2, (gui.Dimensions.Y - dlgH) / 2);
+
+            ImGui.SetNextWindowPos(pos, Condition.Always, Vector2.Zero);
+            ImGui.SetNextWindowSize(new Vector2(dlgW, dlgH), Condition.Always);
+
+            const WindowFlags flags = WindowFlags.NoTitleBar | WindowFlags.NoMove
+                                    | WindowFlags.NoResize   | WindowFlags.NoCollapse
+                                    | WindowFlags.NoSavedSettings;
+
+            ImGui.BeginWindow($"###{Id}CloneCfmDlg", flags);
+
+            if (_cloneConfirmKind == "loottable")
+            {
+                ImGui.Text($"Clone loottable \"{_cloneConfirmSourceName}\" (#{_cloneConfirmSourceId})?");
+                ImGui.Separator();
+                ImGui.Text($"A copy of this loottable and all its lootdrops will be created.");
+                ImGui.Text($"This NPC will be re-pointed to the new loottable (buffered — commit to save).");
+                ImGui.Text($"The other {System.Math.Max(0, _cloneConfirmSourceUsage - 1)} NPC(s) sharing this loottable will continue to use the original.");
+            }
+            else
+            {
+                ImGui.Text($"Clone lootdrop \"{_cloneConfirmSourceName}\" (#{_cloneConfirmSourceId})?");
+                ImGui.Separator();
+                ImGui.Text($"A copy of this lootdrop (with all its items) will be created.");
+                ImGui.Text($"This loottable's entry will be re-pointed to the clone immediately.");
+                ImGui.Text($"The other {System.Math.Max(0, _cloneConfirmSourceUsage - 1)} loottable(s) sharing this lootdrop will continue to use the original.");
+            }
+
+            // Reap the in-flight task and apply the follow-up.
+            if (_cloneTask != null && _cloneTask.IsCompleted)
+            {
+                if (_cloneTask.IsFaulted)
+                {
+                    _cloneError = _cloneTask.Exception?.GetBaseException().Message ?? "unknown error";
+                    _cloneTask  = null;
+                }
+                else
+                {
+                    var newId = _cloneTask.Result;
+                    _cloneTask = null;
+                    ApplyCloneFollowUp(newId);
+                    EndCloneConfirm();
+                    ImGui.EndWindow();
+                    return;
+                }
+            }
+
+            if (_cloneError != null)
+                ImGui.Text($"Error: {_cloneError}", new Vector4(0.95f, 0.35f, 0.25f, 1f));
+            else if (_cloneTask != null)
+                ImGui.Text("Cloning…");
+
+            ImGui.Separator();
+            var busy = _cloneTask != null;
+            if (!busy && ImGui.Button($"Clone###{Id}cloneOk", new Vector2(120, 28)))
+            {
+                var factory = _view.Controller.DbFactory;
+                if (factory == null)
+                {
+                    _cloneError = "No database connection is configured.";
+                }
+                else
+                {
+                    _cloneError = null;
+                    var repo = new VisualEQ.Database.Repositories.LootRepository(factory);
+                    var sourceId = _cloneConfirmSourceId;
+                    _cloneTask = _cloneConfirmKind == "loottable"
+                        ? System.Threading.Tasks.Task.Run(() => repo.CloneLootTableAsync(sourceId))
+                        : System.Threading.Tasks.Task.Run(() => repo.CloneLootDropAsync(sourceId));
+                }
+            }
+            ImGui.SameLine();
+            if (ImGui.Button($"Cancel###{Id}cloneX", new Vector2(120, 28)))
+                EndCloneConfirm();
+
+            ImGui.EndWindow();
+        }
+
+        // Follow-up work after a clone's async DB write lands. For loottable
+        // clone: fire a buffered NPC edit swapping loottable_id from old → new
+        // (undoable). For lootdrop clone: run an immediate UPDATE on the
+        // owning loottable's LTE row swapping its lootdrop_id (not buffered —
+        // the DELETE-old + INSERT-new pattern isn't a good fit for an in-place
+        // repoint since the composite PK would fight itself; a raw UPDATE
+        // keeps roll params intact).
+        void ApplyCloneFollowUp(int newId)
+        {
+            if (_cloneConfirmKind == "loottable")
+            {
+                // Buffered NPC edit: loottable_id = newId. Uses the same
+                // pipeline as any other npc_types field edit; overlay merge
+                // will make the widget see the new id, triggering a fresh
+                // fetch of the clone's contents.
+                var displayName = _displayedNpc?.Name ?? "?";
+                RecordNpcFieldEdit(_cloneConfirmContextNpcId, "loottable_id",
+                    _cloneConfirmContextOldLoottableId, newId, displayName);
+            }
+            else
+            {
+                // Immediate repoint of the owning loottable_entries row. Fire
+                // and forget (any error surfaces as the next fetch's error).
+                var factory = _view.Controller.DbFactory;
+                if (factory != null)
+                {
+                    var repo = new VisualEQ.Database.Repositories.LootRepository(factory);
+                    var lt = _cloneConfirmContextLoottableId;
+                    var oldId = _cloneConfirmSourceId;
+                    System.Threading.Tasks.Task.Run(async () =>
+                        await repo.RepointLootTableEntryLootdropAsync(lt, oldId, newId));
+                }
+                // Force a re-fetch so the widget renders the swapped row.
+                _lootFetchedForLoottableId = null;
+                _lootData                  = null;
+            }
+        }
+
+        // Name-entry modal for the "+ New empty loottable/lootdrop" flows. On
+        // Confirm: async INSERT (returns new id) → follow-up wiring (buffered
+        // NPC edit for loottable, buffered LTE insert for lootdrop) → close
+        // + invalidate cache.
+        void BeginCreateEmptyLootTable(int npcId, int currentLoottableId)
+        {
+            _createEmptyActive                  = true;
+            _createEmptyKind                    = "loottable";
+            _createEmptyContextNpcId            = npcId;
+            _createEmptyContextOldLoottableId   = currentLoottableId;
+            _createEmptyContextLoottableId      = 0;
+            _createEmptyMinCash                 = 0;
+            _createEmptyMaxCash                 = 0;
+            _createEmptyAvgCoin                 = 0;
+            _createEmptyTask                    = null;
+            _createEmptyError                   = null;
+            System.Array.Clear(_createEmptyNameBuf, 0, _createEmptyNameBuf.Length);
+        }
+
+        void BeginCreateEmptyLootDrop(int owningLoottableId)
+        {
+            _createEmptyActive                  = true;
+            _createEmptyKind                    = "lootdrop";
+            _createEmptyContextLoottableId      = owningLoottableId;
+            _createEmptyContextNpcId            = 0;
+            _createEmptyContextOldLoottableId   = 0;
+            _createEmptyTask                    = null;
+            _createEmptyError                   = null;
+            System.Array.Clear(_createEmptyNameBuf, 0, _createEmptyNameBuf.Length);
+        }
+
+        void EndCreateEmpty()
+        {
+            _createEmptyActive = false;
+            _createEmptyTask   = null;
+        }
+
+        void RenderCreateEmptyDialog(Gui gui)
+        {
+            const float dlgW = 460f;
+            // Loottable modal grows to fit the extra cash inputs; lootdrop stays compact.
+            float dlgH = _createEmptyKind == "loottable" ? 320f : 210f;
+            var pos = new Vector2((gui.Dimensions.X - dlgW) / 2, (gui.Dimensions.Y - dlgH) / 2);
+
+            ImGui.SetNextWindowPos(pos, Condition.Always, Vector2.Zero);
+            ImGui.SetNextWindowSize(new Vector2(dlgW, dlgH), Condition.Always);
+
+            const WindowFlags flags = WindowFlags.NoTitleBar | WindowFlags.NoMove
+                                    | WindowFlags.NoResize   | WindowFlags.NoCollapse
+                                    | WindowFlags.NoSavedSettings;
+
+            ImGui.BeginWindow($"###{Id}CreateEmptyDlg", flags);
+
+            ImGui.Text(_createEmptyKind == "loottable"
+                ? "Create new empty loottable"
+                : "Create new empty lootdrop");
+            ImGui.Separator();
+
+            ImGui.Text("Name:");
+            ImGui.InputText($"###{Id}ceName", _createEmptyNameBuf, (uint)_createEmptyNameBuf.Length, InputTextFlags.Default, null);
+            var name = ReadBuffer(_createEmptyNameBuf).Trim();
+
+            // Loottable-specific: cash-range inputs. Skipped for lootdrops
+            // (lootdrop table has no cash columns).
+            if (_createEmptyKind == "loottable")
+            {
+                ImGui.Separator();
+                ImGui.Text("Cash range:");
+                NsimGui.CimguiRaw.igPushItemWidth(90f);
+                ImGui.DragFloat($"min cash###{Id}ceMin", ref _createEmptyMinCash, 0f, 0f, 0f, "%.0f", 1f);
+                NsimGui.CimguiRaw.igPopItemWidth();
+                ImGui.SameLine();
+                NsimGui.CimguiRaw.igPushItemWidth(90f);
+                ImGui.DragFloat($"max cash###{Id}ceMax", ref _createEmptyMaxCash, 0f, 0f, 0f, "%.0f", 1f);
+                NsimGui.CimguiRaw.igPopItemWidth();
+                ImGui.SameLine();
+                NsimGui.CimguiRaw.igPushItemWidth(90f);
+                ImGui.DragFloat($"avg coin###{Id}ceAvg", ref _createEmptyAvgCoin, 0f, 0f, 0f, "%.0f", 1f);
+                NsimGui.CimguiRaw.igPopItemWidth();
+                ImGui.Separator();
+                ImGui.Text("This NPC will be re-pointed to the new loottable (buffered — commit to save).");
+            }
+            else
+                ImGui.Text("The new lootdrop will be added to this loottable (buffered — commit to save).");
+
+            // Reap in-flight task.
+            if (_createEmptyTask != null && _createEmptyTask.IsCompleted)
+            {
+                if (_createEmptyTask.IsFaulted)
+                {
+                    _createEmptyError = _createEmptyTask.Exception?.GetBaseException().Message ?? "unknown error";
+                    _createEmptyTask  = null;
+                }
+                else
+                {
+                    var newId = _createEmptyTask.Result;
+                    _createEmptyTask = null;
+                    ApplyCreateEmptyFollowUp(newId, name);
+                    EndCreateEmpty();
+                    ImGui.EndWindow();
+                    return;
+                }
+            }
+
+            if (_createEmptyError != null)
+                ImGui.Text($"Error: {_createEmptyError}", new Vector4(0.95f, 0.35f, 0.25f, 1f));
+            else if (_createEmptyTask != null)
+                ImGui.Text("Creating…");
+
+            ImGui.Separator();
+            var busy = _createEmptyTask != null;
+            var canConfirm = !busy && !string.IsNullOrWhiteSpace(name);
+            if (canConfirm)
+            {
+                if (ImGui.Button($"Create###{Id}ceOk", new Vector2(120, 28)))
+                {
+                    var factory = _view.Controller.DbFactory;
+                    if (factory == null)
+                    {
+                        _createEmptyError = "No database connection is configured.";
+                    }
+                    else
+                    {
+                        _createEmptyError = null;
+                        var repo = new VisualEQ.Database.Repositories.LootRepository(factory);
+                        var capturedName = name;
+                        var capturedMin  = (int)System.Math.Max(0, System.Math.Round(_createEmptyMinCash));
+                        var capturedMax  = (int)System.Math.Max(0, System.Math.Round(_createEmptyMaxCash));
+                        var capturedAvg  = (int)System.Math.Max(0, System.Math.Round(_createEmptyAvgCoin));
+                        _createEmptyTask = _createEmptyKind == "loottable"
+                            ? System.Threading.Tasks.Task.Run(() => repo.CreateEmptyLootTableAsync(capturedName, capturedMin, capturedMax, capturedAvg))
+                            : System.Threading.Tasks.Task.Run(() => repo.CreateEmptyLootDropAsync(capturedName));
+                    }
+                }
+            }
+            else
+            {
+                ImGui.Text(busy ? "(waiting for DB…)" : "(name required)");
+            }
+            ImGui.SameLine();
+            if (ImGui.Button($"Cancel###{Id}ceX", new Vector2(120, 28)))
+                EndCreateEmpty();
+
+            ImGui.EndWindow();
+        }
+
+        void ApplyCreateEmptyFollowUp(int newId, string name)
+        {
+            if (_createEmptyKind == "loottable")
+            {
+                var displayName = _displayedNpc?.Name ?? "?";
+                RecordNpcFieldEdit(_createEmptyContextNpcId, "loottable_id",
+                    _createEmptyContextOldLoottableId, newId, displayName);
+            }
+            else
+            {
+                // Buffered LTE insert linking the new lootdrop to the owning
+                // loottable, defaults matching the "+ Add lootdrop" flow.
+                var newSnap = new LootTableEntrySnapshot
+                {
+                    Multiplier  = 1,
+                    DropLimit   = 1,
+                    MinDrop     = 1,
+                    Probability = 100f,
+                };
+                _view.Controller.RecordAction(new LootTableEntryEditAction(
+                    _createEmptyContextLoottableId, newId, null, newSnap, name ?? "?"));
+            }
         }
 
         void RenderFkPickerDialog(Gui gui)

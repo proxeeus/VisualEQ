@@ -35,6 +35,7 @@ namespace VisualEQ.EditSystem
             public int LootDropEntryInserts;      // INSERTs on lootdrop_entries
             public int LootDropEntryUpdates;      // UPDATEs on lootdrop_entries
             public int LootDropEntryDeletes;      // DELETEs on lootdrop_entries
+            public int LootTableRowsWritten;      // UPDATEs on loottable (header fields)
 
             // Maps pending-insert temp ids (negative) to their assigned AUTO_INCREMENT ids
             // (positive) after a successful INSERT. Consumers (OnCommitSucceeded) apply this
@@ -472,6 +473,35 @@ namespace VisualEQ.EditSystem
                                 }
                             }
 
+                            // Loottable header commits (Slice 6c follow-up) —
+                            // dynamic UPDATE SET pattern lifted from NpcEdit.
+                            // Only the fields the user touched appear in the SET
+                            // clause so a name-only edit doesn't rewrite cash.
+                            int lootTableRows = 0;
+                            foreach (var kv in buffer.LootTables)
+                            {
+                                var edit = kv.Value;
+                                if (edit.CurrentValues == null || edit.CurrentValues.Count == 0)
+                                    continue;
+
+                                var setClauses = new System.Collections.Generic.List<string>();
+                                var parameters = new DynamicParameters();
+                                parameters.Add("Id", edit.LoottableId);
+                                int p = 0;
+                                foreach (var fv in edit.CurrentValues)
+                                {
+                                    var def = LootTableFieldCatalog.Get(fv.Key);
+                                    if (def == null) continue;
+                                    var paramName = $"p{p++}";
+                                    setClauses.Add($"{def.ColumnName} = @{paramName}");
+                                    parameters.Add(paramName, LootTableFieldCatalog.Parse(fv.Value, def.Kind));
+                                }
+                                if (setClauses.Count == 0) continue;
+
+                                var sql = $"UPDATE loottable SET {string.Join(", ", setClauses)} WHERE id = @Id";
+                                lootTableRows += await connection.ExecuteAsync(sql, parameters, tx);
+                            }
+
                             // Zone-point commits: DELETE first (so a delete+re-insert with
                             // the same target coord doesn't briefly duplicate a row), then
                             // INSERT (returns AUTO_INCREMENT ids we map back to the temp
@@ -595,6 +625,7 @@ namespace VisualEQ.EditSystem
                                 LootDropEntryInserts     = ldeInserts,
                                 LootDropEntryUpdates     = ldeUpdates,
                                 LootDropEntryDeletes     = ldeDeletes,
+                                LootTableRowsWritten     = lootTableRows,
                                 InsertedIdMap            = insertedIdMap,
                             };
                         }
