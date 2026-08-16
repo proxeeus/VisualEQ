@@ -4313,7 +4313,28 @@ namespace VisualEQ.Views
         {
             if (loottableId <= 0)
             {
-                ImGui.Text("(no loottable assigned — pick one in the References section)");
+                // Slice 6c fix: don't dead-end the user. Offer both an
+                // existing-loottable picker AND the create-new flow directly
+                // from the loot section — otherwise "no loottable assigned"
+                // becomes a black hole they can only escape via References,
+                // and the create-new path (which lives here) isn't reachable
+                // at all until they've assigned one.
+                ImGui.Text("No loottable assigned.");
+                if (!editable)
+                {
+                    ImGui.Text("(read-only mode — flip to edit to assign one)");
+                    return;
+                }
+                if (ImGui.Button($"Pick existing loottable…###{Id}ndPickLT0", new Vector2(200, 24)))
+                {
+                    BeginFkPicker(
+                        VisualEQ.SpawnSystem.ReferenceDataCache.Table.LootTable,
+                        "loottable_id", "Loot table",
+                        npcId, 0);
+                }
+                ImGui.SameLine();
+                if (ImGui.Button($"+ New empty loottable…###{Id}ndNewLT0", new Vector2(200, 24)))
+                    BeginCreateEmptyLootTable(npcId, 0);
                 return;
             }
 
