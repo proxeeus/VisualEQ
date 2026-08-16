@@ -44,6 +44,45 @@ namespace VisualEQ.SpawnSystem
             }
         }
 
+        // Scale = npc.Size / per-race divisor. Purely visual — DB.size is calibrated
+        // for this formula, don't touch. Overloads exist for NpcType (spawn load) and
+        // NpcTypeFull (mid-load model swap on edit).
+        static float ComputeScale(VisualEQ.Database.Models.NpcType npc) =>
+            npc == null || npc.Size <= 0f ? 1f : npc.Size / MeshAuthoredHeightForRace(npc.Race);
+        static float ComputeScale(VisualEQ.Database.Models.NpcTypeFull npc) =>
+            npc == null || npc.Size <= 0f ? 1f : npc.Size / MeshAuthoredHeightForRace(npc.Race);
+
+        // Foot-align render bias. `spawn.z` is not a reliable ground reference —
+        // varies per-NPC (some placed at belly, some at feet, some floating).
+        // Instead raycast straight down from just above spawn.z, find actual
+        // walkable terrain via the collision octree, and shift the render so
+        // the mesh's lowest vertex lands at hit-Z. That way dragons/wurms/humans
+        // all stand ON ground regardless of what `spawn.z` was set to.
+        //
+        // No bias when Globals.Collider isn't ready yet (falls back to raw
+        // spawn.z placement — the pre-fix behavior). No bias when the ray
+        // misses (spawn placed in the sky, over water, off-map).
+        static float ComputeRenderZBias(Vector3 scenePos, AniModel aniModel, float scale)
+        {
+            if (aniModel == null || Globals.Collider == null) return 0f;
+            // Cast down from spawn.z itself, not from way above. Casting from
+            // +200 hit the CEILING in tall chambers (Temple of Veeshan, guild
+            // halls) — placed dragons on the ceiling.
+            var origin = new Vector3(scenePos.X, scenePos.Y, scenePos.Z + 1f);
+            var hit = Globals.Collider.FindIntersection(origin, new Vector3(0, 0, -1));
+            if (!hit.HasValue) return 0f;
+            var groundZ = hit.Value.Item2.Z;
+            // Compute where the mesh's lowest scaled vertex would land WITHOUT
+            // any bias — i.e. respecting the DB's spawn.z as-is.
+            var feetZ = scenePos.Z + aniModel.AuthoredMinZ * scale;
+            // Only lift when the mesh would sink INTO the terrain. If spawn.z
+            // is intentionally elevated (drakes, wyverns and other flying NPCs
+            // hover above ground), the DB placement is already correct — leave
+            // it alone. This keeps big ground-dwellers (dragons, wurms) on the
+            // floor while flying spawns stay at their intended altitude.
+            return feetZ < groundZ ? groundZ - feetZ : 0f;
+        }
+
         public static Quaternion HeadingToRotation(float heading)
         {
             var angle = heading * ((float)Math.PI * 2f / HeadingFullCircle);
@@ -267,13 +306,14 @@ namespace VisualEQ.SpawnSystem
 
             var pos = new Vector3(record.Spawn.Y, record.Spawn.X, record.Spawn.Z);
             var idle = SpawnAnimationCandidates.FirstOrDefault(a => aniModel.AvailableAnimations.Contains(a)) ?? "";
-            var sizeScale = (npc != null && npc.Size > 0f) ? npc.Size / MeshAuthoredHeightForRace(npc.Race) : 1f;
+            var sizeScale = ComputeScale(npc);
             var instance = new AniModelInstance(aniModel)
             {
-                Animation = idle,
-                Rotation  = HeadingToRotation(record.Spawn.Heading),
-                Position  = pos,
-                Scale     = sizeScale
+                Animation   = idle,
+                Rotation    = HeadingToRotation(record.Spawn.Heading),
+                Position    = pos,
+                Scale       = sizeScale,
+                RenderZBias = ComputeRenderZBias(pos, aniModel, sizeScale),
             };
 
             engine.Add(instance);
@@ -420,9 +460,7 @@ namespace VisualEQ.SpawnSystem
             }
             if (newAniModel == null) return false; // nothing to render — keep the old instance visible
 
-            var newScale = (effective.Size > 0f)
-                ? effective.Size / MeshAuthoredHeightForRace(effective.Race)
-                : 1f;
+            var newScale = ComputeScale(effective);
 
             // Short-circuit when the resolved instance is functionally the same (same
             // AniModel, same scale) — happens if the edit only touched a field the model
@@ -438,10 +476,11 @@ namespace VisualEQ.SpawnSystem
             var idle = SpawnAnimationCandidates.FirstOrDefault(a => newAniModel.AvailableAnimations.Contains(a)) ?? "";
             var newInstance = new AniModelInstance(newAniModel)
             {
-                Animation = idle,
-                Rotation  = oldModel?.Rotation ?? Quaternion.Identity,
-                Position  = oldModel?.Position ?? new Vector3(0, 0, 0),
-                Scale     = newScale,
+                Animation   = idle,
+                Rotation    = oldModel?.Rotation ?? Quaternion.Identity,
+                Position    = oldModel?.Position ?? new Vector3(0, 0, 0),
+                Scale       = newScale,
+                RenderZBias = ComputeRenderZBias(oldModel?.Position ?? Vector3.Zero, newAniModel, newScale),
             };
 
             // Swap in the scene: remove old, add new. Two lists have to stay in sync —

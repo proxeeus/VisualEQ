@@ -129,15 +129,20 @@ namespace VisualEQ.Engine
 
             foreach (var model in models)
             {
-                // Vertical spine from feet to head. Height ≈ 6 world units per unit
-                // of Scale (matches SpawnManager's authored-height convention). We
-                // pick a torso point (midway) as the projection target — clicks on
-                // the head or the feet are both ~3 units from it, which fits under
-                // any reasonable radius.
-                var height   = 6f * model.Scale;
-                var feet     = model.Position;
-                var head     = feet + new Vector3(0, 0, height);
-                var torso    = feet + new Vector3(0, 0, height * 0.5f);
+                // Use the ACTUAL rendered bounds — mesh authored MinZ/MaxZ * scale,
+                // plus RenderZBias (ground-alignment shift that isn't in Position).
+                // The old code assumed every model was a 6-unit humanoid on a spine
+                // from `Position` to `Position + 6*scale`, which was already wrong
+                // for dragons/wurms (mesh height ≈ 15*scale) and got worse when
+                // RenderZBias started lifting the rendered mesh well above Position.
+                var authoredMinZ = model.Model?.AuthoredMinZ ?? 0f;
+                var authoredMaxZ = model.Model?.AuthoredMaxZ ?? 6f;
+                var authoredHeight = authoredMaxZ - authoredMinZ;
+                if (authoredHeight <= 0.1f) authoredHeight = 6f;
+
+                var feet     = model.Position + new Vector3(0, 0, authoredMinZ * model.Scale + model.RenderZBias);
+                var head     = feet + new Vector3(0, 0, authoredHeight * model.Scale);
+                var torso    = feet + new Vector3(0, 0, authoredHeight * model.Scale * 0.5f);
 
                 // Distance-along-ray to the torso (used for camera-distance tiebreak
                 // + the "behind camera" cull).
@@ -150,15 +155,18 @@ namespace VisualEQ.Engine
                 // distance in world space, clamped so a ray that passes above/below
                 // the head/feet doesn't count.
                 var rayPoint = rayOrigin + rayDir * proj;
+                var spineLen2 = authoredHeight * model.Scale * authoredHeight * model.Scale;
                 var spineT   = System.Math.Max(0f, System.Math.Min(1f,
-                    Vector3.Dot(rayPoint - feet, head - feet) / (height * height)));
+                    Vector3.Dot(rayPoint - feet, head - feet) / spineLen2));
                 var spinePt  = feet + (head - feet) * spineT;
                 var dist     = Vector3.Distance(rayPoint, spinePt);
 
-                // Radius: ~2 world units for a scale-1 humanoid (about mesh width),
-                // plus a small distance term so distant humanoids don't require pixel-
-                // perfect aim. Much smaller than the old 15+dist*0.008 base.
-                var radius = 2.5f * model.Scale + proj * 0.005f;
+                // Radius: was 2.5 world units for a scale-1 humanoid. Scale that with
+                // authored height so wide creatures (dragons ~15u tall, wurms even
+                // wider) get a proportionally larger pick radius. Cap so the radius
+                // never shrinks below the humanoid baseline for tiny meshes.
+                var meshRadius = System.Math.Max(2.5f, authoredHeight * 0.42f);
+                var radius = meshRadius * model.Scale + proj * 0.005f;
                 if (dist > radius) continue;
 
                 // Normalized aim score. Smaller wins. Two models at score ~0 (both
