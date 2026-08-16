@@ -372,6 +372,29 @@ namespace VisualEQ.Views
         static readonly int[]    _tempVals   = { 0, 1, 2, 3 };
         static readonly string[] _tempLabels = { "Perm", "Temp/NM", "Perm/NM", "Temp" };
 
+        // Loot-editor fetch state (Slice 6a — read-only view). Keyed by loottable
+        // id so multiple NPCs sharing a loottable share the fetch. One composite
+        // Task fires three queries in sequence (loottable header, entries with
+        // JOIN on lootdrop.name, batch items-per-lootdrop with JOIN on items.Name)
+        // and publishes the whole payload atomically. Editor renders "Loading…"
+        // until it lands.
+        private int? _lootFetchedForLoottableId;
+        private int? _lootInFlightForLoottableId;
+        private System.Threading.Tasks.Task<LootFetchResult> _lootTask;
+        private LootFetchResult _lootData;
+        private string _lootError;
+
+        // Composite of everything the loot widget needs to render one loottable.
+        // Held in one place so the widget's "have I got data yet?" check is a
+        // single null-guard rather than three-way task juggling.
+        sealed class LootFetchResult
+        {
+            public VisualEQ.Database.Models.LootTable LootTable;
+            public System.Collections.Generic.List<VisualEQ.Database.Models.LootTableEntry> Entries;
+            public System.Collections.Generic.Dictionary<int, System.Collections.Generic.List<VisualEQ.Database.Models.LootDropEntry>> ItemsByLootdrop;
+            public int UsageCount;
+        }
+
         public SidebarWidget(SidebarView view)
         {
             _view = view;
@@ -4181,6 +4204,197 @@ namespace VisualEQ.Views
                 npcFactionId, current.FactionId, from, null, factionName));
         }
 
+        // ── Slice 6a: read-only loot editor ─────────────────────────────
+        // Renders the NPC's assigned loottable → its lootdrops → each lootdrop's
+        // item list. Fetch is keyed on loottable id (not npc id) so NPCs that
+        // share a loottable share the fetch. `items.Name` and `lootdrop.name`
+        // come inline via LEFT JOIN — same pattern as Slice 5's faction editor.
+        //
+        // Requires loottable_id > 0. NPCs without one get a hint pointing at
+        // References (where the loottable FK picker lives). Editing arrives in
+        // Slice 6b; this slice's `editable` flag is currently ignored — the
+        // widget is display-only regardless.
+        void NpcLootEditor(int npcId, int loottableId, bool editable)
+        {
+            if (loottableId <= 0)
+            {
+                ImGui.Text("(no loottable assigned — pick one in the References section)");
+                return;
+            }
+
+            MaintainLootFetch(loottableId);
+            if (_lootInFlightForLoottableId == loottableId)
+            {
+                ImGui.Text("Loading loot…");
+                return;
+            }
+            if (_lootFetchedForLoottableId == loottableId && _lootError != null)
+            {
+                ImGui.Text($"Error: {_lootError}", new Vector4(0.95f, 0.35f, 0.25f, 1f));
+                return;
+            }
+            if (_lootFetchedForLoottableId != loottableId || _lootData == null)
+            {
+                ImGui.Text("Waiting for loot data…");
+                return;
+            }
+
+            var data  = _lootData;
+            var table = data.LootTable;
+
+            // ── Header block ────────────────────────────────────────────
+            var ltName = string.IsNullOrWhiteSpace(table?.Name) ? "(unnamed)" : table.Name;
+            ImGui.Text($"Loottable #{loottableId} — \"{ltName}\"");
+            if (table != null)
+            {
+                ImGui.Text($"Cash: min {table.MinCash} / max {table.MaxCash} / avg {table.AvgCoin}");
+                if (table.MinExpansion != -1 || table.MaxExpansion != -1)
+                    ImGui.Text($"Expansion window: {table.MinExpansion} .. {table.MaxExpansion}");
+                if (!string.IsNullOrEmpty(table.ContentFlags))
+                    ImGui.Text($"Content flags: {table.ContentFlags}");
+                if (!string.IsNullOrEmpty(table.ContentFlagsDisabled))
+                    ImGui.Text($"Content flags disabled: {table.ContentFlagsDisabled}");
+            }
+            ImGui.Text($"Used by: {data.UsageCount} NPC(s)");
+            ImGui.Separator();
+
+            // ── Per-lootdrop cards ──────────────────────────────────────
+            if (data.Entries.Count == 0)
+            {
+                ImGui.Text("(no lootdrops in this loottable)");
+                return;
+            }
+
+            foreach (var entry in data.Entries)
+            {
+                var items = data.ItemsByLootdrop.TryGetValue(entry.LootdropId, out var lst)
+                    ? lst
+                    : new List<VisualEQ.Database.Models.LootDropEntry>();
+
+                var dropName = string.IsNullOrWhiteSpace(entry.LootdropName)
+                    ? "(unnamed)"
+                    : entry.LootdropName;
+
+                // Header includes item count + probability so a collapsed row
+                // still gives you the "does this roll matter?" info.
+                var header = $"{dropName} (#{entry.LootdropId})  — {items.Count} item(s), prob {entry.Probability:0.##}%###{Id}ndLD{entry.LootdropId}";
+                if (!ImGui.CollapsingHeader(header, 0))
+                    continue;
+
+                ImGui.Text($"  mindrop {entry.MinDrop}   droplimit {entry.DropLimit}   multiplier {entry.Multiplier}");
+
+                if (items.Count == 0)
+                {
+                    ImGui.Text("  (no items in this lootdrop)");
+                    continue;
+                }
+
+                // Column layout — mirrors the faction editor's scale-to-content
+                // approach. Fixed widget widths; name column absorbs the rest.
+                var contentW = ImGui.GetContentRegionAvailable().X;
+                if (contentW < 320f) contentW = 320f;
+
+                const float wChance = 55f;    // "100.00"
+                const float wMult   = 35f;    // "1"
+                const float wChg    = 35f;    // "1"
+                const float wEqp    = 35f;    // "Yes"
+                const float colGap  = 6f;
+
+                var xEqp    = contentW - wEqp;
+                var xChg    = xEqp    - colGap - wChg;
+                var xMult   = xChg    - colGap - wMult;
+                var xChance = xMult   - colGap - wChance;
+
+                ImGui.Text("  Item");
+                ImGui.SameLine(xChance); ImGui.Text("Chance");
+                ImGui.SameLine(xMult);   ImGui.Text("Mult");
+                ImGui.SameLine(xChg);    ImGui.Text("Chg");
+                ImGui.SameLine(xEqp);    ImGui.Text("Eqp");
+                ImGui.Separator();
+
+                foreach (var it in items)
+                {
+                    var itemName = string.IsNullOrWhiteSpace(it.ItemName) ? "?" : it.ItemName;
+                    // Two-space leading indent so the row visually nests under
+                    // the CollapsingHeader.
+                    ImGui.Text($"  {itemName} (#{it.ItemId})");
+
+                    // "Effective chance" mirrors peqphpeditor's calc: when the
+                    // lootdrop's own probability < 100, the item's chance is
+                    // scaled by (probability/100). Otherwise raw chance is what
+                    // shows — same value the server rolls against.
+                    var effective = entry.Probability >= 100f || entry.Probability <= 0f
+                        ? it.Chance
+                        : (it.Chance / 100f) * (entry.Probability / 100f) * 100f;
+
+                    ImGui.SameLine(xChance); ImGui.Text($"{effective:0.##}");
+                    ImGui.SameLine(xMult);   ImGui.Text(it.Multiplier.ToString());
+                    ImGui.SameLine(xChg);    ImGui.Text(it.ItemCharges.ToString());
+                    ImGui.SameLine(xEqp);    ImGui.Text(it.EquipItem != 0 ? "Yes" : "No");
+                }
+            }
+        }
+
+        // Fetch pump for the loot editor. One Task.Run spawns all three queries
+        // (loottable header, entries with lootdrop-name JOIN, items batched
+        // across all lootdrops with items.Name JOIN) and composes them into one
+        // LootFetchResult so the widget's render path is single-null-check.
+        //
+        // Batches items via IN (@Ids) to keep the fetch at 4 queries total no
+        // matter how many lootdrops the table has — no N+1 for wide tables.
+        void MaintainLootFetch(int loottableId)
+        {
+            if (_lootTask != null && _lootTask.IsCompleted)
+            {
+                if (_lootTask.IsFaulted)
+                {
+                    _lootError = _lootTask.Exception?.GetBaseException().Message ?? "unknown error";
+                    _lootData  = null;
+                }
+                else
+                {
+                    _lootError = null;
+                    _lootData  = _lootTask.Result;
+                }
+                _lootFetchedForLoottableId  = _lootInFlightForLoottableId;
+                _lootInFlightForLoottableId = null;
+                _lootTask                   = null;
+            }
+            if (_lootTask == null && _lootFetchedForLoottableId != loottableId)
+            {
+                var factory = _view.Controller.DbFactory;
+                if (factory == null)
+                {
+                    _lootError = "No database connection is configured.";
+                    _lootData  = null;
+                    _lootFetchedForLoottableId = loottableId;
+                    return;
+                }
+                _lootInFlightForLoottableId = loottableId;
+                var repo = new VisualEQ.Database.Repositories.LootRepository(factory);
+                _lootTask = System.Threading.Tasks.Task.Run(async () =>
+                {
+                    var header = await repo.GetLootTableAsync(loottableId);
+                    var entries = (await repo.GetLootTableEntriesAsync(loottableId)).ToList();
+                    var usage  = await repo.GetLootTableUsageCountAsync(loottableId);
+
+                    var lootdropIds = entries.Select(e => e.LootdropId).Distinct().ToList();
+                    var itemsFlat = (await repo.GetLootDropEntriesBatchAsync(lootdropIds)).ToList();
+                    var itemsByDrop = itemsFlat
+                        .GroupBy(i => i.LootdropId)
+                        .ToDictionary(g => g.Key, g => g.ToList());
+
+                    return new LootFetchResult
+                    {
+                        LootTable       = header,
+                        Entries         = entries,
+                        ItemsByLootdrop = itemsByDrop,
+                        UsageCount      = usage,
+                    };
+                });
+            }
+        }
+
         void NpcSpecialAbilitiesEditor(int npcId, System.Func<string> read, System.Action<string> write, bool editable)
         {
             var current = read() ?? "";
@@ -4689,6 +4903,15 @@ namespace VisualEQ.Views
             if (ImGui.CollapsingHeader($"Faction entries###{Id}ndFacE", TreeNodeFlags.DefaultOpen))
             {
                 NpcFactionEntriesEditor(npcId, n.NpcFactionId, editable);
+            }
+
+            // ── Loot (Slice 6a — read-only 3-level view; CRUD in 6b) ──────
+            // Directly below Faction entries so the two "what happens when this
+            // NPC dies" sections sit together. Default-collapsed because a wide
+            // loottable can push everything else off-screen.
+            if (ImGui.CollapsingHeader($"Loot###{Id}ndLoot", 0))
+            {
+                NpcLootEditor(npcId, n.LoottableId, editable);
             }
 
             // ── Scaling ────────────────────────────────────────────

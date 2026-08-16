@@ -382,6 +382,93 @@ namespace VisualEQ.Database.Constants
             DELETE FROM npc_faction_entries
             WHERE npc_faction_id = @NpcFactionId AND faction_id = @FactionId";
 
+        // ── Slice 6 (loot editor) ─────────────────────────────────────────
+
+        // One loottable row by id. Header block of the loot editor: cash range,
+        // expansion / content flags, avg-coin. Fetched independently of the
+        // entries so a broken loottable_entries row can't hide the header.
+        public const string GetLootTableById = @"
+            SELECT
+                id                      AS Id,
+                name                    AS Name,
+                mincash                 AS MinCash,
+                maxcash                 AS MaxCash,
+                avgcoin                 AS AvgCoin,
+                min_expansion           AS MinExpansion,
+                max_expansion           AS MaxExpansion,
+                content_flags           AS ContentFlags,
+                content_flags_disabled  AS ContentFlagsDisabled
+            FROM loottable
+            WHERE id = @Id";
+
+        // Every lootdrop attached to a loottable. LEFT JOINs lootdrop.name so
+        // the widget can render "guard_common (#45)" without a per-row lookup.
+        // Ordered by lootdrop name for scan-friendliness.
+        public const string GetLootTableEntries = @"
+            SELECT
+                lte.loottable_id  AS LoottableId,
+                lte.lootdrop_id   AS LootdropId,
+                lte.multiplier    AS Multiplier,
+                lte.droplimit     AS DropLimit,
+                lte.mindrop       AS MinDrop,
+                lte.probability   AS Probability,
+                ld.name           AS LootdropName
+            FROM loottable_entries lte
+            LEFT JOIN lootdrop ld ON ld.id = lte.lootdrop_id
+            WHERE lte.loottable_id = @LoottableId
+            ORDER BY ld.name, lte.lootdrop_id";
+
+        // Every item entry under one lootdrop. LEFT JOINs items.Name (note the
+        // capital N — the items table is a legacy schema). Ordered by item name
+        // so the drop list reads alphabetically. Fetched per-lootdrop; a batch
+        // form (IN @Ids) is exposed alongside so the widget can pull all its
+        // lootdrops' items in one round-trip.
+        public const string GetLootDropEntries = @"
+            SELECT
+                lde.lootdrop_id       AS LootdropId,
+                lde.item_id           AS ItemId,
+                lde.item_charges      AS ItemCharges,
+                lde.equip_item        AS EquipItem,
+                lde.chance            AS Chance,
+                lde.disabled_chance   AS DisabledChance,
+                lde.trivial_min_level AS TrivialMinLevel,
+                lde.trivial_max_level AS TrivialMaxLevel,
+                lde.multiplier        AS Multiplier,
+                lde.npc_min_level     AS NpcMinLevel,
+                lde.npc_max_level     AS NpcMaxLevel,
+                i.Name                AS ItemName
+            FROM lootdrop_entries lde
+            LEFT JOIN items i ON i.id = lde.item_id
+            WHERE lde.lootdrop_id = @LootdropId
+            ORDER BY i.Name, lde.item_id";
+
+        // Batched form of GetLootDropEntries — one query for many lootdrops so
+        // the widget avoids N+1 when a loottable has many entries. Dapper
+        // expands @Ids automatically for IEnumerable<int>.
+        public const string GetLootDropEntriesBatch = @"
+            SELECT
+                lde.lootdrop_id       AS LootdropId,
+                lde.item_id           AS ItemId,
+                lde.item_charges      AS ItemCharges,
+                lde.equip_item        AS EquipItem,
+                lde.chance            AS Chance,
+                lde.disabled_chance   AS DisabledChance,
+                lde.trivial_min_level AS TrivialMinLevel,
+                lde.trivial_max_level AS TrivialMaxLevel,
+                lde.multiplier        AS Multiplier,
+                lde.npc_min_level     AS NpcMinLevel,
+                lde.npc_max_level     AS NpcMaxLevel,
+                i.Name                AS ItemName
+            FROM lootdrop_entries lde
+            LEFT JOIN items i ON i.id = lde.item_id
+            WHERE lde.lootdrop_id IN @Ids
+            ORDER BY lde.lootdrop_id, i.Name, lde.item_id";
+
+        // Count of NPCs pointing at a loottable — feeds the "Uses: N NPCs"
+        // header hint. Slice 6c will use this for the copy-on-edit prompt.
+        public const string GetLootTableUsageCount = @"
+            SELECT COUNT(*) FROM npc_types WHERE loottable_id = @LoottableId";
+
         // NPC picker search — substring match on npc_types.name. Caller passes @Filter
         // pre-wrapped with '%' wildcards (empty @Filter still returns rows, LIMIT
         // caps the load). Ordered by name so the UI list stays stable across
