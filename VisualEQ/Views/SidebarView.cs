@@ -587,6 +587,12 @@ namespace VisualEQ.Views
             if (_view.Controller.EditModeEnabled)
                 DrawEditModeBorder(gui);
 
+            // World-space nameplates above every multi-entry spawn. Uses gui.Dimensions
+            // (ImGui's own coord range) — engine.Width is in a different coord space
+            // when the framebuffer is DPI-scaled, which is what caused the "nameplate
+            // drifts across screen as I move" bug.
+            DrawMultiEntryNameplates(gui, _view.Controller);
+
             // Always-visible coordinate overlay in the top-right — camera + selected spawn +
             // drag delta. Renders as its own small ImGui window with no chrome.
             RenderCoordinateHud(gui);
@@ -1143,6 +1149,122 @@ namespace VisualEQ.Views
             dl.AddRect(min, max, orange, 0f, 0, thickness);
         }
 
+        // World-space nameplates above every multi-entry spawn. THIS uses ImGui's
+        // own coord range (gui.Dimensions.X / gui.Dimensions.Y) for the pixel
+        // conversion — earlier versions used engine.Width/Height which is the raw
+        // framebuffer size in a DPI-scaled environment (Parallels + Retina) causing
+        // every projected point to drift with camera motion.
+        //
+        // Anchor: project the head anchor world point, offset the chip UP in screen
+        // pixels from that projected point so it sits above the model.
+        //
+        // Culls: distance (300 world units — conservative to prevent zone-of-nameplates),
+        // NDC clip, and camera → head occlusion via the collision octree.
+        const float NameplateMaxDistance   = 300f;
+        const float NameplateMaxDistanceSq = NameplateMaxDistance * NameplateMaxDistance;
+        const float NameplateFontSize      = 18f;
+        const float NameplateCharAdvance   = 9f;
+        const float NameplateHeadOffset    = 6f; // world Z offset — approximate humanoid head
+
+        static void DrawMultiEntryNameplates(Gui gui, Controller ctrl)
+        {
+            if (ctrl?.SpawnManager == null) return;
+            var spawns = ctrl.SpawnManager.SpawnPoints;
+            if (spawns == null || spawns.Count == 0) return;
+
+            var dl        = ImGui.GetOverlayDrawList();
+            var dlRaw     = NsimGui.CimguiRaw.igGetOverlayDrawList();
+            var fontRaw   = NsimGui.CimguiRaw.igGetFont();
+            var viewProj  = FpsCamera.Matrix * ProjectionMat;
+            // ImGui's actual coord range is Dimensions / Scale — GuiRenderer.Draw
+            // gets (Dimensions/Scale) as its viewport hint and builds a projection
+            // that maps [0, Dimensions/Scale] to clip [-1,+1]. Using raw Dimensions
+            // (or engine.Width) inflates every coord by 1.5× at render, pushing
+            // world-projected points 50% to the right of the model. This was the
+            // "nameplate drifts as I move" bug.
+            float screenW = gui.Dimensions.X / gui.Scale.X;
+            float screenH = gui.Dimensions.Y / gui.Scale.Y;
+            if (screenW <= 0 || screenH <= 0) return;
+
+            var camPos = Camera.Position;
+            var collider = Collider;
+
+            // ABGR packing: 0xAABBGGRR.
+            const uint textColor = 0xFFFFE066u; // pale gold
+            const uint chipColor = 0xD8101010u; // ~85% opaque near-black chip
+
+            foreach (var sp in spawns)
+            {
+                var entries = sp?.Record?.Entries;
+                if (entries == null || entries.Count <= 1) continue;
+                if (sp.Model == null) continue;
+                var focused = sp.FocusedEntry;
+                var focusedNpc = focused?.Npc;
+                if (focusedNpc == null) continue;
+
+                // Distance cull first (cheapest reject).
+                var toSpawn = sp.Model.Position - camPos;
+                var distSq  = toSpawn.LengthSquared();
+                if (distSq > NameplateMaxDistanceSq) continue;
+
+                // Head anchor: fixed world Z offset from feet. No Scale math (that
+                // was the previous drift source on placeholder/oversized spawns).
+                var anchor = sp.Model.Position + new Vector3(0f, 0f, NameplateHeadOffset);
+
+                var clip = System.Numerics.Vector4.Transform(new System.Numerics.Vector4(anchor, 1f), viewProj);
+                if (clip.W <= 0.0001f) continue; // behind camera
+                var ndcX = clip.X / clip.W;
+                var ndcY = clip.Y / clip.W;
+                if (ndcX < -1.05f || ndcX > 1.05f || ndcY < -1.05f || ndcY > 1.05f) continue;
+
+                // Occlusion — camera → anchor raycast.
+                if (collider != null)
+                {
+                    var dir = anchor - camPos;
+                    var anchorDist = dir.Length();
+                    if (anchorDist > 0.001f)
+                    {
+                        var hit = collider.FindIntersection(camPos, dir / anchorDist);
+                        if (hit.HasValue)
+                        {
+                            var hitDist = (hit.Value.Item2 - camPos).Length();
+                            if (hitDist + 8f < anchorDist) continue;
+                        }
+                    }
+                }
+
+                // NDC → ImGui coords. Uses screenW/screenH from gui.Dimensions (see
+                // method comment on why engine.Width is wrong here).
+                var px = (ndcX * 0.5f + 0.5f) * screenW;
+                var py = (1f - (ndcY * 0.5f + 0.5f)) * screenH;
+
+                var chance = focused?.Entry?.Chance ?? 0;
+                var text = $"{focusedNpc.Name ?? "?"} ({chance}%)";
+                var textW = NameplateCharAdvance * text.Length;
+                var textH = NameplateFontSize;
+
+                // Chip bottom-anchored ON the head point, growing upward. Horizontally
+                // centered on the projected head X.
+                const float padX = 6f;
+                const float padY = 3f;
+                var chipMin = new Vector2(px - textW * 0.5f - padX, py - textH - padY * 2f);
+                var chipMax = new Vector2(px + textW * 0.5f + padX, py);
+                dl.AddRectFilled(chipMin, chipMax, chipColor, 3f, 0xF);
+
+                var textPos = new NsimGui.CimguiRaw.ImVec2(chipMin.X + padX, chipMin.Y + padY);
+                if (dlRaw != System.IntPtr.Zero && fontRaw != System.IntPtr.Zero)
+                {
+                    NsimGui.CimguiRaw.ImDrawList_AddText_FontPtr(
+                        dlRaw, fontRaw, NameplateFontSize, textPos, textColor, text,
+                        System.IntPtr.Zero, 0f, System.IntPtr.Zero);
+                }
+                else
+                {
+                    dl.AddText(new Vector2(textPos.X, textPos.Y), text, textColor);
+                }
+            }
+        }
+
         // Always-visible edit-mode indicator at the top of the sidebar. Colored text +
         // toggle button. Also the anchor for future pending-change counts.
         void RenderModeBanner()
@@ -1281,9 +1403,10 @@ namespace VisualEQ.Views
             }
 
             var record = sp.Record;
-            var primary = record.Entries
-                .OrderByDescending(e => e.Entry.Chance)
-                .FirstOrDefault();
+            // "Primary" is now the focused entry — the one the user has cycled onto (see
+            // RenderSpawnEntryCyclerBlock). Defaults to the highest-Chance entry at load,
+            // matching legacy behaviour when the user hasn't touched the cycler.
+            var primary = sp.FocusedEntry;
             var npc = primary?.Npc;
 
             if (npc != null)
@@ -1376,17 +1499,13 @@ namespace VisualEQ.Views
             if (_view.Controller.EditModeEnabled)
                 RenderSpawnSnapToWater(sp);
 
-            // Other entries in the spawngroup, if any.
-            if (record.Entries.Count > 1)
-            {
-                ImGui.Separator();
-                ImGui.Text($"Spawngroup entries ({record.Entries.Count}):");
-                foreach (var e in record.Entries.OrderByDescending(x => x.Entry.Chance))
-                {
-                    var eNpc = e.Npc;
-                    ImGui.Text($"  {e.Entry.Chance,3}%: {eNpc?.Name ?? "?"} (race {eNpc?.Race}, lvl {eNpc?.Level})");
-                }
-            }
+            // Other entries in the spawngroup, if any. Rendered as an interactive cycler:
+            // prev/next buttons step through Entries in list order; each row is a
+            // Selectable that focuses that entry when clicked. Focusing an entry swaps
+            // the in-scene AniModel to that entry's race/gender/textures and points the
+            // NPC editor at that npc_types row, so a low-Chance sibling (e.g. the 25%
+            // shadowknight in a 4-way befallen spawngroup) becomes visible and editable.
+            RenderSpawnEntryCyclerBlock(sp);
 
             // Stacked spawn2 rows at the same DB coord — EQEmu respawn-rotation encoding.
             // In-game only one of these is alive at a time; VisualEQ visualises all of
@@ -1419,14 +1538,80 @@ namespace VisualEQ.Views
             ImGui.Text("Stack members:");
             foreach (var member in sp.StackSiblings)
             {
-                var memberNpc = member.Record.Entries
-                    .OrderByDescending(e => e.Entry.Chance)
-                    .FirstOrDefault()?.Npc;
+                var memberNpc = member.FocusedNpc;
                 var mName = memberNpc?.Name ?? "?";
                 var mRace = memberNpc?.Race.ToString() ?? "?";
                 var marker = member == sp ? ">" : " ";
                 ImGui.Text($"{marker} #{member.Record.Spawn.Id} {mName} (race {mRace})");
             }
+        }
+
+        // Spawngroup entry cycler + list. When a spawngroup has more than one entry,
+        // rendered as: focus header ("Focused: name (chance%) — N of M"), then prev/next
+        // buttons, then a per-entry Selectable list. Clicking any row (or the prev/next
+        // buttons) advances the SpawnPoint's FocusedEntryIndex and asks the Controller
+        // to swap the in-scene AniModel + repoint the NPC editor. Single-entry
+        // spawngroups render nothing — the info panel already shows the primary.
+        void RenderSpawnEntryCyclerBlock(SpawnPoint sp)
+        {
+            var entries = sp.Record?.Entries;
+            if (entries == null || entries.Count <= 1) return;
+
+            ImGui.Separator();
+            var focusIdx = sp.FocusedEntryIndex;
+            if (focusIdx < 0 || focusIdx >= entries.Count) focusIdx = 0;
+
+            var focused = entries[focusIdx];
+            var fNpc = focused?.Npc;
+            var fName = fNpc?.Name ?? "?";
+            var fChance = focused?.Entry?.Chance ?? 0;
+            ImGui.Text($"Spawngroup: {entries.Count} possible NPCs — server picks one per spawn");
+            ImGui.Text($"Focused: {fName} ({fChance}%) — {focusIdx + 1} of {entries.Count}");
+
+            var prevIdx = (focusIdx - 1 + entries.Count) % entries.Count;
+            var nextIdx = (focusIdx + 1) % entries.Count;
+            if (ImGui.Button($"< prev variant###{Id}spEntPrev", new Vector2(140, 22)))
+                SetSpawnFocus(sp, prevIdx);
+            ImGui.SameLine();
+            if (ImGui.Button($"next variant >###{Id}spEntNext", new Vector2(140, 22)))
+                SetSpawnFocus(sp, nextIdx);
+
+            // Full entry list — sorted by chance descending for readability, but the
+            // click target uses the entry's actual list index so focus semantics stay
+            // list-order-based. Marker (>) highlights the current focus so the visual
+            // + editor state is unambiguous.
+            ImGui.Text("Variants (click to focus):");
+            var ordered = entries
+                .Select((e, i) => new { E = e, Idx = i })
+                .OrderByDescending(x => x.E?.Entry?.Chance ?? 0)
+                .ToList();
+            foreach (var row in ordered)
+            {
+                var e = row.E;
+                var eNpc = e?.Npc;
+                var name = eNpc?.Name ?? "?";
+                var race = eNpc?.Race.ToString() ?? "?";
+                var lvl  = eNpc?.Level.ToString() ?? "?";
+                var chance = e?.Entry?.Chance ?? 0;
+                var marker = row.Idx == focusIdx ? ">" : " ";
+                var label = $"{marker} {chance,3}%  {name} (race {race}, lvl {lvl})###{Id}spEnt{row.Idx}";
+                if (ImGui.Selectable(label, row.Idx == focusIdx))
+                    SetSpawnFocus(sp, row.Idx);
+            }
+        }
+
+        // Applies a focus change: no-op if the requested index is already focused,
+        // otherwise updates SpawnPoint.FocusedEntryIndex and hands off to the Controller
+        // to rebuild the AniModel (race/gender/size/textures may all differ across
+        // entries). NPC editor state (fetch task, _displayedNpc) refreshes automatically
+        // next frame because RenderNpcDetailsSection re-reads sp.FocusedNpc.
+        void SetSpawnFocus(SpawnPoint sp, int newIdx)
+        {
+            if (sp == null || sp.Record?.Entries == null) return;
+            if (newIdx < 0 || newIdx >= sp.Record.Entries.Count) return;
+            if (sp.FocusedEntryIndex == newIdx) return;
+            sp.FocusedEntryIndex = newIdx;
+            _view.Controller.RefreshSpawnFocus(sp);
         }
 
         // Selected-waypoint inspector. Renders the grid_entries row for the waypoint
@@ -2444,26 +2629,65 @@ namespace VisualEQ.Views
             var ctrl = _view.Controller;
             var spawns = ctrl.SpawnManager.SpawnPoints;
 
-            var matches = spawns
-                .Select(sp => new { Point = sp, Name = PrimaryName(sp) })
+            // One search row per (spawn, entry) pair. Previously only the primary
+            // (highest-Chance) NPC was searchable, so a shadowknight sharing a
+            // 25/25/25/25 spawngroup with skeletons was invisible unless he happened
+            // to be primary — that made the search silently omit editable NPCs.
+            // Now each spawngroup entry is a first-class hit; clicking a row also sets
+            // the SpawnPoint's focus so the scene model + NPC editor jump to that
+            // specific entry (not the highest-Chance one at that coord).
+            var flat = spawns
+                .SelectMany(sp => (sp.Record?.Entries ?? new List<Database.Models.SpawnEntryWithNpc>())
+                    .Select((e, idx) => new { Point = sp, Entry = e, Idx = idx }))
+                .Where(x => x.Entry?.Npc?.Name != null)
+                .Select(x => new
+                {
+                    x.Point,
+                    x.Idx,
+                    Name    = x.Entry.Npc.Name,
+                    Level   = x.Entry.Npc.Level,
+                    Chance  = x.Entry?.Entry?.Chance ?? 0,
+                    Siblings = x.Point.Record?.Entries?.Count ?? 1,
+                })
                 .Where(x => filter.Length == 0 || x.Name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0)
                 .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+                .ThenByDescending(x => x.Chance)
                 .ToList();
 
-            ImGui.Text($"{matches.Count} of {spawns.Count} spawns");
+            var totalEntries = spawns.Sum(sp => sp.Record?.Entries?.Count ?? 0);
+            ImGui.Text($"{flat.Count} of {totalEntries} spawn entries ({spawns.Count} spawn2 rows)");
 
             ImGui.BeginChild($"###{Id}slList", new Vector2(0, 200), true, WindowFlags.Default);
             var selected = ctrl.SpawnManager.Selected;
-            foreach (var m in matches)
+            foreach (var m in flat)
             {
                 var sp = m.Point;
-                var primary = sp.Record.Entries.OrderByDescending(e => e.Entry.Chance).FirstOrDefault();
-                var lvl = primary?.Npc?.Level ?? 0;
-                var label = $"{m.Name} [L{lvl}]###{Id}sl{sp.Record.Spawn.Id}";
-                if (ImGui.Selectable(label, sp == selected))
-                    FlyToAndSelect(sp);
+                var isFocusedHere = sp == selected && sp.FocusedEntryIndex == m.Idx;
+                var siblingSuffix = m.Siblings > 1 ? $" [in group of {m.Siblings}]" : "";
+                // Chance shown as an ambient hint after the level so search results carry
+                // enough context to disambiguate — a 5% NPC is easy to miss without the %.
+                var label = m.Siblings > 1
+                    ? $"{m.Name} [L{m.Level}] {m.Chance}%{siblingSuffix} — spawn {sp.Record.Spawn.Id}###{Id}sl{sp.Record.Spawn.Id}e{m.Idx}"
+                    : $"{m.Name} [L{m.Level}]###{Id}sl{sp.Record.Spawn.Id}e{m.Idx}";
+                if (ImGui.Selectable(label, isFocusedHere))
+                    FocusEntryAndFly(sp, m.Idx);
             }
             ImGui.EndChild();
+        }
+
+        // Fly-to + select + focus. Used by both the spawn list and (in future) any
+        // deep-link that lands on a specific entry inside a spawngroup. Setting focus
+        // BEFORE Select ensures the camera-frame code in FrameSelection sees the
+        // to-be-focused NPC's model (post-swap) rather than the previous primary.
+        void FocusEntryAndFly(SpawnPoint sp, int entryIdx)
+        {
+            if (sp == null) return;
+            if (entryIdx >= 0 && entryIdx < (sp.Record?.Entries?.Count ?? 0) && sp.FocusedEntryIndex != entryIdx)
+            {
+                sp.FocusedEntryIndex = entryIdx;
+                _view.Controller.RefreshSpawnFocus(sp);
+            }
+            FlyToAndSelect(sp);
         }
 
         void FlyToAndSelect(SpawnPoint sp)
@@ -2573,11 +2797,6 @@ namespace VisualEQ.Views
                     ctrl.SelectGrid(null);
             }
         }
-
-        static string PrimaryName(SpawnPoint sp) =>
-            sp.Record.Entries
-                .OrderByDescending(e => e.Entry.Chance)
-                .FirstOrDefault()?.Npc?.Name ?? "?";
 
         static string ReadBuffer(byte[] buf) =>
             System.Text.Encoding.UTF8.GetString(buf).TrimEnd('\0');
@@ -3303,13 +3522,15 @@ namespace VisualEQ.Views
                 return;
             }
 
-            var primary = sp.Record.Entries
-                .OrderByDescending(e => e.Entry.Chance)
-                .FirstOrDefault();
+            // Track the focused entry (defaults to the highest-Chance entry at load;
+            // sidebar cycler shifts it). MaintainNpcDetailsFetch is keyed on this npcId,
+            // so a focus change automatically triggers a fresh fetch + _displayedNpc
+            // rebuild next frame — no explicit invalidation needed here.
+            var primary = sp.FocusedEntry;
             var npcId = primary?.Npc?.Id ?? 0;
             if (npcId == 0)
             {
-                ImGui.Text("(no primary NPC in spawngroup)");
+                ImGui.Text("(no NPC selected in spawngroup)");
                 return;
             }
 

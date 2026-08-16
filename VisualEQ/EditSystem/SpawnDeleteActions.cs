@@ -116,10 +116,14 @@ namespace VisualEQ.EditSystem
             }
         }
 
+        // Undo-history label uses the focused NPC (what the user actually saw when
+        // they hit Delete/Ctrl+D) rather than the absolute highest-Chance entry, so
+        // the pending list matches their mental picture. Falls through to the first
+        // entry if focus somehow points off the end.
         static string PrimaryName(SpawnPoint sp) =>
-            sp.Record.Entries
-                .OrderByDescending(e => e.Entry.Chance)
-                .FirstOrDefault()?.Npc?.Name ?? "?";
+            sp.FocusedNpc?.Name
+            ?? sp.Record.Entries.FirstOrDefault()?.Npc?.Name
+            ?? "?";
     }
 
     // Sidebar "Revert" affordance for a pending spawn delete. Symmetric with

@@ -60,5 +60,40 @@ namespace NsimGui
 
         [DllImport("cimgui")]
         public static extern void igPopItemWidth();
+
+        // Fetch pointers to the current per-frame overlay draw list and the current
+        // font. The overlay list is the same list ImGui.GetOverlayDrawList() returns —
+        // we grab the raw pointer separately so it can be handed to the wide AddText
+        // overload below without going back through the managed wrapper.
+        [DllImport("cimgui")]
+        public static extern System.IntPtr igGetOverlayDrawList();
+
+        [DllImport("cimgui")]
+        public static extern System.IntPtr igGetFont();
+
+        // Extended AddText that lets us specify a font pointer + explicit size in
+        // pixels. Managed ImGui.NET 0.4.6 exposes only the short overload which
+        // renders at the default font size (13 px), so world-space labels look tiny
+        // at any distance. Passing igGetFont() + a bigger size scales the same
+        // default font up cleanly without needing a second font baked into the atlas.
+        //
+        // NOTE: this cimgui build names the extended overload `ImDrawList_AddTextExt`
+        // (verified by scanning exports). Newer cimgui rebrands to
+        // `ImDrawList_AddText_FontPtr`; if the DLL is ever upgraded, add the new name
+        // as an alias with EntryPoint.
+        //
+        // text_end may be null (IntPtr.Zero) — cimgui treats null as "read to null
+        // terminator", so the marshalled null-terminated Ansi string is fine.
+        [DllImport("cimgui", EntryPoint = "ImDrawList_AddTextExt", CharSet = CharSet.Ansi)]
+        public static extern void ImDrawList_AddText_FontPtr(
+            System.IntPtr self,
+            System.IntPtr font,
+            float font_size,
+            ImVec2 pos,
+            uint col,
+            [MarshalAs(UnmanagedType.LPStr)] string text_begin,
+            System.IntPtr text_end,
+            float wrap_width,
+            System.IntPtr cpu_fine_clip_rect);
     }
 }
