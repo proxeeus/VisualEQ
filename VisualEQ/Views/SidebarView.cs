@@ -1429,7 +1429,11 @@ namespace VisualEQ.Views
         void RenderWaypointInfoSection(int index)
         {
             RenderReorderHandles(index, "wi");
-            if (!ImGui.CollapsingHeader($"Waypoint Info###{Id}wi", TreeNodeFlags.DefaultOpen))
+            // Closed by default — only relevant when a waypoint is picked; keeps
+            // the sidebar quiet during normal spawn editing. User expands as needed;
+            // ImGui remembers the toggle for the session (NoSavedSettings scopes to
+            // the outer window, not per-header state).
+            if (!ImGui.CollapsingHeader($"Waypoint Info###{Id}wi", 0))
                 return;
 
             var ctrl = _view.Controller;
@@ -2090,7 +2094,9 @@ namespace VisualEQ.Views
             var total = buffer?.TotalPending ?? 0;
 
             var header = total == 0 ? "Pending Changes" : $"Pending Changes ({total})";
-            if (!ImGui.CollapsingHeader($"{header}###{Id}pc", TreeNodeFlags.DefaultOpen))
+            // Closed by default — the count in the header keeps ambient awareness
+            // when unopened; expanding is only needed for detailed review.
+            if (!ImGui.CollapsingHeader($"{header}###{Id}pc", 0))
                 return;
 
             if (buffer == null || total == 0)
@@ -6549,7 +6555,7 @@ namespace VisualEQ.Views
             // shortened to survive tight cells ("Min damage"→"Min dmg", "Attack
             // delay"→"Atk delay", "HP regen (per tick)"→"HP/tick", etc.). Field
             // IDs unchanged so undo history + activation slots stay consistent.
-            if (ImGui.CollapsingHeader($"Combat###{Id}ndCombat", TreeNodeFlags.DefaultOpen))
+            if (ImGui.CollapsingHeader($"Combat###{Id}ndCombat", 0))
             {
             const float CombatCell  = 115f;
             const float CombatInput = 48f;
@@ -6592,7 +6598,7 @@ namespace VisualEQ.Views
             // identical widget shape — the merge shaves a whole click and heading
             // line. DefaultOpen after compaction: 14 fields in 4 rows is cheap
             // to show. Field IDs unchanged so undo history keeps working.
-            if (ImGui.CollapsingHeader($"Attributes###{Id}ndStats", TreeNodeFlags.DefaultOpen))
+            if (ImGui.CollapsingHeader($"Attributes###{Id}ndStats", 0))
             {
             const float AttrCell  = 88f;
             const float AttrInput = 40f;
@@ -6630,7 +6636,7 @@ namespace VisualEQ.Views
             // triggers Controller.RefreshNpcVisualForNpc which cache-swaps the AniModel
             // on every scene instance backed by this npc_types row. Focusing any of
             // these fields also auto-frames the camera (see HandleNpcActivation).
-            if (ImGui.CollapsingHeader($"Visual###{Id}ndVis", TreeNodeFlags.DefaultOpen))
+            if (ImGui.CollapsingHeader($"Visual###{Id}ndVis", 0))
             {
             const float VisualCell  = 120f;
             const float VisualInput = 44f;
@@ -6718,7 +6724,7 @@ namespace VisualEQ.Views
             }
 
             // ── Special abilities (Slice 4 — friendly checkbox editor) ─────
-            if (ImGui.CollapsingHeader($"Special Abilities###{Id}ndSA", TreeNodeFlags.DefaultOpen))
+            if (ImGui.CollapsingHeader($"Special Abilities###{Id}ndSA", 0))
             {
             NpcSpecialAbilitiesEditor(npcId, () => n.SpecialAbilities, v => n.SpecialAbilities = v, editable);
 
@@ -6762,7 +6768,7 @@ namespace VisualEQ.Views
             // ── Faction entries (Slice 5 — inline edits over npc_faction_entries) ─
             // Right after References so the just-picked faction set is visually close
             // to its entries. Default-open because it's a common edit target.
-            if (ImGui.CollapsingHeader($"Faction entries###{Id}ndFacE", TreeNodeFlags.DefaultOpen))
+            if (ImGui.CollapsingHeader($"Faction entries###{Id}ndFacE", 0))
             {
                 NpcFactionEntriesEditor(npcId, n.NpcFactionId, editable);
             }
