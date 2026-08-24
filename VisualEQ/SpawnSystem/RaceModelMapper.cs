@@ -58,9 +58,9 @@ namespace VisualEQ.SpawnSystem
             {  10, new Entry("OGM", "OGF") },      // Ogre
             {  11, new Entry("HOM", "HOF") },      // Halfling (short mesh, DWM/DWF anim source)
             {  12, new Entry("GNM", "GNF") },      // Gnome
-            {  14, new Entry("IKM", "IKF", "IKS") }, // Iksar
+            {  14, new Entry("WER") },             // Werewolf — LANTERN RaceData.csv row 14 (was wrongly IKM/IKF/IKS — race 14 in EQEmu/LANTERN is Werewolf, not Iksar; Iksar PC is race 128)
             {  15, new Entry("BRM", "BRF") },      // Brownie (LANTERN: BRM,ELM)
-            {  16, new Entry("FRO") },             // Froglok (PC)
+            {  16, new Entry("CEN") },             // Centaur — LANTERN RaceData.csv (was wrongly FRO / "Froglok PC"; race 16 is Centaur)
             {  17, new Entry("GOM", "GOM", "GOL") }, // Golem (LANTERN: GOM,GIA)
 
             // Race 13-17 in this DB are populated with different creature types
@@ -73,8 +73,8 @@ namespace VisualEQ.SpawnSystem
             //   canonical model; oddball humanoids fall through to placeholder.
             {  18, new Entry("GIA") },             // Giant (hill / forest)
             {  19, new Entry("TRK") },             // Trakanon
-            {  20, new Entry("VNS") },             // Venril Sathir
-            {  21, new Entry("EYE") },             // Evil Eye
+            {  20, new Entry("VST") },             // Doppleganger — LANTERN RaceData.csv (was wrongly VNS/"Venril Sathir")
+            {  21, new Entry("BEH") },             // Evil Eye — LANTERN RaceData.csv (uses Beholder mesh; was wrongly EYE which is Eye of Zomm at race 108)
             {  22, new Entry("BET") },             // Beetle (LANTERN: BET,SPI — was wrongly "BEE")
             {  23, new Entry("CPM", "CPF") },      // Kerra (LANTERN: CPF,CPM)
             {  24, new Entry("FIS") },             // Fish (koalindl, sludge guppy)
@@ -83,8 +83,8 @@ namespace VisualEQ.SpawnSystem
             {  27, new Entry("FRG") },             // Froglok Ghoul
             {  28, new Entry("SPO") },             // Sporali
             {  29, new Entry("GAM", "GAM", "GAR") }, // Gargoyle (LANTERN: GAM,GAR — GAM primary, GAR anim source)
-            {  30, new Entry("EYE") },             // Evil Eye (variant)
-            {  31, new Entry("SNA") },             // Gelatinous cube / slime (best-guess)
+            {  30, new Entry("BEH") },             // Gasbag — LANTERN RaceData.csv (shares Beholder mesh with Evil Eye)
+            {  31, new Entry("CUB") },             // Gelatinous Cube — LANTERN RaceData.csv (was wrongly SNA/"snake")
             {  32, new Entry("DRA") },             // Dragon (Kunark)
             {  33, new Entry("GHU") },             // Ghoul — confirmed by 'a_ghoul_yeoman'
             {  34, new Entry("BAT") },             // Bat
@@ -94,7 +94,7 @@ namespace VisualEQ.SpawnSystem
             {  39, new Entry("GNL") },             // Gnoll — was wrongly 'RAT'
             {  40, new Entry("GOB") },             // Goblin (Pickclaw)
             {  41, new Entry("GOR") },             // Gorilla
-            {  42, new Entry("WOL") },             // Wolf — was wrongly 'ELE'
+            {  42, new Entry("WOL", "WOF") },      // Wolf — classic WOL; Kunark scaled wolf / chokidai mesh is WOF (fieldofbone/nurga/warslikswood). Zone-local resolution in SpawnManager picks the right one per zone.
             {  43, new Entry("BEA") },             // Bear — was wrongly 'EAR'
             {  44, new Entry("FPM") },             // Freeport Guard / knight (falls back on HUM elsewhere)
             {  45, new Entry("DML") },             // Demi Lich
@@ -109,7 +109,7 @@ namespace VisualEQ.SpawnSystem
             {  54, new Entry("ORC") },             // Orc
             {  55, new Entry("BGM", null, "BGM") }, // Human Beggar — confirmed BGM in freporte
             {  56, new Entry("PIF") },             // Pixie
-            {  57, new Entry("DRA") },             // Drachnid — best-guess
+            {  57, new Entry("DRM", "DRF") },      // Drachnid — LANTERN RaceData.csv: DRM/DRF (was wrongly "DRA" which is Dragon)
             {  58, new Entry("SOL") },             // Solusek Ro / puppet
             {  59, new Entry("BGG") },             // Bloodgill Goblin (LANTERN: BGG,KGO)
             {  60, new Entry("SKE") },             // Skeleton — was wrongly 'BAT'
@@ -117,7 +117,7 @@ namespace VisualEQ.SpawnSystem
             {  62, new Entry("TUN") },             // Tunare
             {  63, new Entry("TIG") },             // Tiger (LANTERN: TIG,LIM)
             {  64, new Entry("TRE") },             // Treant
-            {  65, new Entry("VAM") },             // Vampire (Maestro of Rancor)
+            {  65, new Entry("DVM") },             // Vampire — LANTERN RaceData.csv (uses Dark-elf-vampire mesh; was wrongly VAM which resolves nowhere)
             {  66, new Entry("RAL") },             // Rallos Zek statue
             {  67, new Entry("HHM") },             // Highpass Citizen (LANTERN: HHM,ELM)
             {  68, new Entry("TEN") },             // Tentacle Terror
@@ -155,14 +155,14 @@ namespace VisualEQ.SpawnSystem
             {  88, new Entry("CLM", "CLF") },      // Clockwork Gnome (LANTERN: CLM,DWM / CLF,DWF)
             {  89, new Entry("DRK") },             // Drake / ash-drakeling
             {  90, new Entry("HLM", "HLF") },      // Halas Citizen (LANTERN: HLM,ELM / HLF,ELF)
-            {  91, new Entry("BAS") },             // Basilisk
+            {  91, new Entry("ALL") },             // Alligator — LANTERN RaceData.csv (was wrongly BAS/"basilisk")
             {  92, new Entry("GRM") },             // Grobb Citizen (LANTERN: GRM,OGF / GRF,OGF; ogres use OGF for both)
             {  93, new Entry("OKM", "OKF") },      // Oggok Citizen (LANTERN: OKM,OGF / OKF,OGF)
             {  94, new Entry("KAM", "KAF") },      // Kaladim Citizen (LANTERN: KAM,DWM / KAF,DWF — was wrongly QCM/QCF)
             {  95, new Entry("CAZ") },             // Cazic-Thule (avatar)
             {  96, new Entry("COC") },             // Cockatrice (was wrongly "COK")
-            {  98, new Entry("DHM", "DHF") },      // Dark Assassin / Dhampyre — best-guess
-            {  99, new Entry("AMY") },             // Amygdalan
+            {  98, new Entry("VSM", "VSF", "VST") }, // Elf Vampire — LANTERN RaceData.csv (was wrongly DHM/DHF best-guess "Dark Assassin"; VST is the vampire-thrall Karnor variant)
+            {  99, new Entry("DEN") },             // Denizen — LANTERN RaceData.csv (was wrongly AMY/"Amygdalan")
             { 100, new Entry("DER") },             // Rock Dervish (freporte has DER)
             { 101, new Entry("EFR") },             // Efreeti
             { 102, new Entry("FRO") },             // Froglok Tadpole (uses base Froglok)
@@ -176,13 +176,13 @@ namespace VisualEQ.SpawnSystem
             { 110, new Entry("MER") },             // Mermaid
             { 111, new Entry("HAR") },             // Harpy
             { 112, new Entry("GFM", "GFF") },      // Fayguard (LANTERN: GFM,ELM / GFF,ELF)
-            { 113, new Entry("DRK") },             // Fae Drake
+            { 113, new Entry("DRI") },             // Drixie — LANTERN RaceData.csv (was wrongly DRK/"Fae Drake")
             { 114, new Entry("GHO") },             // Ghost
             { 116, new Entry("SEA") },             // Seahorse
-            { 117, new Entry("HUM", "HUF") },      // Torklar Battlemaster / Garanel Rucksif
-            { 118, new Entry("SPE") },             // Spirit (city-bound) — SPE = Spectre model
+            { 117, new Entry("GDM") },             // Ghost Dwarf — LANTERN RaceData.csv (was wrongly HUM/HUF/"Torklar Battlemaster")
+            { 118, new Entry("GEM", "GEF") },      // Erudite Ghost — LANTERN RaceData.csv (was wrongly SPE/"city spirit"; SPE is Spectre at race 85)
             { 119, new Entry("STC") },             // Sabertooth Cat
-            { 120, new Entry("WOL") },             // Spirit Wolf
+            { 120, new Entry("WOE") },             // Wolf Elemental — LANTERN RaceData.csv (was wrongly WOL/"Spirit Wolf")
             { 121, new Entry("GRG") },             // Gorgalosk
             { 122, new Entry("HOR") },             // Horror construct
             { 123, new Entry("INN") },             // Innoruuk
@@ -191,9 +191,9 @@ namespace VisualEQ.SpawnSystem
             { 126, new Entry("DJI") },             // Djinn (was wrongly "STM")
             { 127, new Entry("HUM", "HUF") },      // Invisible-model / summoned-item — HUM base
             { 128, new Entry("IKM", "IKF") },      // Iksar Broodling / Kotiz — Iksar variant
-            { 129, new Entry("SCO") },             // Scorpion
+            { 129, new Entry("SCR") },             // Scorpion — LANTERN RaceData.csv: SCR (was wrongly "SCO" which resolves nowhere → beetle fallback)
             { 130, new Entry("HUM", "HUF") },      // Taruun Guardian (human variant)
-            { 131, new Entry("SAR") },             // Sarnak
+            { 131, new Entry("SRW") },             // Sarnak — LANTERN RaceData.csv (was wrongly SAR which resolves nowhere; SRW is the actual mesh)
             { 133, new Entry("LYC") },             // Lycanthrope (was wrongly "DVA")
             { 134, new Entry("MOS") },             // Mosquito / Bloodneedle
             { 135, new Entry("RHI") },             // Rhino (Kunark)
@@ -203,12 +203,12 @@ namespace VisualEQ.SpawnSystem
             { 139, new Entry("ICM", "ICF", "ICN") }, // Iksar Citizen (LANTERN: ICM/ICF/ICN,IKM)
             { 140, new Entry("FGI") },             // Forest Giant
             { 141, new Entry("BOAT") },            // Boat (a_boat, a_row_boat) — confirmed BOAT in global
-            { 144, new Entry("BUR") },             // Burynai
+            { 144, new Entry("BRN") },             // Burynai — LANTERN RaceData.csv: BRN (was wrongly "BUR" which resolves nowhere)
             { 145, new Entry("OOZ") },             // Ooze / slime
-            { 146, new Entry("SPE") },             // Spectral Guardian (uses Spectre)
-            { 147, new Entry("SPE") },             // Guardian of Xalgoz (spectral)
-            { 148, new Entry("BAR") },             // Barracuda
-            { 149, new Entry("SPX") },             // Scorpikis
+            { 146, new Entry("SSN") },             // Spectral Sarnak — LANTERN RaceData.csv (was wrongly SPE/"Spectral Guardian")
+            { 147, new Entry("SIM") },             // Spectral Iksar — LANTERN RaceData.csv (was wrongly SPE/"Guardian of Xalgoz")
+            { 148, new Entry("BAC") },             // Kunark Fish — LANTERN RaceData.csv (was wrongly BAR/"Barracuda")
+            { 149, new Entry("ISC") },             // Iksar Scorpion — LANTERN RaceData.csv (was wrongly SPX/"Scorpikis")
             { 150, new Entry("EROL") },            // Erollisi Marr — best-guess
             { 151, new Entry("TRB") },             // Tribunal
             { 153, new Entry("BRI") },             // Bristlebane
@@ -217,24 +217,24 @@ namespace VisualEQ.SpawnSystem
             { 156, new Entry("VRM", "VRF") },      // Ratman (LANTERN: VRF,VRM — was wrongly "RAT")
             { 157, new Entry("WYV") },             // Wyvern
             { 158, new Entry("WUR") },             // Wurm
-            { 159, new Entry("GNA") },             // Insatiable Gnawer
-            { 160, new Entry("SEB") },             // Sebilite golem
-            { 161, new Entry("SKE") },             // Scalebone Skeleton
-            { 162, new Entry("PLA") },             // Man-eating plant
+            { 159, new Entry("DEV") },             // Devourer — LANTERN RaceData.csv (was wrongly GNA/"Insatiable Gnawer")
+            { 160, new Entry("IKG") },             // Iksar Golem — LANTERN RaceData.csv (was wrongly SEB/"Sebilite golem")
+            { 161, new Entry("IKS") },             // Iksar Skeleton (Scalebone) — LANTERN RaceData.csv: IKS (was wrongly "SKE" which resolves to the human skeleton)
+            { 162, new Entry("MEP") },             // Man-Eating Plant — LANTERN RaceData.csv (was wrongly PLA which resolves nowhere)
             { 163, new Entry("RAP") },             // Raptor
             { 164, new Entry("SGO") },             // Sathir Construct
-            { 165, new Entry("PRA") },             // Praklion / Faydedar
+            { 165, new Entry("SED") },             // Water Dragon (Faydedar / Sirens Grotto) — LANTERN RaceData.csv (was wrongly PRA/"Praklion")
             { 166, new Entry("IKH") },             // Iksar Hand (LANTERN: IKH,REA — was wrongly "HAN")
             { 167, new Entry("SUC") },             // Succulent plant
             { 168, new Entry("FMO") },             // Flying Monkey (LANTERN: FMO,DRK — was wrongly "HOL")
             { 169, new Entry("BTM") },             // Brontotherium (LANTERN: BTM,RHI — was wrongly "BRO")
             { 170, new Entry("SDE") },             // Snow Dervish (LANTERN: SDE,DML — was wrongly "SHG")
             { 171, new Entry("WOL") },             // Direwolf — WOL base
-            { 172, new Entry("MAN") },             // Manticore
+            { 172, new Entry("MTC") },             // Manticore — LANTERN RaceData.csv (was wrongly MAN which resolves nowhere)
             { 173, new Entry("ENT") },             // Entoling
             { 174, new Entry("ISH") },             // Ice shade
-            { 175, new Entry("ARS") },             // Armored Shadow
-            { 176, new Entry("RAB") },             // Rabbit
+            { 175, new Entry("ENA") },             // Enchanted Armor — LANTERN RaceData.csv (was wrongly ARS/"Armored Shadow")
+            { 176, new Entry("SBU") },             // Snow Bunny — LANTERN RaceData.csv (was wrongly RAB/"Rabbit")
             { 177, new Entry("WAL") },             // Walrus
             { 178, new Entry("GEO") },             // Geonid
             { 181, new Entry("YAK") },             // Yak Man (LANTERN: YAK,GNN — was wrongly "TIZ")
@@ -245,7 +245,7 @@ namespace VisualEQ.SpawnSystem
             { 188, new Entry("FSG") },             // Frost Giant (Kael) — was wrongly "FRG" which is Froglok Ghoul (race 27)
             { 189, new Entry("STG") },             // Storm Giant
             { 190, new Entry("SHL") },             // Shellfish collector
-            { 191, new Entry("PAN") },             // Panda
+            { 191, new Entry("WLM") },             // Walrus Man — LANTERN RaceData.csv (was wrongly PAN/"Panda")
             { 193, new Entry("TSE") },             // Tserrina Syl'Tor
             { 194, new Entry("STU") },             // Sea Turtle (was wrongly "TOR")
             { 195, new Entry("BWD") },             // Black & White Dragons (LANTERN: BWD,TRK)

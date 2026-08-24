@@ -163,16 +163,19 @@ namespace VisualEQ.SpawnSystem
 
         // Processes a slice of records. Call between PrepareForLoad and FinishLoad. Safe to
         // call repeatedly — counters accumulate across batches so FinishLoad's log reflects
-        // the total.
+        // the total. `zoneName` is used to prefer zone-local chr models when a race resolves
+        // to multiple candidates present across chr zips (e.g. race 42 → WOL classic vs
+        // WOF Kunark scaled wolf).
         public void LoadBatch(
             IEnumerable<SpawnRecord> records,
             EngineCore engine,
             Dictionary<string, AniModel> modelCache,
             Dictionary<string, string> availableModels,
-            AniModel fallback)
+            AniModel fallback,
+            string zoneName)
         {
             foreach (var record in records)
-                LoadOne(record, engine, modelCache, availableModels, fallback);
+                LoadOne(record, engine, modelCache, availableModels, fallback, zoneName);
         }
 
         void LoadOne(
@@ -180,9 +183,10 @@ namespace VisualEQ.SpawnSystem
             EngineCore engine,
             Dictionary<string, AniModel> modelCache,
             Dictionary<string, string> availableModels,
-            AniModel fallback)
+            AniModel fallback,
+            string zoneName)
         {
-            var (sp, isPlaceholder, resolved) = BuildAndAdd(record, engine, modelCache, availableModels, fallback);
+            var (sp, isPlaceholder, resolved) = BuildAndAdd(record, engine, modelCache, availableModels, fallback, zoneName);
             if (sp == null)
             {
                 _loadSkipped++;
@@ -216,9 +220,10 @@ namespace VisualEQ.SpawnSystem
             EngineCore engine,
             Dictionary<string, AniModel> modelCache,
             Dictionary<string, string> availableModels,
-            AniModel fallback)
+            AniModel fallback,
+            string zoneName)
         {
-            var (sp, _, _) = BuildAndAdd(record, engine, modelCache, availableModels, fallback);
+            var (sp, _, _) = BuildAndAdd(record, engine, modelCache, availableModels, fallback, zoneName);
             return sp;
         }
 
@@ -231,7 +236,8 @@ namespace VisualEQ.SpawnSystem
             EngineCore engine,
             Dictionary<string, AniModel> modelCache,
             Dictionary<string, string> availableModels,
-            AniModel fallback)
+            AniModel fallback,
+            string zoneName)
         {
             // Initial focus = the index of the highest-Chance entry. Ties break to the
             // first entry encountered (List order — usually the DB's row order). Stored on
@@ -260,14 +266,7 @@ namespace VisualEQ.SpawnSystem
             if (npc != null)
             {
                 triedCodes = RaceModelMapper.ResolveCandidates(npc.Race, npc.Gender).ToList();
-                foreach (var candidate in triedCodes)
-                {
-                    if (availableModels.ContainsKey(candidate))
-                    {
-                        chosenCode = candidate;
-                        break;
-                    }
-                }
+                chosenCode = ResolveChosenCode(triedCodes, availableModels, zoneName);
 
                 if (chosenCode != null)
                 {
@@ -377,11 +376,43 @@ namespace VisualEQ.SpawnSystem
             EngineCore engine,
             Dictionary<string, AniModel> modelCache,
             Dictionary<string, string> availableModels,
-            AniModel fallback)
+            AniModel fallback,
+            string zoneName)
         {
             PrepareForLoad();
-            LoadBatch(records, engine, modelCache, availableModels, fallback);
+            LoadBatch(records, engine, modelCache, availableModels, fallback, zoneName);
             FinishLoad();
+        }
+
+        // Resolves a race's candidate list to a single chr code. Two-pass:
+        //   1) Prefer a candidate whose availableModels path is the zone's own chr zip.
+        //   2) Fall back to the first candidate present in availableModels from any source.
+        // Pass 1 disambiguates one-race-two-meshes cases (race 42 → WOL classic vs WOF
+        // Kunark scaled wolf) where BuildAvailableModels's cross-zone merge would otherwise
+        // leak the wrong-region mesh into a zone that has its own variant.
+        static string ResolveChosenCode(
+            List<string> triedCodes,
+            Dictionary<string, string> availableModels,
+            string zoneName)
+        {
+            if (triedCodes == null || triedCodes.Count == 0) return null;
+            if (!string.IsNullOrEmpty(zoneName))
+            {
+                var zoneChr = $"{zoneName}_chr_oes.zip";
+                foreach (var candidate in triedCodes)
+                {
+                    if (availableModels.TryGetValue(candidate, out var path)
+                        && string.Equals(Path.GetFileName(path), zoneChr, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return candidate;
+                    }
+                }
+            }
+            foreach (var candidate in triedCodes)
+            {
+                if (availableModels.ContainsKey(candidate)) return candidate;
+            }
+            return null;
         }
 
         // Rebuild the AniModelInstance backing a SpawnPoint after a visual-affecting edit
@@ -407,21 +438,14 @@ namespace VisualEQ.SpawnSystem
             List<AniModelInstance> characterModels,
             Dictionary<string, AniModel> modelCache,
             Dictionary<string, string> availableModels,
-            AniModel fallback)
+            AniModel fallback,
+            string zoneName)
         {
             if (sp == null || effective == null) return false;
 
             // Re-resolve chr code from the (possibly-changed) race + gender.
             var triedCodes = RaceModelMapper.ResolveCandidates(effective.Race, effective.Gender).ToList();
-            string chosenCode = null;
-            foreach (var candidate in triedCodes)
-            {
-                if (availableModels.ContainsKey(candidate))
-                {
-                    chosenCode = candidate;
-                    break;
-                }
-            }
+            string chosenCode = ResolveChosenCode(triedCodes, availableModels, zoneName);
 
             AniModel newAniModel = null;
             bool isPlaceholder = false;
