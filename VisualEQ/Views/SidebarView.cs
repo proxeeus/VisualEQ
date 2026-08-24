@@ -808,7 +808,7 @@ namespace VisualEQ.Views
             var db = _view.Controller.Settings.Database;
             ImGui.Text($"Commit {_commitEditCountSnapshot} pending edits?");
             if (_commitSpawnCountSnapshot > 0)
-                ImGui.Text($"  {_commitSpawnCountSnapshot} spawn move(s)");
+                ImGui.Text($"  {_commitSpawnCountSnapshot} spawn edit(s)");
             if (_commitSpawnDeleteCountSnapshot > 0)
                 ImGui.Text($"  {_commitSpawnDeleteCountSnapshot} spawn delete(s)");
             if (_commitSpawnInsertCountSnapshot > 0)
@@ -1562,7 +1562,9 @@ namespace VisualEQ.Views
                 ImGui.Text($"Pos: X={displayX:F1} Y={displayY:F1} Z={displayZ:F1}");
 
             ImGui.Text($"Heading: {sp.CurrentHeading:F0}");
-            if (record.Spawn.PathGrid > 0)
+            if (_view.Controller.EditModeEnabled)
+                RenderSpawnPathGridPicker(sp);
+            else if (record.Spawn.PathGrid > 0)
                 ImGui.Text($"Path grid: {record.Spawn.PathGrid} ({record.Waypoints.Count} waypoints)");
 
             if (sp.IsPlaceholder)
@@ -2445,6 +2447,48 @@ namespace VisualEQ.Views
             _wasHeadingSliderActive = sliderActive;
         }
 
+        // Path-grid picker for the selected spawn. Combo lists "None (0)" plus every grid in
+        // ZoneGrids ordered by id; pending-insert grids (negative id) show a [N] chip so a
+        // user can hook a spawn to a grid they just created. Selecting a different value
+        // records a SpawnPathGridAction so undo/redo + pending buffer flow through the same
+        // machinery as any other spawn edit. Waypoints refresh immediately (see Controller.
+        // RefreshSpawnWaypointsFromZoneGrids) so the amber polyline follows the new grid.
+        void RenderSpawnPathGridPicker(SpawnPoint sp)
+        {
+            var ctrl = _view.Controller;
+            var current = sp.Record.Spawn.PathGrid;
+
+            var grids = ctrl.ZoneGrids
+                .Where(g => g.Grid != null)
+                .OrderBy(g => g.Grid.Id < 0 ? 0 : 1)  // pending inserts first
+                .ThenBy(g => g.Grid.Id)
+                .ToList();
+
+            var labels = new string[grids.Count + 1];
+            labels[0] = "None (0)";
+            int currentIdx = 0;
+            for (int i = 0; i < grids.Count; i++)
+            {
+                var g = grids[i].Grid;
+                var wpCount = grids[i].Waypoints.Count;
+                var prefix  = g.Id < 0 ? "[N] " : (grids[i].SpawnCount > 0 ? "[A] " : "[O] ");
+                labels[i + 1] = $"{prefix}Grid {g.Id} ({wpCount} wp)";
+                if (g.Id == current) currentIdx = i + 1;
+            }
+
+            var spawnId = sp.Record.Spawn.Id;
+            ImGui.Text($"Path grid ({sp.Record.Waypoints.Count} wp in scene)");
+            var refIdx = currentIdx;
+            if (ImGui.Combo($"###{Id}siPG{spawnId}", ref refIdx, labels) && refIdx != currentIdx)
+            {
+                var newGridId = refIdx == 0 ? 0 : grids[refIdx - 1].Grid.Id;
+                if (newGridId != current)
+                {
+                    ctrl.RecordAction(new VisualEQ.EditSystem.SpawnPathGridAction(sp, current, newGridId));
+                }
+            }
+        }
+
         // Editable X/Y/Z fields for spawn position. Mirrors the waypoint DragFloat pattern:
         // live-mutate sp.Model.Position for immediate visual feedback while typing/dragging,
         // then emit a single SpawnMoveAction on release so undo/redo + pending buffer stay
@@ -2695,7 +2739,7 @@ namespace VisualEQ.Views
 
             if (recentSpawns.Count > 0)
             {
-                ImGui.Text($"Spawn moves ({buffer.Spawns.Count}):");
+                ImGui.Text($"Spawn edits ({buffer.Spawns.Count}):");
                 foreach (var edit in recentSpawns)
                     RenderPendingSpawnRow(ctrl, edit);
             }
