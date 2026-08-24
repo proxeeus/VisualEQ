@@ -198,7 +198,7 @@ namespace VisualEQ.SpawnSystem
             { 134, new Entry("MOS") },             // Mosquito / Bloodneedle
             { 135, new Entry("RHI") },             // Rhino (Kunark)
             { 136, new Entry("XAL") },             // Xalgoz
-            { 137, new Entry("GOB") },             // Goblin
+            { 137, new Entry("KGO") },             // Kunark Goblin (Droga/Nurga/Kurn/Kaesora) — distinct from race 40 Pickclaw GOB
             { 138, new Entry("YET") },             // Yeti (was wrongly "BRU")
             { 139, new Entry("ICM", "ICF", "ICN") }, // Iksar Citizen (LANTERN: ICM/ICF/ICN,IKM)
             { 140, new Entry("FGI") },             // Forest Giant
