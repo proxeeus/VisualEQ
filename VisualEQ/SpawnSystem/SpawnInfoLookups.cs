@@ -144,7 +144,7 @@ namespace VisualEQ.SpawnSystem
             { 129, "Scorpion" },           { 130, "Human (Taruun)" },
             { 131, "Sarnak" },             { 133, "Drolvarg" },
             { 134, "Mosquito" },           { 135, "Rhino (Kunark)" },
-            { 136, "Xalgoz" },             { 137, "Goblin" },
+            { 136, "Xalgoz" },             { 137, "Kunark Goblin" },
             { 138, "Skulking Brute" },     { 139, "Iksar Citizen" },
             { 140, "Forest Giant" },       { 141, "Boat" },
             { 144, "Burynai" },            { 145, "Ooze" },
