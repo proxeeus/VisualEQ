@@ -121,15 +121,28 @@ namespace VisualEQ.Views
             PosZ = pos.Z.ToString("0.00");
         }
 
-        internal void TeleportToOrc()
+        // Input is DB / /loc coords (X = east-west, Y = north-south, Z = up).
+        // Camera.Position is scene-space with X/Y swapped — see CLAUDE.md §8.
+        internal void TeleportToCoords(float dbX, float dbY, float dbZ)
         {
-            // Constants are named in scene-space (matching how they're passed to the
-            // Camera). Camera.Position is scene-space — see CLAUDE.md §8.
-            const float ORC_SCENE_X = -153f, ORC_SCENE_Y = 149f, ORC_SCENE_Z = 80f;
-            Camera.Position = new Vector3(ORC_SCENE_X, ORC_SCENE_Y, ORC_SCENE_Z);
-            // Report in DB coords so it matches the client's /loc.
-            StatusMessage = $"Teleported to ORC at (X={ORC_SCENE_Y}, Y={ORC_SCENE_X}, Z={ORC_SCENE_Z})";
+            Camera.Position = new Vector3(dbY, dbX, dbZ);
+            StatusMessage = $"Teleported to (X={dbX:F1}, Y={dbY:F1}, Z={dbZ:F1})";
             MessageTimer = 3f;
+        }
+
+        // Accepts "x y z", "x,y,z", "x, y, z" (any whitespace/comma mix). Returns
+        // false on any parse failure — caller keeps whatever error message it wants
+        // to show. Uses InvariantCulture so a decimal point works regardless of the
+        // host locale (Parallels ARM64 sometimes reports fr-FR at boot).
+        internal static bool TryParseCoords(string input, out float x, out float y, out float z)
+        {
+            x = y = z = 0f;
+            if (string.IsNullOrWhiteSpace(input)) return false;
+            var parts = input.Split(new[] { ' ', ',', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length != 3) return false;
+            return float.TryParse(parts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out x)
+                && float.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out y)
+                && float.TryParse(parts[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out z);
         }
     }
 
@@ -183,6 +196,11 @@ namespace VisualEQ.Views
 
         // Spawn list filter — persists across frames (widget lives for the whole session).
         private readonly byte[] _spawnListFilter = new byte[128];
+
+        // Teleport input buffer — accepts "x y z", "x,y,z", or "x, y, z" in DB coords.
+        // 64 bytes covers three signed floats with generous separator slop.
+        private readonly byte[] _teleportInputBuf = new byte[64];
+        private string _teleportError;
 
         // Grid list filter — mirrors the spawn-list pattern. Substring match against the
         // grid id (short enough that 64 bytes is generous).
@@ -1491,8 +1509,36 @@ namespace VisualEQ.Views
             if (!ImGui.CollapsingHeader($"Teleport###{Id}t", 0))
                 return;
 
-            if (ImGui.Button($"Teleport to ORC###{Id}tOrc", new Vector2(180, 30)))
-                _view.TeleportToOrc();
+            ImGui.Text("Coords (X Y Z, in-game /loc):");
+            // EnterReturnsTrue makes the widget return true only on Enter — the
+            // per-frame change flood is ignored, so the button and Enter share
+            // one submit path. NoScrollbar keeps the row single-line.
+            bool enterPressed = ImGui.InputText(
+                $"###{Id}tCoords",
+                _teleportInputBuf,
+                (uint)_teleportInputBuf.Length,
+                InputTextFlags.EnterReturnsTrue,
+                null);
+
+            ImGui.SameLine();
+            bool buttonPressed = ImGui.Button($"Teleport###{Id}tGo", new Vector2(90, 0));
+
+            if (enterPressed || buttonPressed)
+            {
+                var text = System.Text.Encoding.UTF8.GetString(_teleportInputBuf).TrimEnd('\0').Trim();
+                if (SidebarView.TryParseCoords(text, out var dbX, out var dbY, out var dbZ))
+                {
+                    _view.TeleportToCoords(dbX, dbY, dbZ);
+                    _teleportError = null;
+                }
+                else
+                {
+                    _teleportError = "Expected: X Y Z  (or X,Y,Z / X, Y, Z)";
+                }
+            }
+
+            if (_teleportError != null)
+                ImGui.Text(_teleportError);
 
             // Camera.Position is scene-space (X/Y swapped). Un-swap for DB / /loc parity.
             var tpPos = Camera.Position;
