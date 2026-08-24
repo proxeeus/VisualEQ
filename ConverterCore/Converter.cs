@@ -211,20 +211,42 @@ namespace VisualEQ.ConverterCore
             if (fns.Count == 0) return false;
 
             var s3ds = fns.Select(fn => new S3D(fn, File.OpenRead(Filename(fn)))).ToList();
+            // Zone chr files (freporte_chr, qeynos_chr, ...) declare skeletons like
+            // FPM/QCF/QCM/FEM/etc. whose animation tracks (Fragment13) actually live
+            // in global_chr.wld under the ELM/ELF donor prefix — the classic client
+            // cross-resolves at runtime via animationsources.txt. Without injecting
+            // global_chr here, our AnimationSources map lookup in GenerateAnimatedMeshes
+            // silently misses every alt-model track, and FPM/QCF/QCM end up baked with
+            // ONLY a bind pose → T-pose / stiff at runtime. Mirrors LANTERN's
+            // ArchiveExtractor.ExtractArchiveCharacters `WldToInject` pattern.
+            var injectionS3ds = new List<S3D>();
+            if (!string.Equals(name, "global_chr", StringComparison.OrdinalIgnoreCase)
+                && Exists("global_chr.s3d"))
+            {
+                injectionS3ds.Add(new S3D("global_chr.s3d", File.OpenRead(Filename("global_chr.s3d"))));
+            }
             try
             {
-                return ConvertCharactersCore(name, s3ds);
+                return ConvertCharactersCore(name, s3ds, injectionS3ds);
             }
             finally
             {
                 foreach (var s3d in s3ds) s3d.Dispose();
+                foreach (var s3d in injectionS3ds) s3d.Dispose();
             }
         }
 
-        bool ConvertCharactersCore(string name, List<S3D> s3ds)
+        bool ConvertCharactersCore(string name, List<S3D> s3ds, List<S3D> injectionS3ds)
         {
             var wlds = s3ds.Select(s3d => s3d.Where(fn => fn.EndsWith(".wld")).Select(fn => new Wld(s3d, fn)))
                 .SelectMany(x => x).ToList();
+
+            // Injection WLDs — never processed for Fragment14 (we don't want global_chr's
+            // characters showing up inside freporte_chr's output), only consulted by
+            // GenerateAnimatedMeshes for extra Fragment13 track lookups.
+            var injectionWlds = injectionS3ds
+                .SelectMany(s3d => s3d.Where(fn => fn.EndsWith(".wld")).Select(fn => new Wld(s3d, fn)))
+                .ToList();
 
             foreach (var wld in wlds)
             {
@@ -233,6 +255,8 @@ namespace VisualEQ.ConverterCore
                 Debugging.OutputHTML(wld);
                 WriteLine("</il>");
             }
+            if (injectionWlds.Count > 0)
+                WriteLine($"[Converter] {name}: injecting {injectionWlds.Count} donor WLD(s) for animation-source lookup");
 
             var zn = OutputZip(name);
             if (File.Exists(zn)) File.Delete(zn);
@@ -257,7 +281,7 @@ namespace VisualEQ.ConverterCore
                                 switch (elem.Value)
                                 {
                                     case Fragment11 f11:
-                                        GenerateAnimatedMeshes(wld, zip, model, skin, f11.Reference.Value);
+                                        GenerateAnimatedMeshes(wld, zip, model, skin, f11.Reference.Value, injectionWlds);
                                         break;
                                     case Fragment2D f2d:
                                         // Non-skeletal actor (BOAT, SHIP, EYE, ...). The Fragment14
@@ -405,10 +429,11 @@ namespace VisualEQ.ConverterCore
             "STA", "POS",
         };
 
-        void GenerateAnimatedMeshes(Wld wld, ZipArchive zip, OESCharacter model, OESSkin skin, Fragment10 f10)
+        void GenerateAnimatedMeshes(Wld wld, ZipArchive zip, OESCharacter model, OESSkin skin, Fragment10 f10, List<Wld> injectionWlds = null)
         {
             var prefixes = new List<string> { "" };
             var rootName = f10.Tracks[0].PieceTrack.Name;
+            injectionWlds = injectionWlds ?? new List<Wld>();
 
             // Meshes we'll process this call. Starts with `f10.Meshes` (skeleton's
             // primary meshes: base body + base head), then scans the WLD for
@@ -461,7 +486,19 @@ namespace VisualEQ.ConverterCore
             if (altModel != null && rootName.Contains(model.Name))
                 altRootName = rootName.Replace(model.Name, altModel);
 
-            foreach (var f13 in wld.GetFragments<Fragment13>())
+            // Union of Fragment13 tracks from this WLD + any injected donor WLDs
+            // (global_chr.wld for zone chr files). Zone chr WLDs like freporte_chr
+            // declare skeletons for FPM/QCF/QCM but the animation tracks live in
+            // global_chr under the ELM/ELF donor prefix; without walking global_chr
+            // here `altRootName` never matches → prefixes stays ["", ] → bind-only
+            // OES output → T-pose merchants / stiff guards at runtime.
+            IEnumerable<(string Name, Fragment13 Fragment)> AllFragment13s()
+            {
+                foreach (var f in wld.GetFragments<Fragment13>()) yield return f;
+                foreach (var iw in injectionWlds)
+                    foreach (var f in iw.GetFragments<Fragment13>()) yield return f;
+            }
+            foreach (var f13 in AllFragment13s())
             {
                 if (f13.Name == rootName) continue;
                 string candidate = null;
@@ -474,6 +511,15 @@ namespace VisualEQ.ConverterCore
             }
             prefixes = prefixes.Distinct().ToList();
 
+            // Fall-through Fragment13 lookup: primary WLD first, then injected donors.
+            Fragment13 FindF13(string trackName)
+            {
+                if (wld.GetFragment<Fragment13>(trackName) is Fragment13 own) return own;
+                foreach (var iw in injectionWlds)
+                    if (iw.GetFragment<Fragment13>(trackName) is Fragment13 alt) return alt;
+                return null;
+            }
+
             AniTreePrecursor BuildAniTreePrecursor(string prefix, uint index)
             {
                 var track = f10.Tracks[index];
@@ -484,12 +530,12 @@ namespace VisualEQ.ConverterCore
                     // Prefer the model's own prefixed track when available;
                     // fall back to the alternate model's equivalent track
                     // (bone name with `model.Name` swapped to `altModel`).
-                    if (wld.GetFragment<Fragment13>(prefix + ptref.Name) is Fragment13 own)
+                    if (FindF13(prefix + ptref.Name) is Fragment13 own)
                         piecetrack = own;
                     else if (altModel != null && ptref.Name.Contains(model.Name))
                     {
                         var altPieceName = prefix + ptref.Name.Replace(model.Name, altModel);
-                        if (wld.GetFragment<Fragment13>(altPieceName) is Fragment13 alt)
+                        if (FindF13(altPieceName) is Fragment13 alt)
                             piecetrack = alt;
                     }
                 }
