@@ -930,7 +930,7 @@ namespace VisualEQ
                     if (focused == null || focused.Id != npcId) continue;
 
                     SpawnManager.RebuildInstanceForNpc(sp, NpcTypeToMinimalFull(focused),
-                        Engine, CharacterModels, _modelCache, _availableModels, LastModelLoaded);
+                        Engine, CharacterModels, _modelCache, _availableModels, LastModelLoaded, CurrentZoneName);
                 }
             }
 
@@ -1245,7 +1245,7 @@ namespace VisualEQ
                 var focused = sp.FocusedNpc;
                 if (focused == null || focused.Id != npcId) continue;
 
-                if (SpawnManager.RebuildInstanceForNpc(sp, effective, Engine, CharacterModels, _modelCache, _availableModels, LastModelLoaded))
+                if (SpawnManager.RebuildInstanceForNpc(sp, effective, Engine, CharacterModels, _modelCache, _availableModels, LastModelLoaded, CurrentZoneName))
                     anyChanged = true;
             }
             return anyChanged;
@@ -1264,7 +1264,7 @@ namespace VisualEQ
             var focused = sp.FocusedNpc;
             if (focused == null) return false;
             return SpawnManager.RebuildInstanceForNpc(sp, NpcTypeToMinimalFull(focused),
-                Engine, CharacterModels, _modelCache, _availableModels, LastModelLoaded);
+                Engine, CharacterModels, _modelCache, _availableModels, LastModelLoaded, CurrentZoneName);
         }
 
         // Wrap a light DB-baseline NpcType (carried on SpawnRecord.Entries) into the
@@ -2535,7 +2535,7 @@ namespace VisualEQ
         // is pickable.
         public void SpawnPendingInsertFromSnapshot(Database.Models.SpawnRecord record)
         {
-            var sp = SpawnManager.LoadSingle(record, Engine, _modelCache, _availableModels, LastModelLoaded);
+            var sp = SpawnManager.LoadSingle(record, Engine, _modelCache, _availableModels, LastModelLoaded, CurrentZoneName);
             if (sp == null)
             {
                 Console.WriteLine($"[Controller] SpawnPendingInsertFromSnapshot: LoadSingle returned null (no model + no fallback) for temp #{record.Spawn.Id}");
@@ -2665,7 +2665,7 @@ namespace VisualEQ
                     records = await repo.GetZoneSpawnsFullAsync(zoneName);
                     _availableModels = SpawnManager.BuildAvailableModels(zoneName, ConvertedAssetsDir);
                 }
-                SpawnManager.LoadFromRecords(records, Engine, _modelCache, _availableModels, LastModelLoaded);
+                SpawnManager.LoadFromRecords(records, Engine, _modelCache, _availableModels, LastModelLoaded, zoneName);
 
                 // Register spawn instances with the model selector so they are clickable.
                 foreach (var sp in SpawnManager.SpawnPoints)
@@ -2685,6 +2685,7 @@ namespace VisualEQ
         List<Database.Models.SpawnRecord> _spawnLoadRecords;
         Dictionary<string, string> _spawnLoadAvailable;
         int _spawnLoadIndex;
+        string _spawnLoadZoneName;
 
         public int SpawnLoadTotal     => _spawnLoadRecords?.Count ?? 0;
         public int SpawnLoadProcessed => _spawnLoadIndex;
@@ -2718,6 +2719,7 @@ namespace VisualEQ
                 _spawnLoadAvailable = SpawnManager.BuildAvailableModels(zoneName, ConvertedAssetsDir);
             }
             _availableModels = _spawnLoadAvailable;
+            _spawnLoadZoneName = zoneName;
             SpawnManager.PrepareForLoad();
             _spawnLoadIndex = 0;
             return true;
@@ -2730,7 +2732,7 @@ namespace VisualEQ
             int end = Math.Min(_spawnLoadIndex + chunkSize, _spawnLoadRecords.Count);
             SpawnManager.LoadBatch(
                 _spawnLoadRecords.GetRange(_spawnLoadIndex, end - _spawnLoadIndex),
-                Engine, _modelCache, _spawnLoadAvailable, LastModelLoaded);
+                Engine, _modelCache, _spawnLoadAvailable, LastModelLoaded, _spawnLoadZoneName);
             _spawnLoadIndex = end;
         }
 
@@ -2784,7 +2786,7 @@ namespace VisualEQ
                     records = repo.GetZoneSpawnsFullAsync(zoneName).GetAwaiter().GetResult();
                     _availableModels = SpawnManager.BuildAvailableModels(zoneName, ConvertedAssetsDir);
                 }
-                SpawnManager.LoadFromRecords(records, Engine, _modelCache, _availableModels, LastModelLoaded);
+                SpawnManager.LoadFromRecords(records, Engine, _modelCache, _availableModels, LastModelLoaded, zoneName);
 
                 foreach (var sp in SpawnManager.SpawnPoints)
                     CharacterModels.Add(sp.Model);
