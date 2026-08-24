@@ -59,7 +59,12 @@ namespace VisualEQ.EditSystem
         //         spawngroups (SpawnInsert entries) mutate their own
         //         SpawnInsert.Entries list instead of touching this dict, since
         //         their spawngroupID isn't known until commit.
-        public int SchemaVersion { get; set; } = 14;
+        //   v15 — SpawnEdit gains OriginalPathGrid / CurrentPathGrid so the
+        //         grid-picker in Spawn Info can assign / clear pathgrid on an
+        //         existing spawn. v14 buffers deserialize with both fields at 0;
+        //         EditCommitter guards the UPDATE with "Current != Original" so
+        //         a legacy buffer never wipes an unrelated spawn's pathgrid.
+        public int SchemaVersion { get; set; } = 15;
 
         public Dictionary<int, SpawnEdit> Spawns { get; set; } = new Dictionary<int, SpawnEdit>();
 
@@ -204,6 +209,12 @@ namespace VisualEQ.EditSystem
         public float CurrentY { get; set; }
         public float CurrentZ { get; set; }
         public float CurrentHeading { get; set; }
+
+        // v15 — spawn2.pathgrid assignment. Default 0 = "no grid" so v14 buffers
+        // deserialize benignly (Current == Original == 0 → commit skips the pathgrid
+        // UPDATE for those legacy entries).
+        public int OriginalPathGrid { get; set; }
+        public int CurrentPathGrid { get; set; }
 
         // Human-readable label for the sidebar list (populated at edit time from the primary
         // NPC's name). Not authoritative — DB is source of truth on commit.

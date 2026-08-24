@@ -49,6 +49,15 @@ namespace VisualEQ.Database.Constants
             SET x = @X, y = @Y, z = @Z, heading = @Heading
             WHERE id = @SpawnId";
 
+        // Standalone pathgrid UPDATE — separate from UpdateSpawnLocation so a position-only
+        // edit doesn't rewrite pathgrid (and vice-versa). EditCommitter emits this only when
+        // SpawnEdit.CurrentPathGrid != OriginalPathGrid, so a v14-schema pending buffer
+        // (which has both PathGrid fields defaulted to 0) never touches pathgrid on commit.
+        public const string UpdateSpawnPathGrid = @"
+            UPDATE spawn2
+            SET pathgrid = @PathGrid
+            WHERE id = @SpawnId";
+
         // Removes a spawn2 row by id. Does not touch spawngroup / spawnentry — those may
         // be referenced by other spawn2 rows in this or other zones; a "cleanup orphan
         // spawngroups" tool is a separate concern.

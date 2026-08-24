@@ -468,6 +468,15 @@ namespace VisualEQ
                 // Positions in the buffer are DB-space; the scene swaps X/Y.
                 var scenePos = new Vector3(e.CurrentY, e.CurrentX, e.CurrentZ);
                 sp.MarkMoved(scenePos, e.CurrentHeading);
+
+                // v15: reapply pending pathgrid assignment (session-recovery). Guarded so
+                // v14 buffers — CurrentPathGrid defaults to 0 — don't wipe an unrelated
+                // spawn's path on load.
+                if (e.CurrentPathGrid != e.OriginalPathGrid)
+                {
+                    sp.Record.Spawn.PathGrid = e.CurrentPathGrid;
+                    RefreshSpawnWaypointsFromZoneGrids(sp, e.CurrentPathGrid);
+                }
             }
 
             // Pending spawn deletes — hide each matching just-loaded SpawnPoint so the
@@ -748,6 +757,19 @@ namespace VisualEQ
         public void DiscardPendingBuffer()
         {
             if (PendingBuffer == null) return;
+
+            // Restore pathgrid (SpawnPoint.Revert only handles position + heading — pathgrid
+            // is tracked on Record.Spawn and mutated in-place by SpawnPathGridAction). Must
+            // run BEFORE the generic Revert loop because the two are orthogonal — pathgrid
+            // has no IsDirty flag on SpawnPoint.
+            foreach (var edit in PendingBuffer.Spawns.Values)
+            {
+                if (edit.CurrentPathGrid == edit.OriginalPathGrid) continue;
+                var sp = SpawnManager.SpawnPoints.FirstOrDefault(p => p.Record.Spawn.Id == edit.SpawnId);
+                if (sp == null) continue;
+                sp.Record.Spawn.PathGrid = edit.OriginalPathGrid;
+                RefreshSpawnWaypointsFromZoneGrids(sp, edit.OriginalPathGrid);
+            }
 
             foreach (var sp in SpawnManager.SpawnPoints)
                 if (sp.IsDirty) sp.Revert();
@@ -2970,6 +2992,44 @@ namespace VisualEQ
         // spawns.
         static int GetRaceForSpawn(SpawnSystem.SpawnPoint sp) =>
             sp.FocusedNpc?.Race ?? 0;
+
+        // Repopulates sp.Record.Waypoints from ZoneGrids after a pathgrid change so the
+        // amber polyline (driven off the selected spawn's Waypoints in UpdatePathGrids)
+        // reflects the new assignment straight away. Shared between the runtime action
+        // (SpawnPathGridAction), session recovery (ApplyPendingBuffer), and revert
+        // (DiscardPendingBuffer) so the three paths can't drift.
+        //
+        // Each spawn owns fresh GridEntry copies — the waypoint edit machinery mutates
+        // per-spawn instances in place (see GridActionHelpers.MutateEveryWaypoint), so
+        // sharing GridEntry references across spawns would silently corrupt neighbours.
+        internal void RefreshSpawnWaypointsFromZoneGrids(SpawnSystem.SpawnPoint sp, int gridId)
+        {
+            sp.Record.Waypoints.Clear();
+            if (gridId == 0)
+            {
+                sp.Record.Grid = null;
+                return;
+            }
+
+            var zg = ZoneGrids.FirstOrDefault(g => g.Grid != null && g.Grid.Id == gridId);
+            if (zg == null) return;
+
+            sp.Record.Grid = zg.Grid;
+            foreach (var wp in zg.Waypoints)
+            {
+                sp.Record.Waypoints.Add(new Database.Models.GridEntry
+                {
+                    GridId      = wp.GridId,
+                    Number      = wp.Number,
+                    X           = wp.X,
+                    Y           = wp.Y,
+                    Z           = wp.Z,
+                    Heading     = wp.Heading,
+                    Pause       = wp.Pause,
+                    Centerpoint = wp.Centerpoint,
+                });
+            }
+        }
 
         // Builds path grid line list for the current grid source. Priority: sidebar-picked
         // grid (SelectedGridId, from the Grid List section, may be orphan → magenta) →

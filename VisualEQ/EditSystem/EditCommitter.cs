@@ -179,6 +179,18 @@ namespace VisualEQ.EditSystem
                                         Heading = edit.CurrentHeading,
                                     },
                                     tx);
+
+                                // pathgrid: separate UPDATE, only fires when the user actually
+                                // changed the assignment. This guards v14 buffers (both PathGrid
+                                // fields deserialize as 0) from unintentionally wiping a spawn's
+                                // pathgrid when a position edit lands.
+                                if (edit.CurrentPathGrid != edit.OriginalPathGrid)
+                                {
+                                    await connection.ExecuteAsync(
+                                        SqlQueries.UpdateSpawnPathGrid,
+                                        new { SpawnId = edit.SpawnId, PathGrid = edit.CurrentPathGrid },
+                                        tx);
+                                }
                             }
 
                             // Waypoint DELETE first so a delete + re-insert with the same
