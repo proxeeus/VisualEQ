@@ -242,7 +242,7 @@ namespace VisualEQ.SpawnSystem
             { 184, new Entry("DR2") },             // Velious Dragons (LANTERN: DR2,TRK — was wrongly "VDR")
             { 185, new Entry("HAG") },             // Hag (LANTERN: HAG,ELF — was wrongly "KOB")
             { 187, new Entry("SIR") },             // Siren
-            { 188, new Entry("FRG") },             // Frost Giant
+            { 188, new Entry("FSG") },             // Frost Giant (Kael) — was wrongly "FRG" which is Froglok Ghoul (race 27)
             { 189, new Entry("STG") },             // Storm Giant
             { 190, new Entry("SHL") },             // Shellfish collector
             { 191, new Entry("PAN") },             // Panda
